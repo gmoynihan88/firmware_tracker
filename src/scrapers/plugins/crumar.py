@@ -12,9 +12,16 @@ class CrumarScraper(BaseScraper):
     manufacturer_slug = "crumar"
     manufacturer_website = "https://www.crumar.it"
 
+    # Known firmware versions (for GitHub-hosted Arduino projects)
+    KNOWN_FIRMWARE = {
+        "D9-X": [
+            ("1.0.0", "2019-03-21", "Open source Arduino firmware for GMLAB D9X drawbar controller. Available on GitHub."),
+        ],
+    }
+
     # Known Crumar products
     KNOWN_PRODUCTS = [
-        ("D9-X", "synthesizer", "https://www.crumar.it/d9-x/"),
+        ("D9-X", "midi_controller", "https://github.com/ZioGuido/GMLAB_D9X"),
         ("Seven", "synthesizer", "https://www.crumar.it/seven/"),
         ("Mojo 61", "synthesizer", "https://www.crumar.it/mojo-61/"),
         ("Mojo Desktop", "synthesizer", "https://www.crumar.it/mojo-desktop/"),
@@ -39,6 +46,24 @@ class CrumarScraper(BaseScraper):
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch firmware versions from Crumar pages."""
+        # Use known firmware data for GitHub-hosted projects
+        if device_name in self.KNOWN_FIRMWARE:
+            firmware_versions = []
+            for version, date_str, changelog in self.KNOWN_FIRMWARE[device_name]:
+                try:
+                    release_date = datetime.strptime(date_str, "%Y-%m-%d")
+                except ValueError:
+                    release_date = None
+                firmware_versions.append(
+                    ScrapedFirmware(
+                        version=version,
+                        release_date=release_date,
+                        download_url=firmware_page_url,
+                        changelog=changelog,
+                    )
+                )
+            return ScraperResult(success=True, firmware_versions=firmware_versions)
+
         # Try product page
         html = await self.fetch_page(firmware_page_url)
 
