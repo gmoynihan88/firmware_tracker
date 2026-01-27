@@ -89,6 +89,10 @@
                 <span class="firmware-value">v{{ item.latest_firmware.version }}</span>
             </div>
             {% endif %}
+            <div class="firmware-row">
+                <span class="firmware-label">Versions</span>
+                <span class="firmware-value">{{ item.firmware_count }}</span>
+            </div>
         </div>
 
         <div class="device-actions">

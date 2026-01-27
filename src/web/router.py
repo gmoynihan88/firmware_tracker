@@ -27,6 +27,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     devices_with_status = []
     for device in my_devices:
         latest = await device_service.get_latest_firmware(db, device.device_model_id)
+        firmware_count = await device_service.get_firmware_version_count(db, device.device_model_id)
         has_update = False
         if latest and device.current_firmware_version:
             has_update = latest.version != device.current_firmware_version
@@ -37,6 +38,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "device": device,
             "latest_firmware": latest,
             "has_update": has_update,
+            "firmware_count": firmware_count,
         })
 
     return templates.TemplateResponse(

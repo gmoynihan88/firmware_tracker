@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, Sequence
 
@@ -136,6 +136,14 @@ async def get_latest_firmware(
         .where(FirmwareVersion.is_latest == True)
     )
     return result.scalar_one_or_none()
+
+
+async def get_firmware_version_count(db: AsyncSession, device_model_id: int) -> int:
+    result = await db.execute(
+        select(func.count(FirmwareVersion.id))
+        .where(FirmwareVersion.device_model_id == device_model_id)
+    )
+    return result.scalar() or 0
 
 
 async def get_firmware_by_version(
