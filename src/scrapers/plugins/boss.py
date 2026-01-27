@@ -66,6 +66,8 @@ class BossScraper(BaseScraper):
         # Keywords that indicate this is NOT firmware (apps, editors, etc.)
         exclude_keywords = [
             "tone studio", "editor", "driver", "librarian",
+            "source code", "midi implementation", "owner's manual",
+            "parameter guide", "sound list", "preset",
             "for windows", "for mac", "for ios", "for android"
         ]
 

@@ -373,6 +373,36 @@ body {
     white-space: nowrap;
 }
 
+.filter-actions {
+    display: flex;
+    gap: var(--space-xs);
+}
+
+.filter-action-btn {
+    padding: 0.25rem 0.5rem;
+    background: var(--surface-600);
+    border: var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.filter-action-btn:hover {
+    background: var(--surface-500);
+    color: var(--text-secondary);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.filter-action-btn:active {
+    background: var(--surface-400);
+}
+
 .filter-checkboxes {
     display: flex;
     flex-wrap: wrap;

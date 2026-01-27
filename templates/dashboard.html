@@ -18,9 +18,16 @@
 </div>
 
 {% if devices %}
+{# Collect unique manufacturers from devices #}
+{% set manufacturers = devices | map(attribute='device.device_model.manufacturer') | list | unique(attribute='slug') | list %}
+
 <div class="filter-bar">
     <span class="filter-label">Filter by type:</span>
-    <div class="filter-checkboxes">
+    <div class="filter-actions">
+        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', true)">All</button>
+        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', false)">None</button>
+    </div>
+    <div class="filter-checkboxes" id="category-filters">
         <label class="filter-checkbox">
             <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
             <span class="filter-chip">Guitar Pedal</span>
@@ -48,9 +55,25 @@
     </div>
 </div>
 
+<div class="filter-bar">
+    <span class="filter-label">Filter by brand:</span>
+    <div class="filter-actions">
+        <button type="button" class="filter-action-btn" onclick="toggleAll('brand-filters', true)">All</button>
+        <button type="button" class="filter-action-btn" onclick="toggleAll('brand-filters', false)">None</button>
+    </div>
+    <div class="filter-checkboxes" id="brand-filters">
+        {% for manufacturer in manufacturers %}
+        <label class="filter-checkbox">
+            <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterDevices()">
+            <span class="filter-chip">{{ manufacturer.name }}</span>
+        </label>
+        {% endfor %}
+    </div>
+</div>
+
 <div class="device-grid">
     {% for item in devices %}
-    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}">
+    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}">
         <div class="device-header">
             <div class="device-title">
                 <h3>{{ item.device.nickname or item.device.device_model.name }}</h3>
@@ -121,16 +144,32 @@
 {% endif %}
 
 <script>
+function toggleAll(containerId, checked) {
+    const checkboxes = document.querySelectorAll('#' + containerId + ' input');
+    checkboxes.forEach(cb => cb.checked = checked);
+    filterDevices();
+}
+
 function filterDevices() {
-    const checkboxes = document.querySelectorAll('.filter-checkbox input');
-    const activeCategories = Array.from(checkboxes)
+    const categoryCheckboxes = document.querySelectorAll('#category-filters input');
+    const brandCheckboxes = document.querySelectorAll('#brand-filters input');
+
+    const activeCategories = Array.from(categoryCheckboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+
+    const activeBrands = Array.from(brandCheckboxes)
         .filter(cb => cb.checked)
         .map(cb => cb.value);
 
     const cards = document.querySelectorAll('.device-card');
     cards.forEach(card => {
         const category = card.dataset.category;
-        if (activeCategories.includes(category)) {
+        const brand = card.dataset.brand;
+        const matchesCategory = activeCategories.includes(category);
+        const matchesBrand = activeBrands.includes(brand);
+
+        if (matchesCategory && matchesBrand) {
             card.style.display = '';
         } else {
             card.style.display = 'none';
