@@ -1,0 +1,33 @@
+{% if result.success %}
+<div class="alert alert-success">
+    <div class="alert-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+    </div>
+    <div class="alert-content">
+        <strong>Import complete</strong>
+        <ul class="alert-list">
+            <li><span class="stat-value">{{ result.devices_synced.total }}</span> devices ({{ result.devices_synced.created }} new)</li>
+            <li><span class="stat-value">{{ result.new_firmware_versions }}</span> new firmware versions</li>
+            {% if result.notifications_created > 0 %}
+            <li><span class="stat-value">{{ result.notifications_created }}</span> notifications created</li>
+            {% endif %}
+        </ul>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-error">
+    <div class="alert-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line>
+            <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+    </div>
+    <div class="alert-content">
+        <strong>Import failed</strong>
+        <p>{{ result.error }}</p>
+    </div>
+</div>
+{% endif %}

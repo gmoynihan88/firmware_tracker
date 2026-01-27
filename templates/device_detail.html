@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}{{ device.nickname or device.device_model.name }} - Firmware Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <nav class="breadcrumb">
+            <a href="/">Dashboard</a>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            <span>{{ device.device_model.name }}</span>
+        </nav>
+        <h1>{{ device.nickname or device.device_model.name }}</h1>
+    </div>
+    <div class="header-actions">
+        <a href="/devices/{{ device.id }}/edit" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            Edit
+        </a>
+        <a href="/" class="btn btn-secondary">Back</a>
+    </div>
+</div>
+
+<div class="device-detail-layout">
+    <div class="detail-main">
+        <section class="detail-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    Device Information
+                </h2>
+            </div>
+            <dl class="detail-list">
+                <div class="detail-row">
+                    <dt>Manufacturer</dt>
+                    <dd>{{ device.device_model.manufacturer.name }}</dd>
+                </div>
+                <div class="detail-row">
+                    <dt>Model</dt>
+                    <dd>{{ device.device_model.name }}</dd>
+                </div>
+                <div class="detail-row">
+                    <dt>Category</dt>
+                    <dd><span class="category-tag">{{ device.device_model.category.value | replace('_', ' ') | title }}</span></dd>
+                </div>
+                {% if device.nickname %}
+                <div class="detail-row">
+                    <dt>Nickname</dt>
+                    <dd>{{ device.nickname }}</dd>
+                </div>
+                {% endif %}
+                {% if device.serial_number %}
+                <div class="detail-row">
+                    <dt>Serial Number</dt>
+                    <dd><code>{{ device.serial_number }}</code></dd>
+                </div>
+                {% endif %}
+                <div class="detail-row">
+                    <dt>Current Firmware</dt>
+                    <dd><code class="version">{{ device.current_firmware_version or 'Not set' }}</code></dd>
+                </div>
+                <div class="detail-row">
+                    <dt>Notify on Update</dt>
+                    <dd>
+                        {% if device.notify_on_update %}
+                        <span class="status-indicator current">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                            </svg>
+                            Enabled
+                        </span>
+                        {% else %}
+                        <span class="status-indicator disabled">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                            </svg>
+                            Disabled
+                        </span>
+                        {% endif %}
+                    </dd>
+                </div>
+                {% if device.notes %}
+                <div class="detail-row full-width">
+                    <dt>Notes</dt>
+                    <dd>{{ device.notes }}</dd>
+                </div>
+                {% endif %}
+            </dl>
+        </section>
+
+        <section class="detail-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                    Firmware History
+                </h2>
+            </div>
+            {% if firmware_versions %}
+            <div class="firmware-timeline">
+                {% for fw in firmware_versions %}
+                <article class="firmware-item {% if fw.is_latest %}latest{% endif %}">
+                    <div class="firmware-header">
+                        <div class="firmware-version-info">
+                            <span class="firmware-version">v{{ fw.version }}</span>
+                            {% if fw.is_latest %}
+                            <span class="latest-badge">Latest</span>
+                            {% endif %}
+                        </div>
+                        {% if fw.release_date %}
+                        <time class="firmware-date">{{ fw.release_date.strftime('%B %d, %Y') }}</time>
+                        {% endif %}
+                    </div>
+
+                    {% if fw.changelog_summary %}
+                    <div class="firmware-summary">
+                        <h4>AI Summary</h4>
+                        <p>{{ fw.changelog_summary }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if fw.changelog_raw %}
+                    <details class="firmware-changelog">
+                        <summary>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                            Full Changelog
+                        </summary>
+                        <pre>{{ fw.changelog_raw }}</pre>
+                    </details>
+                    {% endif %}
+
+                    {% if fw.download_url %}
+                    <div class="firmware-actions">
+                        <a href="{{ fw.download_url }}" class="btn btn-small" target="_blank" rel="noopener">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Download
+                        </a>
+                    </div>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state small">
+                <p>No firmware versions found yet. Try running a scrape from the catalog.</p>
+                <a href="/catalog" class="btn btn-secondary btn-small">Go to Catalog</a>
+            </div>
+            {% endif %}
+        </section>
+    </div>
+
+    <aside class="detail-sidebar">
+        <div class="danger-zone">
+            <h3>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                Danger Zone
+            </h3>
+            <p>Permanently remove this device from tracking.</p>
+            <form method="post" action="/devices/{{ device.id }}/delete" onsubmit="return confirm('Are you sure you want to delete this device? This action cannot be undone.');">
+                <button type="submit" class="btn btn-danger btn-block">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    Delete Device
+                </button>
+            </form>
+        </div>
+    </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Add Device - Firmware Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <nav class="breadcrumb">
+            <a href="/">Dashboard</a>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            <span>Add Device</span>
+        </nav>
+        <h1>Add Device</h1>
+    </div>
+    <a href="/" class="btn btn-secondary">Cancel</a>
+</div>
+
+{% if device_models %}
+<form method="post" action="/devices/add" class="form device-form">
+    <div class="form-section">
+        <h2>Select Device</h2>
+
+        <div class="form-group">
+            <label for="manufacturer">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                Manufacturer
+            </label>
+            <select
+                id="manufacturer"
+                name="manufacturer_id"
+                hx-get="/partials/device-models"
+                hx-target="#device-model-select"
+                hx-trigger="change"
+                hx-include="[name='manufacturer_id']"
+            >
+                <option value="">Select a manufacturer...</option>
+                {% for manufacturer in manufacturers %}
+                <option value="{{ manufacturer.id }}">{{ manufacturer.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="device_model_id">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                </svg>
+                Device Model
+            </label>
+            <div id="device-model-select">
+                <select id="device_model_id" name="device_model_id" required disabled>
+                    <option value="">Select a manufacturer first...</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h2>Device Details</h2>
+
+        <div class="form-group">
+            <label for="nickname">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                Nickname
+                <span class="optional">(optional)</span>
+            </label>
+            <input type="text" id="nickname" name="nickname" placeholder="e.g., Studio BigSky, Live Rig Delay">
+            <small class="form-help">A friendly name to identify this specific unit</small>
+        </div>
+
+        <div class="form-group">
+            <label for="current_firmware_version">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+                Current Firmware Version
+                <span class="optional">(optional)</span>
+            </label>
+            <input type="text" id="current_firmware_version" name="current_firmware_version" placeholder="e.g., 1.2.3">
+            <small class="form-help">The firmware version currently installed on your device</small>
+        </div>
+
+        <div class="form-group checkbox">
+            <label class="checkbox-label">
+                <input type="checkbox" name="notify_on_update" value="true" checked>
+                <span class="checkbox-custom"></span>
+                <span class="checkbox-text">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    Notify me when updates are available
+                </span>
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                </svg>
+                Notes
+                <span class="optional">(optional)</span>
+            </label>
+            <textarea id="notes" name="notes" rows="3" placeholder="Any notes about this device..."></textarea>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Device
+        </button>
+        <a href="/" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+    </div>
+    <h2>No devices in catalog</h2>
+    <p>The device catalog is empty. Visit the catalog page to import devices from manufacturers.</p>
+    <a href="/catalog" class="btn btn-primary">Go to Catalog</a>
+</div>
+{% endif %}
+{% endblock %}

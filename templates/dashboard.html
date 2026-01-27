@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Firmware Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <h1>My Devices</h1>
+        <p class="header-subtitle">{{ devices | length }} device{% if devices | length != 1 %}s{% endif %} tracked</p>
+    </div>
+    <a href="/devices/add" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Add Device
+    </a>
+</div>
+
+{% if devices %}
+<div class="filter-bar">
+    <span class="filter-label">Filter by type:</span>
+    <div class="filter-checkboxes">
+        <label class="filter-checkbox">
+            <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
+            <span class="filter-chip">Guitar Pedal</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="audio_interface" checked onchange="filterDevices()">
+            <span class="filter-chip">Audio Interface</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="synthesizer" checked onchange="filterDevices()">
+            <span class="filter-chip">Synthesizer</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="midi_controller" checked onchange="filterDevices()">
+            <span class="filter-chip">MIDI Controller</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="vst_plugin" checked onchange="filterDevices()">
+            <span class="filter-chip">VST Plugin</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="other" checked onchange="filterDevices()">
+            <span class="filter-chip">Other</span>
+        </label>
+    </div>
+</div>
+
+<div class="device-grid">
+    {% for item in devices %}
+    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}">
+        <div class="device-header">
+            <div class="device-title">
+                <h3>{{ item.device.nickname or item.device.device_model.name }}</h3>
+                <span class="device-manufacturer">{{ item.device.device_model.manufacturer.name }}</span>
+            </div>
+            {% if item.has_update %}
+            <span class="status-indicator update">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                </svg>
+                Update
+            </span>
+            {% else %}
+            <span class="status-indicator current">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                </svg>
+                Current
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="device-meta">
+            <span class="device-model">{{ item.device.device_model.name }}</span>
+            <span class="device-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</span>
+        </div>
+
+        <div class="device-firmware">
+            <div class="firmware-row">
+                <span class="firmware-label">Installed</span>
+                <span class="firmware-value">{{ item.device.current_firmware_version or '—' }}</span>
+            </div>
+            {% if item.latest_firmware %}
+            <div class="firmware-row {% if item.has_update %}highlight{% endif %}">
+                <span class="firmware-label">Latest</span>
+                <span class="firmware-value">v{{ item.latest_firmware.version }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="device-actions">
+            <a href="/devices/{{ item.device.id }}" class="btn btn-secondary btn-block">
+                View Details
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </a>
+        </div>
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+        </svg>
+    </div>
+    <h2>No devices tracked yet</h2>
+    <p>Start by adding a device from the catalog to track firmware updates.</p>
+    <a href="/devices/add" class="btn btn-primary">Add Your First Device</a>
+</div>
+{% endif %}
+
+<script>
+function filterDevices() {
+    const checkboxes = document.querySelectorAll('.filter-checkbox input');
+    const activeCategories = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+
+    const cards = document.querySelectorAll('.device-card');
+    cards.forEach(card => {
+        const category = card.dataset.category;
+        if (activeCategories.includes(category)) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+</script>
+{% endblock %}

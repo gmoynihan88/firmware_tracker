@@ -1,0 +1,33 @@
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+from pathlib import Path
+
+
+class Settings(BaseSettings):
+    app_name: str = "Firmware Tracker"
+    debug: bool = False
+
+    # Database
+    database_url: str = "sqlite+aiosqlite:///./firmware_tracker.db"
+
+    # Anthropic API
+    anthropic_api_key: str = ""
+
+    # Scraping settings
+    scrape_interval_hours: int = 6
+    request_timeout: int = 30
+    rate_limit_delay: float = 1.0  # seconds between requests per manufacturer
+
+    # Paths
+    base_dir: Path = Path(__file__).parent.parent
+    templates_dir: Path = base_dir / "templates"
+    static_dir: Path = base_dir / "static"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

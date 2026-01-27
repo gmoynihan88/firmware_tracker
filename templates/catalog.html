@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Device Catalog - Firmware Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <h1>Device Catalog</h1>
+        <p class="header-subtitle">Import and browse available devices</p>
+    </div>
+</div>
+
+<section class="catalog-section">
+    <div class="section-header">
+        <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Import Devices
+        </h2>
+        <p>Click a manufacturer to import their devices and firmware information.</p>
+    </div>
+
+    <div class="scraper-grid">
+        {% for scraper in available_scrapers %}
+        <div class="scraper-card">
+            <div class="scraper-info">
+                <h3>{{ scraper | title }}</h3>
+            </div>
+            <div class="scraper-actions">
+                <button
+                    class="btn btn-primary btn-small"
+                    hx-post="/catalog/scrape/{{ scraper }}"
+                    hx-target="#scrape-result-{{ scraper }}"
+                    hx-indicator="#loading-{{ scraper }}"
+                    hx-swap="innerHTML"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Import
+                </button>
+                <span id="loading-{{ scraper }}" class="htmx-indicator">
+                    <span class="spinner"></span>
+                    Importing...
+                </span>
+            </div>
+            <div id="scrape-result-{{ scraper }}" class="scrape-result"></div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+{% if manufacturers %}
+<section class="catalog-section">
+    <div class="section-header">
+        <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+            Manufacturers
+        </h2>
+    </div>
+    <div class="manufacturer-grid">
+        {% for manufacturer in manufacturers %}
+        <div class="manufacturer-card">
+            <h3>{{ manufacturer.name }}</h3>
+            {% if manufacturer.website_url %}
+            <a href="{{ manufacturer.website_url }}" target="_blank" rel="noopener" class="external-link">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                </svg>
+                Website
+            </a>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if device_models %}
+<section class="catalog-section">
+    <div class="section-header">
+        <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+            </svg>
+            Available Devices
+        </h2>
+        <span class="count-badge">{{ device_models | length }}</span>
+    </div>
+    <div class="catalog-grid">
+        {% for model in device_models %}
+        <article class="catalog-card">
+            <div class="catalog-card-header">
+                <h3>{{ model.name }}</h3>
+                <span class="category-tag">{{ model.category.value | replace('_', ' ') | title }}</span>
+            </div>
+            <p class="manufacturer-name">{{ model.manufacturer.name }}</p>
+            <div class="catalog-card-actions">
+                <a href="/devices/add?model_id={{ model.id }}" class="btn btn-secondary btn-small">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Track This
+                </a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+    </div>
+    <h2>No devices in catalog</h2>
+    <p>Import devices from a manufacturer above to get started.</p>
+</div>
+{% endif %}
+{% endblock %}
