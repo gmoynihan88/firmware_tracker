@@ -57,38 +57,51 @@ class BossScraper(BaseScraper):
 
         soup = self.parse_html(html)
         firmware_versions = []
-
-        # Boss pages typically show version like "[ Ver.1.10 ]" and dates like "JAN 2025"
         all_text = soup.get_text()
 
-        # Look for version patterns: [ Ver.1.10 ] or Ver.1.10 or v1.10
-        version_pattern = r"\[?\s*[Vv]er\.?\s*(\d+\.\d+(?:\.\d+)?)\s*\]?"
+        # Boss pages use h5 elements for item titles within li elements
+        # Look for firmware items by examining h5 headings
+        h5_elements = soup.find_all("h5")
 
-        # Look for download/update sections
-        update_sections = soup.find_all(
-            ["div", "section", "article", "tr", "li"],
-            class_=re.compile(r"download|update|driver|firmware|item|content", re.I)
-        )
+        # Keywords that indicate this is NOT firmware (apps, editors, etc.)
+        exclude_keywords = [
+            "tone studio", "editor", "driver", "librarian",
+            "for windows", "for mac", "for ios", "for android"
+        ]
 
-        # Also check table rows for Boss's typical layout
-        table_rows = soup.find_all("tr")
+        # Pattern for System Program firmware version
+        firmware_pattern = r"system\s+program\s*\(\s*[Vv]er\.?\s*(\d+\.\d+(?:\.\d+)?)\s*\)"
 
-        for section in update_sections + table_rows:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
+        for h5 in h5_elements:
+            text = h5.get_text()
+            text_lower = text.lower()
 
-            if version_match:
-                version = version_match.group(1)
+            # Skip if this looks like an app/software, not firmware
+            if any(kw in text_lower for kw in exclude_keywords):
+                continue
 
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|bin)", re.I))
+            # Look specifically for System Program version pattern
+            firmware_match = re.search(firmware_pattern, text, re.IGNORECASE)
+
+            if firmware_match:
+                version = firmware_match.group(1)
+
+                # Get parent li element for additional info
+                parent_li = h5.find_parent("li")
+                section = parent_li if parent_li else h5.parent
+
+                # Find download link in the parent section
+                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|bin)", re.I)) if section else None
                 download_url = download_link["href"] if download_link else None
                 if download_url and not download_url.startswith("http"):
                     download_url = f"https://www.boss.info{download_url}"
 
+                # Get text from section for date parsing
+                section_text = section.get_text() if section else text
+
                 # Boss uses month year format like "JAN 2025" or "FEB 2022"
                 date_pattern = r"(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{4})"
-                date_match = re.search(date_pattern, text, re.I)
+                date_match = re.search(date_pattern, section_text, re.I)
                 release_date = None
                 if date_match:
                     month_str = date_match.group(1).upper()
@@ -104,7 +117,7 @@ class BossScraper(BaseScraper):
                 # Also try "December 2023" format
                 if not release_date:
                     long_date_pattern = r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})"
-                    long_date_match = re.search(long_date_pattern, text, re.I)
+                    long_date_match = re.search(long_date_pattern, section_text, re.I)
                     if long_date_match:
                         try:
                             release_date = datetime.strptime(
@@ -116,9 +129,10 @@ class BossScraper(BaseScraper):
 
                 # Get changelog/notes
                 changelog = None
-                notes_section = section.find(["ul", "div", "p"], class_=re.compile(r"note|change|detail|description", re.I))
-                if notes_section:
-                    changelog = notes_section.get_text(strip=True)
+                if section:
+                    notes_section = section.find(["ul", "div", "p"], class_=re.compile(r"note|change|detail|description", re.I))
+                    if notes_section:
+                        changelog = notes_section.get_text(strip=True)
 
                 firmware_versions.append(
                     ScrapedFirmware(
@@ -138,9 +152,9 @@ class BossScraper(BaseScraper):
                 unique.append(fw)
         firmware_versions = unique
 
-        # Fallback if no sections found
+        # Fallback if no h5 sections found - search for System Program pattern in all text
         if not firmware_versions:
-            version_matches = re.findall(version_pattern, all_text)
+            version_matches = re.findall(firmware_pattern, all_text, re.IGNORECASE)
             for version in set(version_matches):
                 firmware_versions.append(ScrapedFirmware(version=version))
 

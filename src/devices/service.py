@@ -1,3 +1,4 @@
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import selectinload
@@ -116,15 +117,22 @@ async def delete_device_model(db: AsyncSession, device_model_id: int) -> bool:
 
 
 # FirmwareVersion CRUD
+def _parse_version(version: str) -> tuple:
+    """Parse version string into comparable tuple for sorting."""
+    parts = re.findall(r'\d+', version)
+    return tuple(int(p) for p in parts) if parts else (0,)
+
+
 async def get_firmware_versions(
     db: AsyncSession, device_model_id: int
 ) -> Sequence[FirmwareVersion]:
     result = await db.execute(
         select(FirmwareVersion)
         .where(FirmwareVersion.device_model_id == device_model_id)
-        .order_by(FirmwareVersion.release_date.desc(), FirmwareVersion.created_at.desc())
     )
-    return result.scalars().all()
+    versions = result.scalars().all()
+    # Sort by version number descending (highest first)
+    return sorted(versions, key=lambda fw: _parse_version(fw.version), reverse=True)
 
 
 async def get_latest_firmware(

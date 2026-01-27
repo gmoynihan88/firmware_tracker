@@ -51,27 +51,43 @@ class TascamScraper(BaseScraper):
         soup = self.parse_html(html)
         firmware_versions = []
 
-        # Tascam support pages typically have download sections with firmware info
-        # Look for firmware/update related sections
-        download_sections = soup.find_all(
-            ["div", "section", "article", "li"],
-            class_=re.compile(r"download|firmware|update|software", re.I)
-        )
-
-        # Also look for links containing firmware
-        firmware_links = soup.find_all("a", href=re.compile(r"firmware|update", re.I))
-
-        all_text = soup.get_text()
-
         # Look for version patterns like "V1.50" or "Ver.1.50" or "v1.50"
         version_pattern = r"[Vv](?:er\.?)?\s*(\d+\.\d+(?:\.\d+)?)"
-        version_matches = re.findall(version_pattern, all_text)
 
         # Look for date patterns near versions
         date_pattern = r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\w+\s+\d{1,2},?\s+\d{4}|\d{4}[-/]\d{2}[-/]\d{2})"
 
+        # Keywords that indicate this is NOT firmware (apps, drivers, etc.)
+        exclude_keywords = [
+            "settings panel", "control panel", "driver", "editor",
+            "remote", "controller", "manager", "utility", "app",
+            "for windows", "for mac", "for ios", "for android"
+        ]
+
+        # Keywords that indicate this IS firmware
+        firmware_keywords = ["firmware"]
+
+        # Look for download items/sections
+        # Include table rows (tr) without class filter since Tascam uses various classes
+        download_sections = soup.find_all(
+            ["div", "section", "article", "li"],
+            class_=re.compile(r"download|item|row", re.I)
+        )
+        # Also search all table rows
+        download_sections.extend(soup.find_all("tr"))
+
         for section in download_sections:
             text = section.get_text()
+            text_lower = text.lower()
+
+            # Skip if this looks like an app/software, not firmware
+            if any(kw in text_lower for kw in exclude_keywords):
+                continue
+
+            # Only include if it explicitly mentions "firmware"
+            if not any(kw in text_lower for kw in firmware_keywords):
+                continue
+
             version_match = re.search(version_pattern, text)
             if version_match:
                 version = version_match.group(1)
@@ -103,12 +119,12 @@ class TascamScraper(BaseScraper):
                     )
                 )
 
-        # Fallback: extract versions from full page text
-        if not firmware_versions and version_matches:
-            seen = set()
-            for version in version_matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
+        # Deduplicate by version
+        seen = set()
+        unique = []
+        for fw in firmware_versions:
+            if fw.version not in seen:
+                seen.add(fw.version)
+                unique.append(fw)
 
-        return ScraperResult(success=True, firmware_versions=firmware_versions)
+        return ScraperResult(success=True, firmware_versions=unique)

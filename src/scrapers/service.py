@@ -73,6 +73,14 @@ async def sync_devices(
     return {"created": created, "total": len(devices)}
 
 
+def parse_version(version: str) -> tuple:
+    """Parse version string into comparable tuple."""
+    import re
+    # Extract numeric parts from version string
+    parts = re.findall(r'\d+', version)
+    return tuple(int(p) for p in parts) if parts else (0,)
+
+
 async def sync_firmware_for_device(
     db: AsyncSession,
     device_model_id: int,
@@ -80,17 +88,23 @@ async def sync_firmware_for_device(
 ) -> Tuple[int, Optional[str]]:
     """
     Sync firmware versions for a device model.
-    Returns (new_count, latest_version).
+    Returns (new_count, latest_version_if_new).
     """
     existing = await device_service.get_firmware_versions(db, device_model_id)
     existing_versions = {fw.version for fw in existing}
 
-    new_versions = []
-    latest_version = None
+    # Find current latest version
+    current_latest = None
+    for fw in existing:
+        if fw.is_latest:
+            current_latest = fw.version
+            break
 
-    for i, fw in enumerate(firmware_versions):
+    new_versions = []
+
+    # Add all new firmware versions (without marking as latest yet)
+    for fw in firmware_versions:
         if fw.version not in existing_versions:
-            is_latest = i == 0  # First in list is typically latest
             await device_service.create_firmware_version(
                 db,
                 FirmwareVersionCreate(
@@ -99,14 +113,39 @@ async def sync_firmware_for_device(
                     release_date=fw.release_date,
                     download_url=fw.download_url,
                     changelog_raw=fw.changelog,
-                    is_latest=is_latest,
+                    is_latest=False,
                 ),
             )
             new_versions.append(fw.version)
-            if is_latest:
-                latest_version = fw.version
 
-    return len(new_versions), latest_version
+    # Determine the true latest version across all versions
+    all_versions = list(existing_versions) + new_versions
+    if all_versions:
+        true_latest = max(all_versions, key=parse_version)
+
+        # If the latest has changed, update the is_latest flag
+        if true_latest != current_latest:
+            # Clear old latest flag
+            from sqlalchemy import update
+            from src.devices.models import FirmwareVersion
+            await db.execute(
+                update(FirmwareVersion)
+                .where(FirmwareVersion.device_model_id == device_model_id)
+                .values(is_latest=False)
+            )
+            # Set new latest flag
+            fw_record = await device_service.get_firmware_by_version(
+                db, device_model_id, true_latest
+            )
+            if fw_record:
+                fw_record.is_latest = True
+                await db.commit()
+
+            # Return the new latest only if it's actually new
+            if true_latest in new_versions:
+                return len(new_versions), true_latest
+
+    return len(new_versions), None
 
 
 async def create_update_notifications(
