@@ -6,6 +6,12 @@ import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
 
+try:
+    from playwright.async_api import async_playwright, Browser, Page
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 from src.config import get_settings
 
 
@@ -48,6 +54,8 @@ class BaseScraper(ABC):
         self.settings = get_settings()
         self._last_request_time: Optional[float] = None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._playwright = None
+        self._browser: Optional["Browser"] = None
 
     @property
     def scraper_type(self) -> str:
@@ -76,7 +84,7 @@ class BaseScraper(ABC):
         self._last_request_time = asyncio.get_event_loop().time()
 
     async def fetch_page(self, url: str) -> Optional[str]:
-        """Fetch a page with rate limiting."""
+        """Fetch a page with rate limiting (static HTML only)."""
         await self._rate_limit()
         session = await self._get_session()
         try:
@@ -88,14 +96,65 @@ class BaseScraper(ABC):
             print(f"Error fetching {url}: {e}")
             return None
 
+    async def _get_browser(self) -> "Browser":
+        """Get or create a Playwright browser instance."""
+        if not PLAYWRIGHT_AVAILABLE:
+            raise RuntimeError("Playwright is not installed. Run: pip install playwright && playwright install chromium")
+        if self._browser is None or not self._browser.is_connected():
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(headless=True)
+        return self._browser
+
+    async def fetch_page_js(
+        self,
+        url: str,
+        wait_for_selector: Optional[str] = None,
+        wait_for_timeout: int = 5000,
+    ) -> Optional[str]:
+        """
+        Fetch a page that requires JavaScript rendering.
+
+        Args:
+            url: The URL to fetch
+            wait_for_selector: CSS selector to wait for before capturing HTML
+            wait_for_timeout: Max time in ms to wait for the page to load
+
+        Returns:
+            The fully rendered HTML content, or None on error
+        """
+        await self._rate_limit()
+        try:
+            browser = await self._get_browser()
+            page = await browser.new_page()
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=wait_for_timeout * 2)
+                if wait_for_selector:
+                    await page.wait_for_selector(wait_for_selector, timeout=wait_for_timeout)
+                else:
+                    # Give JS time to render if no specific selector
+                    await page.wait_for_timeout(1000)
+                html = await page.content()
+                return html
+            finally:
+                await page.close()
+        except Exception as e:
+            print(f"Error fetching JS page {url}: {e}")
+            return None
+
     def parse_html(self, html: str) -> BeautifulSoup:
         """Parse HTML content."""
         return BeautifulSoup(html, "lxml")
 
     async def close(self):
-        """Close the aiohttp session."""
+        """Close the aiohttp session and Playwright browser."""
         if self._session and not self._session.closed:
             await self._session.close()
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
 
     @abstractmethod
     async def fetch_device_list(self) -> ScraperResult:

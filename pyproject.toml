@@ -28,6 +28,9 @@ dev = [
     "pytest-cov>=4.1.0",
     "httpx>=0.26.0",
 ]
+browser = [
+    "playwright>=1.40.0",
+]
 
 [build-system]
 requires = ["hatchling"]

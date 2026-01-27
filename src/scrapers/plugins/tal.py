@@ -120,7 +120,11 @@ class TALScraper(BaseScraper):
                 )
             return ScraperResult(success=True, firmware_versions=firmware_versions)
 
-        html = await self.fetch_page(firmware_page_url)
+        # TAL pages use JavaScript to load changelog - try Playwright first
+        html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=10000)
+        # Fall back to static fetch if JS fetch fails
+        if not html:
+            html = await self.fetch_page(firmware_page_url)
         if not html:
             return ScraperResult(
                 success=False, error=f"Failed to fetch {firmware_page_url}"
