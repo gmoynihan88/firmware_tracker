@@ -176,8 +176,16 @@ class TCElectronicScraper(BaseScraper):
         if model_code:
             firmware_versions = await self._try_api_fetch(model_code)
 
-        # Fetch HTML page
-        html = await self.fetch_page(firmware_page_url)
+        # TC Electronic uses JavaScript to load downloads - use Playwright
+        # Click the download tab to load firmware content
+        html = await self.fetch_page_js(
+            firmware_page_url,
+            click_selector="a[href*='downloads'], [data-tab*='download'], .tab-downloads",
+            wait_for_timeout=15000,
+        )
+        # Fall back to static fetch if Playwright fails
+        if not html:
+            html = await self.fetch_page(firmware_page_url)
         if not html:
             if firmware_versions:
                 return ScraperResult(success=True, firmware_versions=firmware_versions)
@@ -194,7 +202,25 @@ class TCElectronicScraper(BaseScraper):
             soup = self.parse_html(html)
             all_text = soup.get_text()
 
-            # TC Electronic versions look like "v1.0.0" or "Version 1.0.0" or "Firmware 1.0"
+            # Normalize device name for matching (e.g., "Plethora X5" -> "PLETHORA X5")
+            device_pattern = device_name.upper().replace("-", "").replace(" ", r"\s*")
+
+            # TC Electronic format: "PRODUCT_NAMESoftwareFirmware Version 1.4.082021-11-12"
+            # Look for product-specific versions - limit distance to 100 chars to avoid spanning products
+            product_version_pattern = rf"{device_pattern}.{{0,100}}?[Vv]ersion\s*(\d+\.\d+(?:\.\d+)?)(\d{{4}}-\d{{2}}-\d{{2}})"
+            for match in re.finditer(product_version_pattern, all_text):
+                version = match.group(1)
+                date_str = match.group(2)
+                if not any(fw.version == version for fw in firmware_versions):
+                    try:
+                        release_date = datetime.strptime(date_str, "%Y-%m-%d")
+                    except ValueError:
+                        release_date = None
+                    firmware_versions.append(
+                        ScrapedFirmware(version=version, release_date=release_date)
+                    )
+
+            # Also try standard version pattern for other formats
             version_pattern = r"(?:[Vv](?:ersion)?|[Ff]irmware)\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
 
             # Look for download/support sections
@@ -279,10 +305,13 @@ class TCElectronicScraper(BaseScraper):
                         seen.add(version)
                         firmware_versions.append(ScrapedFirmware(version=version))
 
-        # Deduplicate
+        # Deduplicate and filter malformed versions
         seen = set()
         unique = []
         for fw in firmware_versions:
+            # Skip versions that have year appended (e.g., "1.4.082021")
+            if re.match(r"^\d+\.\d+\.\d{6,}$", fw.version):
+                continue
             if fw.version not in seen:
                 seen.add(fw.version)
                 unique.append(fw)

@@ -109,6 +109,7 @@ class BaseScraper(ABC):
         self,
         url: str,
         wait_for_selector: Optional[str] = None,
+        click_selector: Optional[str] = None,
         wait_for_timeout: int = 5000,
     ) -> Optional[str]:
         """
@@ -117,6 +118,7 @@ class BaseScraper(ABC):
         Args:
             url: The URL to fetch
             wait_for_selector: CSS selector to wait for before capturing HTML
+            click_selector: CSS selector to click before capturing (e.g., tab buttons)
             wait_for_timeout: Max time in ms to wait for the page to load
 
         Returns:
@@ -128,6 +130,17 @@ class BaseScraper(ABC):
             page = await browser.new_page()
             try:
                 await page.goto(url, wait_until="networkidle", timeout=wait_for_timeout * 2)
+
+                # Click element if specified (e.g., to expand a tab or section)
+                if click_selector:
+                    try:
+                        element = await page.wait_for_selector(click_selector, timeout=5000)
+                        if element:
+                            await element.click()
+                            await page.wait_for_timeout(2000)  # Wait for content to load
+                    except Exception:
+                        pass  # Continue even if click fails
+
                 if wait_for_selector:
                     await page.wait_for_selector(wait_for_selector, timeout=wait_for_timeout)
                 else:
