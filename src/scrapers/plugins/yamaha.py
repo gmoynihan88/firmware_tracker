@@ -20,6 +20,7 @@ class YamahaScraper(BaseScraper):
         ("THR30II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("THR10II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("THR10II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
+        ("Line 6 G10TII", "wireless_system", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("MODX8", "synthesizer", "https://usa.yamaha.com/support/updates/modx8_firm.html"),
         ("MODX7", "synthesizer", "https://usa.yamaha.com/support/updates/modx7_firm.html"),
         ("MODX6", "synthesizer", "https://usa.yamaha.com/support/updates/modx6_firm.html"),
@@ -46,20 +47,29 @@ class YamahaScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
-    def _parse_thr_remote_page(self, html: str, _device_name: str) -> list[ScrapedFirmware]:
+    def _parse_thr_remote_page(self, html: str, device_name: str) -> list[ScrapedFirmware]:
         """Parse THR firmware versions from the THR Remote page."""
         soup = self.parse_html(html)
         text = soup.get_text()
         firmware_versions = []
 
-        # THR Remote page format: "[Firmware Ver.1.50 for THR-II]"
-        # THR-II firmware applies to ALL THR-II models (wireless and non-wireless)
-        # The wireless models share the same amp firmware; the v1.10 is for Line 6 G10TII transmitter
-        firmware_entries = re.findall(
-            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR-II\]",
-            text,
-            re.I
-        )
+        # THR Remote page contains firmware for both THR-II amps and Line 6 G10TII transmitter
+        # Format: "[Firmware Ver.1.50 for THR-II]" or "[Firmware Ver.1.10 for THR30IIA Wireless]"
+        # The G10TII transmitter firmware is listed under "THR30IIA Wireless"
+        if "G10TII" in device_name:
+            # Line 6 G10TII wireless transmitter firmware
+            firmware_entries = re.findall(
+                r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR30IIA\s+Wireless\]",
+                text,
+                re.I
+            )
+        else:
+            # THR-II amp firmware applies to all THR-II models
+            firmware_entries = re.findall(
+                r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR-II\]",
+                text,
+                re.I
+            )
 
         for version in firmware_entries:
             firmware_versions.append(ScrapedFirmware(version=version))
