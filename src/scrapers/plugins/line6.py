@@ -12,10 +12,13 @@ class Line6Scraper(BaseScraper):
     manufacturer_slug = "line6"
     manufacturer_website = "https://line6.com"
 
+    # THR Remote page contains G10TII transmitter firmware (used by Relay G10II/G10S)
+    THR_REMOTE_URL = "https://usa.yamaha.com/support/updates/thr_remote_mac.html"
+
     # Known Line 6 products with firmware updates
     KNOWN_PRODUCTS = [
-        ("Relay G10II", "guitar_pedal", "https://line6.com/support/topic/63441-relay-g10-and-g10s-and-g10t-and-g10tii-firmware-update/"),
-        ("Relay G10S", "guitar_pedal", "https://line6.com/support/topic/63441-relay-g10-and-g10s-and-g10t-and-g10tii-firmware-update/"),
+        ("Relay G10II", "wireless_system", THR_REMOTE_URL),
+        ("Relay G10S", "wireless_system", THR_REMOTE_URL),
         ("Helix", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
         ("Helix Floor", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
         ("Helix LT", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
@@ -46,10 +49,37 @@ class Line6Scraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
+    def _parse_thr_remote_page(self, html: str) -> list[ScrapedFirmware]:
+        """Parse G10TII transmitter firmware from Yamaha THR Remote page."""
+        soup = self.parse_html(html)
+        text = soup.get_text()
+        firmware_versions = []
+
+        # THR Remote page format: "[Firmware Ver.1.10 for THR30IIA Wireless]"
+        # This is the G10TII transmitter firmware used in Relay G10II/G10S
+        firmware_entries = re.findall(
+            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR30IIA\s+Wireless\]",
+            text,
+            re.I
+        )
+
+        for version in firmware_entries:
+            firmware_versions.append(ScrapedFirmware(version=version))
+
+        return firmware_versions
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch firmware versions from Line 6 support pages."""
+        # Relay G10II/G10S use G10TII transmitter firmware from Yamaha THR Remote page
+        if "Relay G10" in device_name and "thr_remote" in firmware_page_url:
+            html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=15000)
+            if html:
+                firmware_versions = self._parse_thr_remote_page(html)
+                if firmware_versions:
+                    return ScraperResult(success=True, firmware_versions=firmware_versions)
+
         html = await self.fetch_page(firmware_page_url)
         if not html:
             return ScraperResult(
