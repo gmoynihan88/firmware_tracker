@@ -12,12 +12,15 @@ class MoogScraper(BaseScraper):
     manufacturer_slug = "moog"
     manufacturer_website = "https://www.moogmusic.com"
 
-    # Known Moog software products
+    # Software update API endpoint
+    SOFTWARE_UPDATE_URL = "https://software.moogmusic.com/softwareUpdate/{slug}"
+
+    # Known Moog software products - (name, category, firmware_url, product_url)
     KNOWN_PRODUCTS = [
-        ("Mariana", "vst_plugin", "https://www.moogmusic.com/products/mariana"),
-        ("Animoog Z", "vst_plugin", "https://www.moogmusic.com/products/animoog-z"),
-        ("Moog Model 15", "vst_plugin", "https://www.moogmusic.com/products/model-15-app"),
-        ("Minimoog Model D App", "vst_plugin", "https://www.moogmusic.com/products/minimoog-model-d-app"),
+        ("Mariana", "vst_plugin", "https://software.moogmusic.com/softwareUpdate/mariana", "https://www.moogmusic.com/products/mariana"),
+        ("Animoog Z", "vst_plugin", "https://software.moogmusic.com/softwareUpdate/animoog-z", "https://www.moogmusic.com/products/animoog-z"),
+        ("Moog Model 15", "vst_plugin", "https://www.moogmusic.com/products/model-15-app", "https://www.moogmusic.com/products/model-15-app"),
+        ("Minimoog Model D App", "vst_plugin", "https://www.moogmusic.com/products/minimoog-model-d-app", "https://www.moogmusic.com/products/minimoog-model-d-app"),
     ]
 
     async def fetch_device_list(self) -> ScraperResult:
@@ -26,17 +29,44 @@ class MoogScraper(BaseScraper):
             ScrapedDevice(
                 name=name,
                 category=category,
-                firmware_page_url=url,
-                product_url=url,
+                firmware_page_url=firmware_url,
+                product_url=product_url,
             )
-            for name, category, url in self.KNOWN_PRODUCTS
+            for name, category, firmware_url, product_url in self.KNOWN_PRODUCTS
         ]
         return ScraperResult(success=True, devices=devices)
+
+    def _parse_software_update_page(self, html: str) -> list[ScrapedFirmware]:
+        """Parse version from Moog software update page.
+
+        Format: "macOS All Formats v1.2.3" or "Windows All Formats v1.2.3"
+        """
+        firmware_versions = []
+
+        # Extract versions from format like "macOS All Formats v1.2.3"
+        version_pattern = r"(?:macOS|Windows)\s+All\s+Formats\s+v(\d+\.\d+\.\d+)"
+        matches = re.findall(version_pattern, html)
+
+        seen = set()
+        for version in matches:
+            if version not in seen:
+                seen.add(version)
+                firmware_versions.append(ScrapedFirmware(version=version))
+
+        return firmware_versions
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch versions from a Moog product page."""
+        # Use software update endpoint if available
+        if "software.moogmusic.com/softwareUpdate" in firmware_page_url:
+            html = await self.fetch_page(firmware_page_url)
+            if html:
+                firmware_versions = self._parse_software_update_page(html)
+                if firmware_versions:
+                    return ScraperResult(success=True, firmware_versions=firmware_versions)
+
         html = await self.fetch_page(firmware_page_url)
         if not html:
             return ScraperResult(
