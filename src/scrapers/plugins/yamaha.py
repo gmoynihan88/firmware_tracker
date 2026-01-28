@@ -46,31 +46,23 @@ class YamahaScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
-    def _parse_thr_remote_page(self, html: str, device_name: str) -> list[ScrapedFirmware]:
+    def _parse_thr_remote_page(self, html: str, _device_name: str) -> list[ScrapedFirmware]:
         """Parse THR firmware versions from the THR Remote page."""
         soup = self.parse_html(html)
         text = soup.get_text()
         firmware_versions = []
 
-        # THR Remote page format: "[Firmware Ver.1.50 for THR-II]" or "[Firmware Ver.1.10 for THR30IIA Wireless]"
-        # Extract all firmware version entries
+        # THR Remote page format: "[Firmware Ver.1.50 for THR-II]"
+        # THR-II firmware applies to ALL THR-II models (wireless and non-wireless)
+        # The wireless models share the same amp firmware; the v1.10 is for Line 6 G10TII transmitter
         firmware_entries = re.findall(
-            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+([^\]]+)\]",
+            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR-II\]",
             text,
             re.I
         )
 
-        for version, product in firmware_entries:
-            product = product.strip()
-            # Match product to device name
-            # THR-II applies to THR30II and THR10II (non-wireless)
-            # THR30IIA Wireless applies to THR30II Wireless and THR10II Wireless
-            if "Wireless" in device_name:
-                if "Wireless" in product:
-                    firmware_versions.append(ScrapedFirmware(version=version))
-            else:
-                if "THR-II" in product and "Wireless" not in product:
-                    firmware_versions.append(ScrapedFirmware(version=version))
+        for version in firmware_entries:
+            firmware_versions.append(ScrapedFirmware(version=version))
 
         return firmware_versions
 
