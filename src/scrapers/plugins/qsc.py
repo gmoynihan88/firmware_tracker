@@ -10,24 +10,27 @@ class QSCScraper(BaseScraper):
 
     manufacturer_name = "QSC"
     manufacturer_slug = "qsc"
-    manufacturer_website = "https://www.qsc.com"
+    manufacturer_website = "https://www.qscaudio.com"
+
+    # K.2 series firmware page
+    K2_FIRMWARE_URL = "https://www.qscaudio.com/solutions-products/loudspeakers/portable/powered/portable-pa/k2-series/k2-firmware/"
 
     # Known QSC products with firmware updates
     KNOWN_PRODUCTS = [
-        ("K12.2", "audio_interface", "https://www.qsc.com/resource-files/productresources/spk/k.2/firmware/"),
-        ("K10.2", "audio_interface", "https://www.qsc.com/resource-files/productresources/spk/k.2/firmware/"),
-        ("K8.2", "audio_interface", "https://www.qsc.com/resource-files/productresources/spk/k.2/firmware/"),
-        ("KS212C", "audio_interface", "https://www.qsc.com/resource-files/productresources/spk/ks/firmware/"),
-        ("KS118", "audio_interface", "https://www.qsc.com/resource-files/productresources/spk/ks/firmware/"),
-        ("CP12", "audio_interface", "https://www.qsc.com/support/software-firmware/"),
-        ("CP8", "audio_interface", "https://www.qsc.com/support/software-firmware/"),
-        ("KLA12", "audio_interface", "https://www.qsc.com/support/software-firmware/"),
-        ("TouchMix-30 Pro", "audio_interface", "https://www.qsc.com/support/software-firmware/touchmix-series/"),
-        ("TouchMix-16", "audio_interface", "https://www.qsc.com/support/software-firmware/touchmix-series/"),
-        ("TouchMix-8", "audio_interface", "https://www.qsc.com/support/software-firmware/touchmix-series/"),
+        ("K12.2", "audio_interface", "https://www.qscaudio.com/solutions-products/loudspeakers/portable/powered/portable-pa/k2-series/k2-firmware/"),
+        ("K10.2", "audio_interface", "https://www.qscaudio.com/solutions-products/loudspeakers/portable/powered/portable-pa/k2-series/k2-firmware/"),
+        ("K8.2", "audio_interface", "https://www.qscaudio.com/solutions-products/loudspeakers/portable/powered/portable-pa/k2-series/k2-firmware/"),
+        ("KS212C", "audio_interface", "https://www.qscaudio.com/support/software-firmware/"),
+        ("KS118", "audio_interface", "https://www.qscaudio.com/support/software-firmware/"),
+        ("CP12", "audio_interface", "https://www.qscaudio.com/support/software-firmware/"),
+        ("CP8", "audio_interface", "https://www.qscaudio.com/support/software-firmware/"),
+        ("KLA12", "audio_interface", "https://www.qscaudio.com/support/software-firmware/"),
+        ("TouchMix-30 Pro", "audio_interface", "https://www.qscaudio.com/support/software-firmware/touchmix-series/"),
+        ("TouchMix-16", "audio_interface", "https://www.qscaudio.com/support/software-firmware/touchmix-series/"),
+        ("TouchMix-8", "audio_interface", "https://www.qscaudio.com/support/software-firmware/touchmix-series/"),
     ]
 
-    FIRMWARE_PAGE = "https://www.qsc.com/support/software-firmware/"
+    FIRMWARE_PAGE = "https://www.qscaudio.com/support/software-firmware/"
 
     async def fetch_device_list(self) -> ScraperResult:
         """Return the list of known QSC products."""
@@ -42,10 +45,59 @@ class QSCScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
+    def _parse_k2_firmware_page(self, html: str) -> list[ScrapedFirmware]:
+        """Parse K.2 series firmware page."""
+        soup = self.parse_html(html)
+        text = soup.get_text()
+        firmware_versions = []
+
+        # Look for "Firmware version for all models: version 2.1.43" pattern
+        firmware_match = re.search(r"[Ff]irmware\s+version.*?version\s+(\d+\.\d+\.\d+)", text, re.I)
+        if firmware_match:
+            version = firmware_match.group(1)
+
+            # Look for release date (format: M/D/YYYY or MM/DD/YYYY)
+            date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
+            release_date = None
+            if date_match:
+                try:
+                    release_date = datetime.strptime(date_match.group(1), "%m/%d/%Y")
+                except ValueError:
+                    pass
+
+            # Find download links
+            download_link = soup.find("a", href=re.compile(r"\.(dmg|exe|zip)", re.I))
+            download_url = download_link["href"] if download_link else None
+
+            # Get changelog/improvements
+            changelog = None
+            improvements_match = re.search(r"(?:improvements|updates|changes)[:\s]+(.{50,300})", text, re.I | re.S)
+            if improvements_match:
+                changelog = improvements_match.group(1).strip()[:500]
+
+            firmware_versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    download_url=download_url,
+                    changelog=changelog,
+                )
+            )
+
+        return firmware_versions
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch firmware versions from QSC support pages."""
+        # K.2 firmware page works with static fetch
+        if "k2-firmware" in firmware_page_url:
+            html = await self.fetch_page(firmware_page_url)
+            if html:
+                firmware_versions = self._parse_k2_firmware_page(html)
+                if firmware_versions:
+                    return ScraperResult(success=True, firmware_versions=firmware_versions)
+
         html = await self.fetch_page(firmware_page_url)
 
         # Also try main firmware page
@@ -65,8 +117,8 @@ class QSCScraper(BaseScraper):
             soup = self.parse_html(page_html)
             all_text = soup.get_text()
 
-            # QSC versions look like "v1.0.0" or "Version 1.0.0" or "V1.0"
-            version_pattern = r"[Vv](?:ersion)?\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
+            # QSC versions look like "v1.0.0" or "Version 1.0.0" or "V1.0" or "2.1.43"
+            version_pattern = r"[Vv](?:ersion)?[:\s]*\.?\s*(\d+\.\d+(?:\.\d+)?)"
 
             # Look for download sections
             sections = soup.find_all(
