@@ -1,6 +1,5 @@
 import re
 from datetime import datetime
-from typing import Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
@@ -12,12 +11,15 @@ class YamahaScraper(BaseScraper):
     manufacturer_slug = "yamaha"
     manufacturer_website = "https://usa.yamaha.com"
 
+    # THR Remote page contains firmware version info for THR amps
+    THR_REMOTE_URL = "https://usa.yamaha.com/support/updates/thr_remote_mac.html"
+
     # Known Yamaha products with firmware updates
     KNOWN_PRODUCTS = [
-        ("THR30II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr30ii_wireless_firm.html"),
-        ("THR30II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr30ii_firm.html"),
-        ("THR10II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr10ii_wireless_firm.html"),
-        ("THR10II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr10ii_firm.html"),
+        ("THR30II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
+        ("THR30II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
+        ("THR10II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
+        ("THR10II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("MODX8", "synthesizer", "https://usa.yamaha.com/support/updates/modx8_firm.html"),
         ("MODX7", "synthesizer", "https://usa.yamaha.com/support/updates/modx7_firm.html"),
         ("MODX6", "synthesizer", "https://usa.yamaha.com/support/updates/modx6_firm.html"),
@@ -44,15 +46,54 @@ class YamahaScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
+    def _parse_thr_remote_page(self, html: str, device_name: str) -> list[ScrapedFirmware]:
+        """Parse THR firmware versions from the THR Remote page."""
+        soup = self.parse_html(html)
+        text = soup.get_text()
+        firmware_versions = []
+
+        # THR Remote page format: "[Firmware Ver.1.50 for THR-II]" or "[Firmware Ver.1.10 for THR30IIA Wireless]"
+        # Extract all firmware version entries
+        firmware_entries = re.findall(
+            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+([^\]]+)\]",
+            text,
+            re.I
+        )
+
+        for version, product in firmware_entries:
+            product = product.strip()
+            # Match product to device name
+            # THR-II applies to THR30II and THR10II (non-wireless)
+            # THR30IIA Wireless applies to THR30II Wireless and THR10II Wireless
+            if "Wireless" in device_name:
+                if "Wireless" in product:
+                    firmware_versions.append(ScrapedFirmware(version=version))
+            else:
+                if "THR-II" in product and "Wireless" not in product:
+                    firmware_versions.append(ScrapedFirmware(version=version))
+
+        return firmware_versions
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch firmware versions from Yamaha support pages."""
-        html = await self.fetch_page(firmware_page_url)
+        # Use Playwright for THR Remote page (JS-rendered)
+        if "thr_remote" in firmware_page_url:
+            html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=15000)
+        else:
+            html = await self.fetch_page(firmware_page_url)
+
         if not html:
             return ScraperResult(
                 success=False, error=f"Failed to fetch {firmware_page_url}"
             )
+
+        # Special handling for THR Remote page
+        if "thr_remote" in firmware_page_url:
+            firmware_versions = self._parse_thr_remote_page(html, device_name)
+            if firmware_versions:
+                return ScraperResult(success=True, firmware_versions=firmware_versions)
 
         soup = self.parse_html(html)
         firmware_versions = []
