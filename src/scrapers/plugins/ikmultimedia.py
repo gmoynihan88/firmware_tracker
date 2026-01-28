@@ -35,14 +35,26 @@ class IKMultimediaScraper(BaseScraper):
     # Format: (name, category, kvr_slug, macupdater_bundle_id, product_url)
     KNOWN_PRODUCTS = [
         ("Hammond B-3X", "vst_plugin", "hammond-b-3x-by-ik-multimedia", "com.ikmultimedia.hammondb3x", "https://www.ikmultimedia.com/products/hammondb3x/"),
-        ("MODO BASS 2", "vst_plugin", "modo-bass-by-ik-multimedia", "com.ikmultimedia.modobass2", "https://www.ikmultimedia.com/products/modobass2/"),
-        ("MODO DRUM", "vst_plugin", "modo-drum-by-ik-multimedia", "com.ikmultimedia.mododrum", "https://www.ikmultimedia.com/products/mododrum/"),
+        ("MODO BASS 2", "vst_plugin", "modo-bass-2-by-ik-multimedia", "com.ikmultimedia.MODOBASS2", "https://www.ikmultimedia.com/products/modobass2/"),
+        ("MODO DRUM", "vst_plugin", "modo-drum-by-ik-multimedia", "com.ikmultimedia.MODODRUM", "https://www.ikmultimedia.com/products/mododrum/"),
         ("SampleTank 4", "vst_plugin", "sampletank-4-by-ik-multimedia", "com.ikmultimedia.SampleTank4", "https://www.ikmultimedia.com/products/sampletank4/"),
         ("AmpliTube 5", "vst_plugin", "amplitube-5-by-ik-multimedia", "com.ikmultimedia.AmpliTube5", "https://www.ikmultimedia.com/products/amplitube5/"),
         ("T-RackS 5", "vst_plugin", "t-racks-5-by-ik-multimedia", "com.ikmultimedia.TRackS5", "https://www.ikmultimedia.com/products/trs5/"),
         ("Syntronik 2", "vst_plugin", "syntronik-2-by-ik-multimedia", "com.ikmultimedia.Syntronik2", "https://www.ikmultimedia.com/products/syntronik2/"),
         ("Miroslav Philharmonik 2", "vst_plugin", "miroslav-philharmonik-2-by-ik-multimedia", "com.ikmultimedia.Philharmonik2", "https://www.ikmultimedia.com/products/philharmonik2/"),
     ]
+
+    # Fallback known versions when scraping fails (manually maintained)
+    KNOWN_VERSIONS = {
+        "Hammond B-3X": "1.3.5",
+        "MODO BASS 2": "2.0.4",
+        "MODO DRUM": "1.5.0",
+        "SampleTank 4": "4.2.5",
+        "AmpliTube 5": "5.10.9",
+        "T-RackS 5": "5.10.1",
+        "Syntronik 2": "2.1.3",
+        "Miroslav Philharmonik 2": "2.1.0",
+    }
 
     def _get_sources_for_product(self, kvr_slug: str, macupdater_bundle: str) -> list[VersionSource]:
         """Get version sources for a product."""
@@ -135,14 +147,12 @@ class IKMultimediaScraper(BaseScraper):
             if version:
                 found.append((source.name, version))
 
-        if not found:
-            return ScraperResult(
-                success=True,
-                firmware_versions=[],
-            )
-
         # Select best version using consensus
-        best_version = self._select_best_version(found)
+        best_version = self._select_best_version(found) if found else None
+
+        # Fall back to known versions if scraping fails
+        if not best_version and device_name in self.KNOWN_VERSIONS:
+            best_version = self.KNOWN_VERSIONS[device_name]
 
         firmware_versions = []
         if best_version:
