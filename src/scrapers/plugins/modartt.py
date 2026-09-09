@@ -15,11 +15,6 @@ class ModarttScraper(BaseScraper):
     # Known firmware versions (changelog is JS-loaded)
     KNOWN_FIRMWARE = {
         "Pianoteq 8": [
-            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New Warm, Mono and Binaural presets. Next/previous favourite preset shortcuts."),
-            ("9.0.3", "2025-11-16", "Workaround for sustain pedal issues in some DAWs. Fix mics 6,7,8 distortion. Fix VST3 bundle folder attributes."),
-            ("9.0.2", "2025-10-19", "Fix STAGE version multi-instance issue in Logic. Fix VST3 automation. Added Binaural and Under Lid presets."),
-            ("9.0.1", "2025-10-14", "iOS Dark mode support for app icon."),
-            ("9.0.0", "2025-10-14", "New Triple Harp instrument. Grand pianos updated. Up to 8 mics. VST3 on Linux. NKS2 support. Thunder pedal."),
             ("8.4.3", "2025-06-12", "Fix crashes on startup. Fix performance issues with Intel CPUs."),
             ("8.4.2", "2025-06-01", "iOS: Improve error reporting when appstore purchase fails."),
             ("8.4.1", "2025-02-03", "Fix performance issue with Kawai SK-EX on Intel CPUs."),
@@ -46,28 +41,45 @@ class ModarttScraper(BaseScraper):
             ("8.0.0", "2022-11-15", "New Classical Guitar model. All pianos revoiced. New Note Effects panel. LV2/VST3/AU audio input support."),
         ],
         "Pianoteq 8 Stage": [
-            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
-            ("9.0.0", "2025-10-14", "New Triple Harp. STAGE users can now access Mics & Mix panel."),
             ("8.4.0", "2024-11-05", "New Grand Shigeru Kawai SK-EX."),
             ("8.3.0", "2024-06-11", "New Grand Bosendorfer 280VC."),
             ("8.2.0", "2024-01-14", "Revoicing of all 11 modern grand pianos."),
             ("8.0.0", "2022-11-15", "New Classical Guitar model. All pianos revoiced."),
         ],
         "Pianoteq 8 Standard": [
-            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
-            ("9.0.0", "2025-10-14", "New Triple Harp. Up to 8 mics. NKS2 support."),
             ("8.4.0", "2024-11-05", "New Grand Shigeru Kawai SK-EX."),
             ("8.3.0", "2024-06-11", "New Grand Bosendorfer 280VC."),
             ("8.2.0", "2024-01-14", "Revoicing of all 11 modern grand pianos."),
             ("8.0.0", "2022-11-15", "New Classical Guitar model. All pianos revoiced."),
         ],
         "Pianoteq 8 Pro": [
-            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
-            ("9.0.0", "2025-10-14", "New Triple Harp. Up to 8 mics. NKS2 support. Hammer Tone note-edit."),
             ("8.4.0", "2024-11-05", "New Grand Shigeru Kawai SK-EX."),
             ("8.3.0", "2024-06-11", "New Grand Bosendorfer 280VC."),
             ("8.2.0", "2024-01-14", "Revoicing of all 11 modern grand pianos."),
             ("8.0.0", "2022-11-15", "New Classical Guitar model. All pianos revoiced. New stretch points note-edit."),
+        ],
+        "Pianoteq 9": [
+            ("9.2.4", "2026-08-01", None),
+            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New Warm, Mono and Binaural presets. Next/previous favourite preset shortcuts."),
+            ("9.0.3", "2025-11-16", "Workaround for sustain pedal issues in some DAWs. Fix mics 6,7,8 distortion. Fix VST3 bundle folder attributes."),
+            ("9.0.2", "2025-10-19", "Fix STAGE version multi-instance issue in Logic. Fix VST3 automation. Added Binaural and Under Lid presets."),
+            ("9.0.1", "2025-10-14", "iOS Dark mode support for app icon."),
+            ("9.0.0", "2025-10-14", "New Triple Harp instrument. Grand pianos updated. Up to 8 mics. VST3 on Linux. NKS2 support. Thunder pedal."),
+        ],
+        "Pianoteq 9 Stage": [
+            ("9.2.4", "2026-08-01", None),
+            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
+            ("9.0.0", "2025-10-14", "New Triple Harp. STAGE users can now access Mics & Mix panel."),
+        ],
+        "Pianoteq 9 Standard": [
+            ("9.2.4", "2026-08-01", None),
+            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
+            ("9.0.0", "2025-10-14", "New Triple Harp. Up to 8 mics. NKS2 support."),
+        ],
+        "Pianoteq 9 Pro": [
+            ("9.2.4", "2026-08-01", None),
+            ("9.1.0", "2025-12-09", "New instrument pack: Syngular. New presets added to grand pianos."),
+            ("9.0.0", "2025-10-14", "New Triple Harp. Up to 8 mics. NKS2 support. Hammer Tone note-edit."),
         ],
     }
 
@@ -77,6 +89,10 @@ class ModarttScraper(BaseScraper):
         ("Pianoteq 8 Stage", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
         ("Pianoteq 8 Standard", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
         ("Pianoteq 8 Pro", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
+        ("Pianoteq 9", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
+        ("Pianoteq 9 Stage", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
+        ("Pianoteq 9 Standard", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
+        ("Pianoteq 9 Pro", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
     ]
 
     # Public page for version history
@@ -151,15 +167,25 @@ class ModarttScraper(BaseScraper):
 
         return firmware_versions
 
+    def _major_version_prefix(self, device_name: str) -> str:
+        """Extract major version prefix from device name: 'Pianoteq 8 Pro' → '8.'."""
+        m = re.search(r"(\d+)", device_name)
+        return f"{m.group(1)}." if m else "8."
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
         """Fetch Pianoteq versions from the changelog page using Playwright."""
+        prefix = self._major_version_prefix(device_name)
+
         # Try scraping the changelog page with Playwright (JS-rendered)
         html = await self.fetch_page_js(self.VERSION_HISTORY_URL, wait_for_timeout=15000)
 
         if html:
-            firmware_versions = self._parse_changelog_page(html)
+            firmware_versions = [
+                fw for fw in self._parse_changelog_page(html)
+                if fw.version.startswith(prefix)
+            ]
             if firmware_versions:
                 return ScraperResult(success=True, firmware_versions=firmware_versions)
 
