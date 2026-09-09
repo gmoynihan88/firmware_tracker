@@ -264,10 +264,6 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
                 print("\nNo devices in firmware tracker database. Run some scrapers first.")
                 return
 
-            db_lookup = {}
-            for dm in device_models:
-                db_lookup[dm.name.lower()] = dm
-
             print(f"\n{'=' * 70}")
             print("  Comparing installed plugins vs. firmware tracker")
             print(f"{'=' * 70}\n")
@@ -277,13 +273,7 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
             outdated = []
 
             for p in plugins:
-                name_lower = p.name.lower()
-                dm = db_lookup.get(name_lower)
-                if not dm:
-                    for key, val in db_lookup.items():
-                        if name_lower in key or key in name_lower:
-                            dm = val
-                            break
+                dm = _match_plugin_to_model(p, device_models)
                 if not dm:
                     continue
 
@@ -328,23 +318,53 @@ PLIST_NAME_ALIASES = {
 }
 
 
+def _extract_major_version(version: str) -> str | None:
+    """Extract leading major version number: '6.8.0 (R0)' → '6'."""
+    import re
+    m = re.match(r"(\d+)\.", version)
+    return m.group(1) if m else None
+
+
 def _match_plugin_to_model(plugin: PluginInfo, device_models) -> object | None:
     """Find a DB device model matching a scanned plugin."""
-    # Check alias map first (e.g. UA plist names → human names)
+    import re
+
     alias = PLIST_NAME_ALIASES.get(plugin.name)
     names_to_try = [plugin.name.lower()]
     if alias:
         names_to_try.insert(0, alias.lower())
 
     for name_lower in names_to_try:
+        # 1. Exact match
         for dm in device_models:
-            dm_lower = dm.name.lower()
-            if name_lower == dm_lower:
+            if name_lower == dm.name.lower():
                 return dm
+
+        # 2. If installed name has no version number, try "{name} {major}"
+        #    e.g. "Kontakt" v6.8.0 → try "Kontakt 6"
+        major = _extract_major_version(plugin.version)
+        if major and not re.search(r"\d", name_lower):
+            versioned = f"{name_lower} {major}"
+            for dm in device_models:
+                if versioned == dm.name.lower():
+                    return dm
+
+        # 3. Substring match — collect all candidates, pick closest
+        candidates = []
         for dm in device_models:
             dm_lower = dm.name.lower()
             if name_lower in dm_lower or dm_lower in name_lower:
-                return dm
+                candidates.append(dm)
+
+        if not candidates:
+            continue
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # Prefer smallest name-length difference (most specific match)
+        candidates.sort(key=lambda dm: abs(len(dm.name) - len(plugin.name)))
+        return candidates[0]
+
     return None
 
 
