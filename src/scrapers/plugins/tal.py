@@ -46,6 +46,7 @@ class TALScraper(BaseScraper):
             ("4.5.0", "2021-06-07", "New serial protection."),
         ],
         "TAL-J-8": [
+            ("2.0.6", "2026-05-26", "Sync LFO fix. Framework update."),
             ("2.0.4", "2025-12-29", "14-bit MPE zone pitch range in Bitwig fixed."),
             ("2.0.3", "2025-12-16", "Problem with host synced square LFO fixed. Framework update."),
             ("2.0.1", "2025-09-17", "More MPE options to improve compatibility for different MPE hardware devices (osmose). Framework update."),

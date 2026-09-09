@@ -1,3 +1,5 @@
+import asyncio
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Tuple
 from datetime import datetime
@@ -186,6 +188,9 @@ async def create_update_notifications(
     return notifications_created
 
 
+SCRAPER_TIMEOUT = 120  # seconds per manufacturer
+
+
 async def scrape_manufacturer(
     db: AsyncSession, scraper_type: str
 ) -> dict:
@@ -215,9 +220,16 @@ async def scrape_manufacturer(
 
         for model in device_models:
             if model.firmware_page_url:
-                fw_result = await scraper.fetch_firmware_versions(
-                    model.name, model.firmware_page_url
-                )
+                try:
+                    fw_result = await asyncio.wait_for(
+                        scraper.fetch_firmware_versions(
+                            model.name, model.firmware_page_url
+                        ),
+                        timeout=30,
+                    )
+                except asyncio.TimeoutError:
+                    print(f"Timeout fetching firmware for {model.name}, skipping")
+                    continue
                 if fw_result.success and fw_result.firmware_versions:
                     new_count, latest = await sync_firmware_for_device(
                         db, model.id, fw_result.firmware_versions
@@ -252,6 +264,12 @@ async def scrape_all_manufacturers(db: AsyncSession) -> List[dict]:
     """Run scrape for all registered manufacturers."""
     results = []
     for scraper_type in ScraperRegistry.list_available():
-        result = await scrape_manufacturer(db, scraper_type)
+        try:
+            result = await asyncio.wait_for(
+                scrape_manufacturer(db, scraper_type),
+                timeout=SCRAPER_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            result = {"success": False, "error": f"Timed out after {SCRAPER_TIMEOUT}s", "manufacturer": scraper_type}
         results.append(result)
     return results

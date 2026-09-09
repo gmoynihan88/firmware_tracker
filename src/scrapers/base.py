@@ -129,22 +129,23 @@ class BaseScraper(ABC):
             browser = await self._get_browser()
             page = await browser.new_page()
             try:
-                await page.goto(url, wait_until="networkidle", timeout=wait_for_timeout * 2)
+                # Use domcontentloaded instead of networkidle to avoid
+                # hanging on pages with long-polling or streaming connections
+                await page.goto(url, wait_until="domcontentloaded", timeout=wait_for_timeout)
 
                 # Click element if specified (e.g., to expand a tab or section)
                 if click_selector:
                     try:
-                        element = await page.wait_for_selector(click_selector, timeout=5000)
+                        element = await page.wait_for_selector(click_selector, timeout=3000)
                         if element:
                             await element.click()
-                            await page.wait_for_timeout(2000)  # Wait for content to load
+                            await page.wait_for_timeout(1500)
                     except Exception:
                         pass  # Continue even if click fails
 
                 if wait_for_selector:
                     await page.wait_for_selector(wait_for_selector, timeout=wait_for_timeout)
                 else:
-                    # Give JS time to render if no specific selector
                     await page.wait_for_timeout(1000)
                 html = await page.content()
                 return html
