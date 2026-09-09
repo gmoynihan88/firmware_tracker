@@ -304,15 +304,39 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
     asyncio.run(_compare())
 
 
+# Map plist CFBundleName → scraper product name for plugins whose
+# installed name doesn't match the human-readable DB name
+PLIST_NAME_ALIASES = {
+    "uaudio_ampex_atr-102_tape": "Ampex ATR-102 Tape",
+    "uaudio_distressor": "Distressor",
+    "uaudio_dream_amp": "Dream Amp",
+    "uaudio_galaxy_tape_echo": "Galaxy Tape Echo",
+    "uaudio_lion_amp": "Lion Amp",
+    "uaudio_polymax": "Polymax",
+    "uaudio_ruby_amp": "Ruby Amp",
+    "uaudio_sound_city_studios": "Sound City Studios",
+    "uaudio_verve": "Verve",
+    "uaudio_waterfall_rotary_speaker": "Waterfall Rotary Speaker",
+}
+
+
 def _match_plugin_to_model(plugin: PluginInfo, device_models) -> object | None:
     """Find a DB device model matching a scanned plugin."""
-    name_lower = plugin.name.lower()
-    for dm in device_models:
-        dm_lower = dm.name.lower()
-        if name_lower == dm_lower:
-            return dm
-        if name_lower in dm_lower or dm_lower in name_lower:
-            return dm
+    # Check alias map first (e.g. UA plist names → human names)
+    alias = PLIST_NAME_ALIASES.get(plugin.name)
+    names_to_try = [plugin.name.lower()]
+    if alias:
+        names_to_try.insert(0, alias.lower())
+
+    for name_lower in names_to_try:
+        for dm in device_models:
+            dm_lower = dm.name.lower()
+            if name_lower == dm_lower:
+                return dm
+        for dm in device_models:
+            dm_lower = dm.name.lower()
+            if name_lower in dm_lower or dm_lower in name_lower:
+                return dm
     return None
 
 

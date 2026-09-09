@@ -82,3 +82,5 @@ async def test_api_scrapers(client):
     assert "yamaha" in data["scrapers"]
     assert "line6" in data["scrapers"]
     assert "qsc" in data["scrapers"]
+    assert "nativeinstruments" in data["scrapers"]
+    assert "uaudio" in data["scrapers"]
