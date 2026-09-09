@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DB_FILE="${1:-firmware_tracker.db}"
+DB_FILE="firmware_tracker.db"
 BACKUP_DIR="backups"
 
 usage() {
