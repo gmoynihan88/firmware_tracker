@@ -71,9 +71,23 @@
     </div>
 </div>
 
+<div class="filter-bar">
+    <span class="filter-label">Filter by status:</span>
+    <div class="filter-checkboxes" id="status-filters">
+        <label class="filter-checkbox">
+            <input type="checkbox" value="current" checked onchange="filterDevices()">
+            <span class="filter-chip">Current</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="update" checked onchange="filterDevices()">
+            <span class="filter-chip">Update Available</span>
+        </label>
+    </div>
+</div>
+
 <div class="device-grid">
     {% for item in devices %}
-    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}">
+    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}" data-status="{% if item.has_update %}update{% else %}current{% endif %}">
         <div class="device-header">
             <div class="device-title">
                 <h3>{{ item.device.nickname or item.device.device_model.name }}</h3>
@@ -153,6 +167,7 @@ function toggleAll(containerId, checked) {
 function filterDevices() {
     const categoryCheckboxes = document.querySelectorAll('#category-filters input');
     const brandCheckboxes = document.querySelectorAll('#brand-filters input');
+    const statusCheckboxes = document.querySelectorAll('#status-filters input');
 
     const activeCategories = Array.from(categoryCheckboxes)
         .filter(cb => cb.checked)
@@ -162,18 +177,17 @@ function filterDevices() {
         .filter(cb => cb.checked)
         .map(cb => cb.value);
 
+    const activeStatuses = Array.from(statusCheckboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+
     const cards = document.querySelectorAll('.device-card');
     cards.forEach(card => {
-        const category = card.dataset.category;
-        const brand = card.dataset.brand;
-        const matchesCategory = activeCategories.includes(category);
-        const matchesBrand = activeBrands.includes(brand);
+        const matchesCategory = activeCategories.includes(card.dataset.category);
+        const matchesBrand = activeBrands.includes(card.dataset.brand);
+        const matchesStatus = activeStatuses.includes(card.dataset.status);
 
-        if (matchesCategory && matchesBrand) {
-            card.style.display = '';
-        } else {
-            card.style.display = 'none';
-        }
+        card.hidden = !(matchesCategory && matchesBrand && matchesStatus);
     });
 }
 </script>
