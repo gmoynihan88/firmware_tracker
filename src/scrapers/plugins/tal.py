@@ -14,6 +14,7 @@ class TALScraper(BaseScraper):
     # Known firmware versions (for JS-loaded changelogs)
     KNOWN_FIRMWARE = {
         "TAL-U-NO-LX-V2": [
+            ("5.1.3", "2026-03-10", "Minor fixes. Framework update."),
             ("5.1.2", "2025-11-03", "MPE pitch not stay in note release fixed."),
             ("5.1.1", "2025-09-17", "More MPE options to improve compatibility for different MPE hardware devices (Osmose). Framework update. Small UI changes."),
             ("5.0.0", "2025-04-17", "Direct LFO DCO modulation wheel support. Framework update. Small UI changes."),

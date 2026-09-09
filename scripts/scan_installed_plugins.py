@@ -242,6 +242,12 @@ def print_table(plugins: list[PluginInfo]) -> None:
     print(f"{'=' * 70}")
 
 
+def _normalize_version(v: str) -> str:
+    """Strip build metadata suffixes for comparison: '5.3.4 (R59)' → '5.3.4', '1.4.6+3' → '1.4.6'."""
+    import re
+    return re.match(r"[\d.]+", v).group() if re.match(r"[\d.]+", v) else v
+
+
 def compare_with_db(plugins: list[PluginInfo]) -> None:
     """Compare installed versions with firmware tracker database."""
     import asyncio
@@ -287,7 +293,9 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
                 if not latest:
                     continue
 
-                if p.version == latest.version:
+                installed_norm = _normalize_version(p.version)
+                latest_norm = _normalize_version(latest.version)
+                if installed_norm == latest_norm:
                     up_to_date += 1
                     print(f"  ✓ {p.name:<30} v{p.version} (up to date)")
                 else:
