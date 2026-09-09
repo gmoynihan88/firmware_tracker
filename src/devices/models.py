@@ -25,6 +25,7 @@ class Manufacturer(Base):
     scraper_type = Column(String(100))  # matches scraper plugin name
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_scraped_at = Column(DateTime, nullable=True)
 
     device_models = relationship("DeviceModel", back_populates="manufacturer", cascade="all, delete-orphan")
 

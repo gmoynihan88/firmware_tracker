@@ -7,6 +7,7 @@ from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, Scrap
 from src.devices import service as device_service
 from src.devices.schemas import (
     ManufacturerCreate,
+    ManufacturerUpdate,
     DeviceModelCreate,
     FirmwareVersionCreate,
     NotificationCreate,
@@ -227,6 +228,11 @@ async def scrape_manufacturer(
                     if latest:
                         notifs = await create_update_notifications(db, model.id, latest)
                         notifications_created += notifs
+
+        # Update last_scraped_at timestamp on success
+        await device_service.update_manufacturer(
+            db, manufacturer_id, ManufacturerUpdate(last_scraped_at=datetime.utcnow())
+        )
 
         return {
             "success": True,

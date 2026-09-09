@@ -21,6 +21,7 @@ class ManufacturerUpdate(BaseModel):
     slug: Optional[str] = None
     website_url: Optional[str] = None
     scraper_type: Optional[str] = None
+    last_scraped_at: Optional[datetime] = None
 
 
 class ManufacturerResponse(ManufacturerBase):
@@ -29,6 +30,7 @@ class ManufacturerResponse(ManufacturerBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    last_scraped_at: Optional[datetime] = None
 
 
 # DeviceModel schemas

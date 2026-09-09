@@ -42,9 +42,9 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         })
 
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request,
+        name="dashboard.html",
+        context={
             "devices": devices_with_status,
             "unread_count": unread_count,
         },
@@ -59,9 +59,9 @@ async def add_device_page(request: Request, db: AsyncSession = Depends(get_db)):
     unread_count = await device_service.get_unread_count(db)
 
     return templates.TemplateResponse(
-        "add_device.html",
-        {
-            "request": request,
+        request,
+        name="add_device.html",
+        context={
             "manufacturers": manufacturers,
             "device_models": device_models,
             "unread_count": unread_count,
@@ -112,9 +112,9 @@ async def device_detail(
     unread_count = await device_service.get_unread_count(db)
 
     return templates.TemplateResponse(
-        "device_detail.html",
-        {
-            "request": request,
+        request,
+        name="device_detail.html",
+        context={
             "device": device,
             "firmware_versions": firmware_versions,
             "unread_count": unread_count,
@@ -137,9 +137,9 @@ async def edit_device_page(
     unread_count = await device_service.get_unread_count(db)
 
     return templates.TemplateResponse(
-        "edit_device.html",
-        {
-            "request": request,
+        request,
+        name="edit_device.html",
+        context={
             "device": device,
             "firmware_versions": firmware_versions,
             "unread_count": unread_count,
@@ -188,9 +188,9 @@ async def notifications_page(request: Request, db: AsyncSession = Depends(get_db
     unread_count = await device_service.get_unread_count(db)
 
     return templates.TemplateResponse(
-        "notifications.html",
-        {
-            "request": request,
+        request,
+        name="notifications.html",
+        context={
             "notifications": notifications,
             "unread_count": unread_count,
         },
@@ -220,9 +220,9 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
     available_scrapers = ScraperRegistry.list_available()
 
     return templates.TemplateResponse(
-        "catalog.html",
-        {
-            "request": request,
+        request,
+        name="catalog.html",
+        context={
             "manufacturers": manufacturers,
             "device_models": device_models,
             "available_scrapers": available_scrapers,
@@ -240,8 +240,9 @@ async def scrape_manufacturer(
     """Trigger a scrape for a manufacturer (HTMX endpoint)."""
     result = await scraper_service.scrape_manufacturer(db, scraper_type)
     return templates.TemplateResponse(
-        "partials/scrape_result.html",
-        {"request": request, "result": result},
+        request,
+        name="partials/scrape_result.html",
+        context={"result": result},
     )
 
 
@@ -250,8 +251,9 @@ async def notification_badge(request: Request, db: AsyncSession = Depends(get_db
     """HTMX polling endpoint for notification badge."""
     unread_count = await device_service.get_unread_count(db)
     return templates.TemplateResponse(
-        "partials/notification_badge.html",
-        {"request": request, "unread_count": unread_count},
+        request,
+        name="partials/notification_badge.html",
+        context={"unread_count": unread_count},
     )
 
 
@@ -266,6 +268,7 @@ async def device_models_partial(
     if manufacturer_id:
         device_models = await device_service.get_device_models(db, manufacturer_id)
     return templates.TemplateResponse(
-        "partials/device_models_select.html",
-        {"request": request, "device_models": device_models},
+        request,
+        name="partials/device_models_select.html",
+        context={"device_models": device_models},
     )

@@ -19,6 +19,7 @@ dependencies = [
     "apscheduler>=3.10.4",
     "anthropic>=0.18.0",
     "httpx>=0.26.0",
+    "greenlet>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,9 @@ dev = [
 browser = [
     "playwright>=1.40.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [build-system]
 requires = ["hatchling"]

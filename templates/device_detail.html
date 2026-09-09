@@ -44,6 +44,10 @@
                     <dd>{{ device.device_model.manufacturer.name }}</dd>
                 </div>
                 <div class="detail-row">
+                    <dt>Last Scraped</dt>
+                    <dd>{{ device.device_model.manufacturer.last_scraped_at.strftime('%b %d, %Y %H:%M') if device.device_model.manufacturer.last_scraped_at else 'Never' }}</dd>
+                </div>
+                <div class="detail-row">
                     <dt>Model</dt>
                     <dd>{{ device.device_model.name }}</dd>
                 </div>

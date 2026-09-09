@@ -70,6 +70,11 @@
         {% for manufacturer in manufacturers %}
         <div class="manufacturer-card">
             <h3>{{ manufacturer.name }}</h3>
+            {% if manufacturer.last_scraped_at %}
+            <p class="last-scraped">Last scraped: {{ manufacturer.last_scraped_at.strftime('%b %d, %Y %H:%M') }}</p>
+            {% else %}
+            <p class="last-scraped">Never scraped</p>
+            {% endif %}
             {% if manufacturer.website_url %}
             <a href="{{ manufacturer.website_url }}" target="_blank" rel="noopener" class="external-link">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
