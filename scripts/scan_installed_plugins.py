@@ -410,7 +410,7 @@ def add_to_my_devices(plugins: list[PluginInfo]) -> None:
                     db,
                     MyDeviceCreate(
                         device_model_id=dm.id,
-                        current_firmware_version=p.version,
+                        current_firmware_version=_normalize_version(p.version),
                         notify_on_update=True,
                     ),
                 )
