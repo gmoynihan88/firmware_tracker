@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from src.config import get_settings
@@ -20,6 +21,34 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
+def _check_db_integrity(conn) -> bool:
+    """Check if expected tables exist. Returns False if alembic stamp is present but tables are missing."""
+    result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+    tables = {row[0] for row in result.fetchall()}
+    has_alembic = "alembic_version" in tables
+    has_app_tables = "manufacturers" in tables and "device_models" in tables
+    return not has_alembic or has_app_tables
+
+
+def _clear_alembic_stamp(conn):
+    conn.execute(text("DELETE FROM alembic_version"))
+
+
 async def init_db():
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        healthy = await conn.run_sync(_check_db_integrity)
+
+    if not healthy:
+        import subprocess, sys
+        print("WARNING: Database tables missing but alembic stamp present — repairing...")
+        async with engine.begin() as conn:
+            await conn.run_sync(_clear_alembic_stamp)
+        await engine.dispose()
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            check=True,
+        )
+        print("Database repaired successfully.")
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
