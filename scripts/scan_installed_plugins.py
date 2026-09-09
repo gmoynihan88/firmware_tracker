@@ -197,9 +197,6 @@ def deduplicate_across_formats(plugins: list[PluginInfo]) -> list[PluginInfo]:
         existing = best.get(p.name)
         if existing is None or format_priority.get(p.format, 9) < format_priority.get(existing.format, 9):
             best[p.name] = p
-        elif existing and p.version != existing.version:
-            # Different version in different format — keep both
-            best[f"{p.name} ({p.format})"] = p
 
     return sorted(best.values(), key=lambda p: (p.display_manufacturer, p.name))
 
