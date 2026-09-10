@@ -245,9 +245,19 @@ JOIN manufacturers m ON m.id=dm.manufacturer_id AND m.slug='SLUG' ORDER BY dm.na
 ```
 
 Normalise punctuation and casing in code; keep genuine renames in an explicit alias
-map so the intent is readable. Prefer discovering product URLs from an index page
-over transcribing slugs -- Focusrite and GForce had both changed their URL shape, and
-a discovered list cannot go stale the same way.
+map so the intent is readable.
+
+**If an identity can come from more than one place, normalise every route to one
+key.** The plugin scanner derives a vendor from the bundle id when it is reverse-DNS
+and from the copyright string otherwise. Fixing it to use both produced
+`native-instruments` from one route and `Native Instruments` from the other -- one
+vendor counted as two, which is the bug it was meant to fix wearing a different hat.
+Slugifying both outputs fixed it. Whenever you add a fallback source for a name,
+check the two agree on a single value before trusting either.
+
+Prefer discovering product URLs from an index page over transcribing slugs --
+Focusrite and GForce had both changed their URL shape, and a discovered list cannot
+go stale the same way.
 
 ## Step 5 — Never leave a hardcoded table as a silent fallback
 
