@@ -1595,6 +1595,20 @@ async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
     assert firmware.created_at.strftime("%Y-%m-%d") in html
 
 
+async def _seed_one_device(name: str = "Filter Box", slug: str = "filterco"):
+    """The dashboard renders no filter bars when nothing is tracked."""
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=name, slug=slug))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name=f"{name} One", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+
 @pytest.mark.asyncio
 async def test_status_filter_comes_first(client):
     """Status is the filter people reach for, so it leads.
@@ -1603,6 +1617,7 @@ async def test_status_filter_comes_first(client):
     """
     import re
 
+    await _seed_one_device()
     html = (await client.get("/")).text
     order = re.findall(r'id="(status|brand|category)-filters"', html)
 
@@ -1618,6 +1633,7 @@ async def test_every_filter_chip_draws_a_checkbox(client):
     """
     import re
 
+    await _seed_one_device()
     html = (await client.get("/")).text
 
     chips = re.findall(r'<span class="filter-chip">(.*?)</span>\s*</label>', html, re.S)
