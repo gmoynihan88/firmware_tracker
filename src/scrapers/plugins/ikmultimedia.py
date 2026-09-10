@@ -59,12 +59,11 @@ class IKMultimediaScraper(BaseScraper):
     def _get_sources_for_product(self, kvr_slug: str, macupdater_bundle: str) -> list[VersionSource]:
         """Get version sources for a product."""
         sources = []
-        if kvr_slug:
-            sources.append(VersionSource(
-                name="KVR",
-                url=f"https://www.kvraudio.com/product/{kvr_slug}",
-                pattern=self.KVR_PATTERN,
-            ))
+        # KVR is deliberately not used. It no longer publishes a product version
+        # field; the only version text left on a product page comes from user
+        # reviews ("Version reviewed: 1.3.5"), so a pattern loose enough to match
+        # would report whatever version a reviewer happened to run. The kvr_slug
+        # column is retained only to keep the product tuples stable.
         if macupdater_bundle:
             sources.append(VersionSource(
                 name="MacUpdater",
