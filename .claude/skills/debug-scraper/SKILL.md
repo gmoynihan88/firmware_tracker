@@ -75,6 +75,27 @@ which now 404s, and every TC Electronic `modelCode` was dead.
 Also try `fetch_page` (aiohttp). Some vendors block it while allowing a real browser —
 TAL and Modartt both do, which is why `fetch_page_js` exists.
 
+### Always probe with a slug you know is fake
+
+When guessing candidate URLs, include one that cannot exist. Some endpoints never
+404: Moog's `softwareUpdate/<slug>` returns the same sixteen-line shell for every
+slug, so a 200 proves nothing.
+
+```
+model-15          16285b  lines=16  versions=[]
+minimoog-model-d  16325b  lines=16  versions=[]
+moogerfooger      16305b  lines=16  versions=[]   <- invented, responds identically
+mariana           20364b  lines=59  versions=['1.2.0', '1.1.0', '1.0.1']
+```
+
+Without the invented slug in that list, the honest reading is "those products publish
+no firmware". With it, the reading is "this endpoint answers the same way for
+anything, and only mariana has content" -- a different conclusion entirely.
+
+This is the identical-length tell sharpened: comparing two real URLs catches a dead
+path, comparing a real one against a fabricated one catches an endpoint that cannot
+say no.
+
 ## Step 1b — Does one page carry every product?
 
 Check before designing anything per-device. Several manufacturers publish a single
@@ -131,6 +152,20 @@ Watch for three things:
   `x-publishable-api-key: pk_…`, which is embedded in the page for client-side use.
   Plain requests return 400 without it.
 - **Data embedded in the page.** See below.
+
+### Check for documentation hosted somewhere else
+
+Vendors move release notes off their own domain, and the index page is where the
+link lives. Sound-Force keeps SFC-8 and SFC-Mini V4 notes on
+`soundforce.notion.site`, linked from its own support page.
+
+Two things worth knowing before concluding data does not exist:
+
+- **Notion renders fine** for a browser fetch, and in that case carried *better* data
+  than the vendor's own pages: dated entries (`25/11/2025: V1.9:`) where the
+  WordPress pages had none.
+- **Zendesk does not.** Focusrite's and TC Electronic's support articles returned 403
+  or a few hundred characters of shell every time, through every approach tried.
 
 ## Step 3 — Next.js pages: join the RSC chunks before parsing
 
@@ -249,6 +284,9 @@ correct scraper as broken. Always confirm on the vendor's page.
 
 - Tests offline against a fixture page — never the network. See
   `test_tal_pairs_each_version_with_its_own_date` for the pattern.
+- **Run the suite and read the result before pushing, not alongside it.** Running
+  pytest and pushing in one step means the failure and the push happen together, and
+  CI reports it before you do.
 - If a URL changed, note that `sync_devices` now refreshes `firmware_page_url` on
   existing rows, so the fix reaches devices already in the database.
 - **Read `devices_synced` after the first real scrape.** `{'created': 16,
