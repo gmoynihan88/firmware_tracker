@@ -1,197 +1,176 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class Line6Scraper(BaseScraper):
-    """Scraper for Line 6 guitar gear and wireless systems."""
+    """Scraper for Line 6 guitar processors and amplifiers.
+
+    Every firmware release Line 6 has ever shipped is listed on one page, each entry
+    naming the products it applies to. That page is fetched once per scrape and the
+    result reused, rather than fetched per device.
+
+    The previous /support/page/kb/<product>/ URLs are all dead. They return HTTP 200
+    with a soft-404 body -- "Sorry, we could not find that!" -- which contains neither
+    "404" nor "not found", so it reads as a successful fetch of an empty page.
+    """
 
     manufacturer_name = "Line 6"
     manufacturer_slug = "line6"
     manufacturer_website = "https://line6.com"
 
-    # THR Remote page contains G10TII transmitter firmware (used by Relay G10II/G10S)
-    THR_REMOTE_URL = "https://usa.yamaha.com/support/updates/thr_remote_mac.html"
+    FIRMWARE_URL = "https://line6.com/software/Firmware"
 
-    # Known Line 6 products with firmware updates
+    # Entries look like:
+    #   <div class="release-details"><div class="sidebar">
+    #     <b>Version 3.83</b><br><b>Released 10/28/25</b><br><br>
+    #     Works with:<br><b>HX One</b>
+    VERSION_LINE = re.compile(r"^Version\s+(\d+(?:\.\d+)+)")
+    RELEASED_LINE = re.compile(r"^Released\s+(\d{1,2})/(\d{1,2})/(\d{2,4})")
+
+    # (name, category, firmware_page_url)
     KNOWN_PRODUCTS = [
-        ("Relay G10II", "wireless_system", THR_REMOTE_URL),
-        ("Relay G10S", "wireless_system", THR_REMOTE_URL),
-        ("Helix", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("Helix Floor", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("Helix LT", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("Helix Rack", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("HX Stomp", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("HX Stomp XL", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("HX Effects", "guitar_pedal", "https://line6.com/support/page/kb/helix/"),
-        ("POD Go", "guitar_pedal", "https://line6.com/support/page/kb/pod-go/"),
-        ("POD Go Wireless", "guitar_pedal", "https://line6.com/support/page/kb/pod-go/"),
-        ("Spider V 60", "guitar_pedal", "https://line6.com/support/page/kb/spider/"),
-        ("Spider V 120", "guitar_pedal", "https://line6.com/support/page/kb/spider/"),
-        ("Spider V 240", "guitar_pedal", "https://line6.com/support/page/kb/spider/"),
-        ("Catalyst 60", "guitar_pedal", "https://line6.com/support/page/kb/catalyst/"),
-        ("Catalyst 100", "guitar_pedal", "https://line6.com/support/page/kb/catalyst/"),
-        ("Catalyst 200", "guitar_pedal", "https://line6.com/support/page/kb/catalyst/"),
+        ("Helix", "guitar_pedal", FIRMWARE_URL),
+        ("Helix Floor", "guitar_pedal", FIRMWARE_URL),
+        ("Helix LT", "guitar_pedal", FIRMWARE_URL),
+        ("Helix Rack", "guitar_pedal", FIRMWARE_URL),
+        ("HX Stomp", "guitar_pedal", FIRMWARE_URL),
+        ("HX Stomp XL", "guitar_pedal", FIRMWARE_URL),
+        ("HX Effects", "guitar_pedal", FIRMWARE_URL),
+        ("POD Go", "guitar_pedal", FIRMWARE_URL),
+        ("POD Go Wireless", "guitar_pedal", FIRMWARE_URL),
+        ("Spider V 60", "other", FIRMWARE_URL),
+        ("Spider V 120", "other", FIRMWARE_URL),
+        ("Spider V 240", "other", FIRMWARE_URL),
+        ("Catalyst 60", "other", FIRMWARE_URL),
+        ("Catalyst 100", "other", FIRMWARE_URL),
+        ("Catalyst 200", "other", FIRMWARE_URL),
+        ("Relay G10II", "other", FIRMWARE_URL),
+        ("Relay G10S", "other", FIRMWARE_URL),
     ]
 
+    # Our device names against the ones Line 6 lists releases under. The G10II ships
+    # its firmware as the G10TII transmitter; previously this was read off Yamaha's
+    # THR Remote page, which publishes THR amp firmware and not the transmitter's.
+    PAGE_NAMES = {
+        "Helix Floor": "Helix",
+        "Relay G10II": "Relay G10TII Transmitter",
+        "Relay G10S": "Relay G10S Receiver",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._catalogue: Optional[Dict[str, List[ScrapedFirmware]]] = None
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
+
+    def _parse_catalogue(self, html: str) -> Dict[str, List[ScrapedFirmware]]:
+        """Build a product -> releases map from the firmware listing.
+
+        Only the sidebar's bold elements are read. The descriptions quote version
+        numbers in prose ("3.50 renames the Impulse Response > Mono subcategory"),
+        so scanning the text would invent releases that were never published.
+        """
+        catalogue: Dict[str, List[Tuple[tuple, ScrapedFirmware]]] = {}
+
+        for entry in self.parse_html(html).find_all("div", class_="release-details"):
+            sidebar = entry.find("div", class_="sidebar")
+            if not sidebar:
+                continue
+
+            bolds = [b.get_text(" ", strip=True) for b in sidebar.find_all("b")]
+            if not bolds:
+                continue
+
+            version_match = self.VERSION_LINE.match(bolds[0])
+            if not version_match:
+                continue
+            version = version_match.group(1)
+
+            release_date = None
+            products = []
+            for bold in bolds[1:]:
+                released = self.RELEASED_LINE.match(bold)
+                if released:
+                    month, day, year = released.groups()
+                    try:
+                        release_date = datetime(2000 + int(year[-2:]), int(month), int(day))
+                    except ValueError:
+                        release_date = None
+                else:
+                    products.append(bold)
+
+            description = entry.find("div", class_="description")
+            changelog = description.get_text(" ", strip=True)[:500] if description else None
+
+            for product in products:
+                firmware = ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    download_url=self.FIRMWARE_URL,
+                    changelog=changelog,
+                )
+                catalogue.setdefault(product, []).append((self._version_key(version), firmware))
+
+        return {
+            product: [fw for _key, fw in sorted(entries, key=lambda e: e[0], reverse=True)]
+            for product, entries in catalogue.items()
+        }
+
+    async def _get_catalogue(self) -> Optional[Dict[str, List[ScrapedFirmware]]]:
+        """Fetch and parse the firmware listing once per scraper instance."""
+        if self._catalogue is not None:
+            return self._catalogue
+
+        # aiohttp is blocked by this host; the rendered page is the only route in.
+        html = await self.fetch_page_js(self.FIRMWARE_URL, wait_for_timeout=25000)
+        if not html:
+            return None
+
+        parsed = self._parse_catalogue(html)
+        if not parsed:
+            return None
+
+        self._catalogue = parsed
+        return self._catalogue
+
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Line 6 products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=f"https://line6.com/products/{name.lower().replace(' ', '-')}/",
-            )
-            for name, category, url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
-
-    def _parse_thr_remote_page(self, html: str) -> list[ScrapedFirmware]:
-        """Parse G10TII transmitter firmware from Yamaha THR Remote page."""
-        soup = self.parse_html(html)
-        text = soup.get_text()
-        firmware_versions = []
-
-        # THR Remote page format: "[Firmware Ver.1.10 for THR30IIA Wireless]"
-        # This is the G10TII transmitter firmware used in Relay G10II/G10S
-        firmware_entries = re.findall(
-            r"\[Firmware\s+Ver\.?\s*(\d+\.\d+)\s+for\s+THR30IIA\s+Wireless\]",
-            text,
-            re.I
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category=category,
+                    firmware_page_url=url,
+                    product_url=url,
+                )
+                for name, category, url in self.KNOWN_PRODUCTS
+            ],
         )
-
-        for version in firmware_entries:
-            firmware_versions.append(ScrapedFirmware(version=version))
-
-        return firmware_versions
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from Line 6 support pages."""
-        # Relay G10II/G10S use G10TII transmitter firmware from Yamaha THR Remote page
-        if "Relay G10" in device_name and "thr_remote" in firmware_page_url:
-            html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=15000)
-            if html:
-                firmware_versions = self._parse_thr_remote_page(html)
-                if firmware_versions:
-                    return ScraperResult(success=True, firmware_versions=firmware_versions)
-
-        html = await self.fetch_page(firmware_page_url)
-        if not html:
+        catalogue = await self._get_catalogue()
+        if catalogue is None:
             return ScraperResult(
-                success=False, error=f"Failed to fetch {firmware_page_url}"
+                success=False,
+                error=f"Could not read the Line 6 firmware listing at {self.FIRMWARE_URL}",
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
+        page_name = self.PAGE_NAMES.get(device_name, device_name)
+        releases = catalogue.get(page_name)
+        if not releases:
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"{device_name} is not listed on the Line 6 firmware page "
+                    f"(looked for {page_name!r})"
+                ),
+            )
 
-        # Line 6 versions look like "v1.0.0" or "Version 3.70" or "Firmware 3.70"
-        version_pattern = r"(?:[Vv](?:ersion)?|[Ff]irmware)\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
-
-        # Look for firmware/download sections
-        sections = soup.find_all(
-            ["div", "section", "article", "li", "td", "p", "tr"],
-            class_=re.compile(r"download|firmware|update|version|content|post|entry", re.I)
-        )
-
-        # Also look for links to downloads
-        download_links = soup.find_all("a", href=re.compile(r"download|firmware|update", re.I))
-
-        for section in sections:
-            text = section.get_text()
-
-            # Check if relevant to device (for multi-product pages)
-            device_pattern = device_name.lower().replace(" ", "").replace("-", "")
-            section_text = text.lower().replace(" ", "").replace("-", "")
-
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|hxf|hlx)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://line6.com{download_url}"
-
-                # Look for date
-                date_patterns = [
-                    r"(\w+)\s+(\d{1,2}),?\s+(\d{4})",  # Month DD, YYYY
-                    r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",  # MM/DD/YYYY
-                    r"(\d{4})-(\d{2})-(\d{2})",  # YYYY-MM-DD
-                ]
-                release_date = None
-
-                for pattern in date_patterns:
-                    date_match = re.search(pattern, text)
-                    if date_match:
-                        groups = date_match.groups()
-                        try:
-                            if len(groups[0]) > 2:  # Month name or YYYY
-                                if groups[0].isdigit():  # YYYY-MM-DD
-                                    release_date = datetime(int(groups[0]), int(groups[1]), int(groups[2]))
-                                else:  # Month DD, YYYY
-                                    release_date = datetime.strptime(
-                                        f"{groups[0]} {groups[1]} {groups[2]}".replace(",", ""),
-                                        "%B %d %Y"
-                                    )
-                            else:  # MM/DD/YYYY
-                                release_date = datetime(int(groups[2]), int(groups[0]), int(groups[1]))
-                            break
-                        except ValueError:
-                            continue
-
-                # Get changelog if available
-                changelog = None
-                changelog_section = section.find(["ul", "div"], class_=re.compile(r"change|note|detail", re.I))
-                if changelog_section:
-                    changelog = changelog_section.get_text(strip=True)[:500]
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=changelog,
-                    )
-                )
-
-        # Check download links
-        for link in download_links:
-            text = link.get_text() + " " + (link.get("title", "") or "")
-            version_match = re.search(version_pattern, text)
-            if version_match:
-                version = version_match.group(1)
-                if not any(fw.version == version for fw in firmware_versions):
-                    download_url = link.get("href")
-                    if download_url and not download_url.startswith("http"):
-                        download_url = f"https://line6.com{download_url}"
-                    firmware_versions.append(
-                        ScrapedFirmware(version=version, download_url=download_url)
-                    )
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-        firmware_versions = unique
-
-        # Fallback: scan entire page
-        if not firmware_versions:
-            matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        return ScraperResult(success=True, firmware_versions=firmware_versions)
+        return ScraperResult(success=True, firmware_versions=releases)
