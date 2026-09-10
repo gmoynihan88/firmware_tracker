@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Tuple
@@ -214,7 +215,24 @@ async def create_update_notifications(
     return notifications_created
 
 
-SCRAPER_TIMEOUT = 120  # seconds per manufacturer
+# A per-manufacturer budget must scale with device count, or it measures nothing: at
+# a fixed 120s, Boss (16 devices at ~7s each) sat at 93% of budget while Native
+# Instruments (40 devices, mostly cached lookups) used 13%. These allow roughly double
+# the worst observed per-device cost, and stay under the 30s per-device ceiling.
+SCRAPE_BUDGET_BASE = 30       # seconds, covers fetching the device list
+SCRAPE_BUDGET_PER_DEVICE = 15  # seconds per device in the firmware loop
+
+# Backstop for a scraper that is genuinely stuck rather than merely slow. The deadline
+# inside the loop is what normally stops work; this only fires if that fails to.
+SCRAPER_HARD_TIMEOUT = 900
+
+# Kept for callers that still reference it.
+SCRAPER_TIMEOUT = 120  # seconds per manufacturer (legacy fixed budget)
+
+
+def scrape_budget_for(device_count: int) -> float:
+    """Seconds allowed for one manufacturer, given how many devices it has."""
+    return SCRAPE_BUDGET_BASE + SCRAPE_BUDGET_PER_DEVICE * max(device_count, 0)
 
 
 async def scrape_manufacturer(
@@ -250,8 +268,23 @@ async def scrape_manufacturer(
         # have no firmware, which is not a failure to investigate.
         devices_without_firmware = []  # scraped OK, product has no firmware
         devices_failed = []  # fetch failed or timed out
+        devices_not_checked = []  # budget ran out before reaching them
 
-        for model in device_models:
+        # Stop the loop on a deadline rather than letting an outer timeout cancel the
+        # whole scrape. A cancellation discards the summary even though each device's
+        # data was already committed, so the database ends up right while the report
+        # claims total failure.
+        deadline = time.monotonic() + scrape_budget_for(len(device_models))
+
+        for index, model in enumerate(device_models):
+            if time.monotonic() > deadline:
+                devices_not_checked = [m.name for m in device_models[index:]]
+                print(
+                    f"Budget exhausted for {scraper_type} after {index} of "
+                    f"{len(device_models)} devices; {len(devices_not_checked)} not checked"
+                )
+                break
+
             if model.firmware_page_url:
                 try:
                     fw_result = await asyncio.wait_for(
@@ -292,6 +325,7 @@ async def scrape_manufacturer(
             "notifications_created": notifications_created,
             "devices_without_firmware": devices_without_firmware,
             "devices_failed": devices_failed,
+            "devices_not_checked": devices_not_checked,
         }
 
     except Exception as e:
@@ -305,11 +339,17 @@ async def scrape_all_manufacturers(db: AsyncSession) -> List[dict]:
     results = []
     for scraper_type in ScraperRegistry.list_available():
         try:
+            # scrape_manufacturer stops itself on its own budget and returns partial
+            # results; this only catches a scraper stuck somewhere that never yields.
             result = await asyncio.wait_for(
                 scrape_manufacturer(db, scraper_type),
-                timeout=SCRAPER_TIMEOUT,
+                timeout=SCRAPER_HARD_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            result = {"success": False, "error": f"Timed out after {SCRAPER_TIMEOUT}s", "manufacturer": scraper_type}
+            result = {
+                "success": False,
+                "error": f"Hung past the {SCRAPER_HARD_TIMEOUT}s backstop",
+                "manufacturer": scraper_type,
+            }
         results.append(result)
     return results

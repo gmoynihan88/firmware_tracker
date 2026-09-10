@@ -29,9 +29,13 @@ async def check_firmware_updates():
             total_notifications += reconciled["notifications_created"]
 
             total_failed = sum(len(r.get("devices_failed") or []) for r in results if r.get("success"))
+            total_unchecked = sum(
+                len(r.get("devices_not_checked") or []) for r in results if r.get("success")
+            )
             logger.info(
                 f"Firmware check complete. New versions: {total_new}, "
-                f"Notifications: {total_notifications}, Devices failed: {total_failed}"
+                f"Notifications: {total_notifications}, Devices failed: {total_failed}, "
+                f"Not checked (budget): {total_unchecked}"
             )
         except Exception as e:
             logger.error(f"Error during firmware check: {e}")

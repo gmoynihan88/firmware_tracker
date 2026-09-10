@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from httpx import AsyncClient, ASGITransport
@@ -627,3 +628,67 @@ async def test_reconcile_respects_notify_opt_out(client):
     response = await client.post("/api/firmware/reconcile-notifications")
     assert response.status_code == 200
     assert "notifications_created" in response.json()
+
+
+def test_scrape_budget_scales_with_device_count():
+    """A fixed budget measures nothing; a 40-device scraper needs more than a 3-device one.
+
+    At the old fixed 120s, Boss (16 devices at ~7s each) sat at 93% of budget while
+    Native Instruments (40 devices) used 13%.
+    """
+    from src.scrapers.service import scrape_budget_for
+
+    assert scrape_budget_for(3) < scrape_budget_for(16) < scrape_budget_for(40)
+    # Comfortably above the observed worst case of ~7s per device.
+    assert scrape_budget_for(16) >= 16 * 10
+    # Degenerate counts do not produce a negative budget.
+    assert scrape_budget_for(0) > 0
+    assert scrape_budget_for(-5) > 0
+
+
+@pytest.mark.asyncio
+async def test_scrape_reports_partial_results_when_budget_runs_out(monkeypatch):
+    """Running out of budget must return what was done, not discard the whole run.
+
+    The old outer wait_for cancelled the scrape and replaced the summary with a bare
+    failure, even though each device's data had already been committed -- so the
+    database was right while the report claimed total failure.
+    """
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+
+    class _SlowScraper(BaseScraper):
+        manufacturer_name = "Slow Audio"
+        manufacturer_slug = "slowaudio"
+        manufacturer_website = "https://slow.example.com"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(
+                success=True,
+                devices=[
+                    ScrapedDevice(f"Slow {i}", "guitar_pedal", f"https://slow.example.com/{i}")
+                    for i in range(5)
+                ],
+            )
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            await asyncio.sleep(0.05)
+            return ScraperResult(success=True, firmware_versions=[ScrapedFirmware("1.0")])
+
+    # A budget that expires after roughly the first couple of devices.
+    monkeypatch.setattr(scraper_service, "scrape_budget_for", lambda n: 0.06)
+
+    ScraperRegistry.register(_SlowScraper)
+    try:
+        async with test_session_maker() as db:
+            result = await scraper_service.scrape_manufacturer(db, "slowaudio")
+
+        # The run reports success with partial results rather than failing outright.
+        assert result["success"] is True
+        assert result["devices_not_checked"], "expected some devices to be skipped"
+        # And it did not silently skip everything.
+        checked = 5 - len(result["devices_not_checked"])
+        assert checked >= 1
+    finally:
+        ScraperRegistry._scrapers.pop("slowaudio", None)
