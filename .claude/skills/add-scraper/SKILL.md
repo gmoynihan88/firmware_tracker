@@ -23,7 +23,20 @@ Preference order:
 3. A stable text pattern in specific markup (TAL's `Version 5.1.2 / 03.11.2025`,
    QSC's `Firmware version for all models: version 2.1.43`).
 4. Free-text scanning — last resort, and prone to matching version-like strings that
-   are not releases.
+   are not releases: prices, file sizes, sample library sizes and OS requirements all
+   read as versions.
+
+**Check whether one page covers the whole range before writing anything per-device.**
+Line 6 lists every release it has ever shipped on `/software/Firmware`, and GForce
+does the same on its Updates And Releases page — one fetch, cached on the scraper
+instance, then look each device up. Both manufacturers complete in under 10 seconds
+that way. Fetching a page per device that carries no version cost Focusrite 95s of
+its 120s budget and made its last devices fail on timeouts.
+
+**Discover product URLs from an index page rather than transcribing slugs.** Both
+Focusrite and GForce had changed their URL shape — `/products/X` to `/product/x`,
+title case to lowercase slugs — and every hardcoded URL 404'd. A discovered list
+cannot rot the same way, and it picks up products added since.
 
 ## Skeleton
 
@@ -124,5 +137,11 @@ rendered — presence of the expected data structure is a better signal than tex
   a catalogue endpoint over ones transcribed by hand.
 - **Version strings vary in shape** — `Version 1.3.11`, `v5.1.3`, `v 1.9.8`. Normalise
   rather than assuming one form.
+- **Product names differ from the database's.** Vendors write trademark symbols
+  (`Oberheim OB-E®`), typographic characters (`Clarett⁺`), inconsistent casing
+  (`3rd gen`), and they rename things (`Virtual String Machine` became `VSM IV`).
+  Unnormalised, a scrape creates a second row and orphans the one the user's devices
+  are attached to. Check `devices_synced` after the first run: a `created` count near
+  the old device total means the names stopped matching.
 - **Pair a version with its own date**, from the same changelog entry. Taking the first
   version and first date out of a shared block silently mismatches them.
