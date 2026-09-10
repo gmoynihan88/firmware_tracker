@@ -10,7 +10,7 @@ A self-hosted web app that scrapes manufacturer websites for firmware and softwa
 
 ## What it does
 
-- **Scrapes 22 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
+- **Scrapes 23 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
 - **Tracks your devices** — add hardware and plugins you own, see at a glance what's current and what has updates
 - **Scans installed VST/AU/CLAP plugins** on macOS and matches them against the database
 - **Scheduled checks** — APScheduler runs periodic scrapes in the background
@@ -35,7 +35,7 @@ holds the response store, which is only a cache but carries the ETags that let
 unchanged vendor pages come back as `304` — a fresh volume means every vendor serves
 a full page again.
 
-The image includes Chromium, because ten of the twenty-two scrapers need a real
+The image includes Chromium, because ten of the twenty-three scrapers need a real
 browser. That is most of its size and there is no useful smaller build.
 
 To configure anything, copy `.env.example` to `.env` before starting; compose reads
@@ -285,14 +285,14 @@ bash scripts/backup_db.sh restore backups/firmware_tracker_YYYYMMDD_HHMMSS.db
 |---|---|
 | Boss | GForce Software |
 | Crumar | IK Multimedia |
-| Elektron | iZotope |
-| Focusrite | Modartt (Pianoteq) |
-| Line 6 | Moog |
-| Peterson | Native Instruments |
-| QSC | Steinberg |
-| Roland | TAL Software |
-| Sound-Force | Universal Audio |
-| Strymon | |
+| Elektron | Eventide |
+| Focusrite | iZotope |
+| Line 6 | Modartt (Pianoteq) |
+| Peterson | Moog |
+| QSC | Native Instruments |
+| Roland | Steinberg |
+| Sound-Force | TAL Software |
+| Strymon | Universal Audio |
 | TC Electronic | |
 | Tascam | |
 | Yamaha | |
