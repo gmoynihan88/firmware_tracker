@@ -1557,17 +1557,15 @@ async def test_dashboard_filter_chips_are_alphabetical(client):
 
     html = (await client.get("/")).text
 
-    brands = re.findall(
-        r'filter-chip">([^<]+)<',
-        re.search(r'id="brand-filters"(.*?)</div>', html, re.S).group(1),
-    )
-    assert brands == ["Alpha Audio", "Mid Audio", "Zeta Audio"]
+    def chip_labels(group_id: str) -> list:
+        """Chip text, past the drawn checkbox element that precedes it."""
+        block = re.search(rf'id="{group_id}"(.*?)</div>', html, re.S).group(1)
+        return [label.strip() for label in re.findall(r'</span>([^<]+)</span>', block)]
 
-    categories = re.findall(
-        r'filter-chip">([^<]+)<',
-        re.search(r'id="category-filters"(.*?)</div>', html, re.S).group(1),
-    )
-    assert categories == sorted(categories)
+    assert chip_labels("brand-filters") == ["Alpha Audio", "Mid Audio", "Zeta Audio"]
+
+    categories = chip_labels("category-filters")
+    assert categories and categories == sorted(categories)
 
 
 @pytest.mark.asyncio
@@ -1595,3 +1593,33 @@ async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
 
     assert ">Discovered<" in html
     assert firmware.created_at.strftime("%Y-%m-%d") in html
+
+
+@pytest.mark.asyncio
+async def test_status_filter_comes_first(client):
+    """Status is the filter people reach for, so it leads.
+
+    Then brand, then device type.
+    """
+    import re
+
+    html = (await client.get("/")).text
+    order = re.findall(r'id="(status|brand|category)-filters"', html)
+
+    assert order == ["status", "brand", "category"]
+
+
+@pytest.mark.asyncio
+async def test_every_filter_chip_draws_a_checkbox(client):
+    """The native input is hidden, so the chip has to show the state itself.
+
+    Colour alone is not enough: the table already uses colour for "update
+    available", so a coloured chip read as a warning rather than a selection.
+    """
+    import re
+
+    html = (await client.get("/")).text
+
+    chips = re.findall(r'<span class="filter-chip">(.*?)</span>\s*</label>', html, re.S)
+    assert chips, "expected filter chips"
+    assert all('<span class="chip-box"></span>' in chip for chip in chips)

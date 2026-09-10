@@ -23,35 +23,19 @@
 {% set manufacturers = devices | map(attribute='device.device_model.manufacturer') | list | unique(attribute='slug') | sort(attribute='name') | list %}
 
 <div class="filter-bar">
-    <span class="filter-label">Filter by type:</span>
-    <div class="filter-actions">
-        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', true)">All</button>
-        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', false)">None</button>
-    </div>
-    <div class="filter-checkboxes" id="category-filters">
+    <span class="filter-label">Filter by status:</span>
+    <div class="filter-checkboxes" id="status-filters">
         <label class="filter-checkbox">
-            <input type="checkbox" value="audio_interface" checked onchange="filterDevices()">
-            <span class="filter-chip">Audio Interface</span>
+            <input type="checkbox" value="current" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Current</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
-            <span class="filter-chip">Guitar Pedal</span>
+            <input type="checkbox" value="update" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Update Available</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="midi_controller" checked onchange="filterDevices()">
-            <span class="filter-chip">MIDI Controller</span>
-        </label>
-        <label class="filter-checkbox">
-            <input type="checkbox" value="other" checked onchange="filterDevices()">
-            <span class="filter-chip">Other</span>
-        </label>
-        <label class="filter-checkbox">
-            <input type="checkbox" value="synthesizer" checked onchange="filterDevices()">
-            <span class="filter-chip">Synthesizer</span>
-        </label>
-        <label class="filter-checkbox">
-            <input type="checkbox" value="vst_plugin" checked onchange="filterDevices()">
-            <span class="filter-chip">VST Plugin</span>
+            <input type="checkbox" value="unknown" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Firmware Unknown</span>
         </label>
     </div>
 </div>
@@ -66,26 +50,42 @@
         {% for manufacturer in manufacturers %}
         <label class="filter-checkbox">
             <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterDevices()">
-            <span class="filter-chip">{{ manufacturer.name }}</span>
+            <span class="filter-chip"><span class="chip-box"></span>{{ manufacturer.name }}</span>
         </label>
         {% endfor %}
     </div>
 </div>
 
 <div class="filter-bar">
-    <span class="filter-label">Filter by status:</span>
-    <div class="filter-checkboxes" id="status-filters">
+    <span class="filter-label">Filter by type:</span>
+    <div class="filter-actions">
+        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', true)">All</button>
+        <button type="button" class="filter-action-btn" onclick="toggleAll('category-filters', false)">None</button>
+    </div>
+    <div class="filter-checkboxes" id="category-filters">
         <label class="filter-checkbox">
-            <input type="checkbox" value="current" checked onchange="filterDevices()">
-            <span class="filter-chip">Current</span>
+            <input type="checkbox" value="audio_interface" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Audio Interface</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="update" checked onchange="filterDevices()">
-            <span class="filter-chip">Update Available</span>
+            <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Guitar Pedal</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="unknown" checked onchange="filterDevices()">
-            <span class="filter-chip">Firmware Unknown</span>
+            <input type="checkbox" value="midi_controller" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>MIDI Controller</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="other" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Other</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="synthesizer" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Synthesizer</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="vst_plugin" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>VST Plugin</span>
         </label>
     </div>
 </div>

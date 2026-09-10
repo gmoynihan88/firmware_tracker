@@ -424,7 +424,9 @@ body {
 .filter-chip {
     /* Denser than the original: with 17 brands plus categories and statuses, the
        filter bars took more vertical space than the table they filter. */
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
     padding: 0.1875rem 0.5rem;
     background: var(--surface-600);
     border: var(--border-subtle);
@@ -435,10 +437,54 @@ body {
     transition: var(--transition-fast);
 }
 
+/* A real checkbox, drawn. The native input is hidden for styling, so without this
+   the only signal that a filter is on is the chip's colour -- which is the same
+   signal the table uses for "update available", and read as a warning. */
+.chip-box {
+    position: relative;
+    flex: none;
+    width: 0.85em;
+    height: 0.85em;
+    border: 1px solid var(--border-medium, rgba(148, 163, 184, 0.5));
+    border-radius: 3px;
+    background: transparent;
+    transition: var(--transition-fast);
+}
+
+.filter-checkbox input:checked + .filter-chip .chip-box {
+    background: var(--signal-blue);
+    border-color: var(--signal-blue);
+}
+
+/* The tick itself: two borders on a rotated box, so it needs no font or image. */
+.filter-checkbox input:checked + .filter-chip .chip-box::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 0.2em;
+    height: 0.42em;
+    border: solid #0b1220;
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
 .filter-checkbox input:checked + .filter-chip {
-    background: var(--amber-glow);
-    border-color: var(--amber-500);
-    color: var(--amber-400);
+    /* Neutral rather than amber: selected is a state, not a warning. */
+    background: rgba(148, 163, 184, 0.14);
+    border-color: var(--border-medium, rgba(148, 163, 184, 0.45));
+    color: var(--text-primary);
+}
+
+/* Unselected should read as "off", not "disabled" -- keep it legible. */
+.filter-checkbox input:not(:checked) + .filter-chip {
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+
+.filter-checkbox input:focus-visible + .filter-chip {
+    outline: 2px solid var(--signal-blue);
+    outline-offset: 1px;
 }
 
 .filter-checkbox:hover .filter-chip {
