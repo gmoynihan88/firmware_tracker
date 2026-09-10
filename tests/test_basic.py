@@ -929,3 +929,77 @@ async def test_scrape_notifications_follow_the_same_rule_as_reconciliation():
         assert await create_update_notifications(db, unknown.id, "2.0.6") == 0
         assert await create_update_notifications(db, ahead.id, "2.0.6") == 0
         assert await create_update_notifications(db, behind.id, "2.0.6") == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_separates_unknown_firmware_from_updates(client):
+    """A device with no recorded installed version is unknown, not behind.
+
+    The dashboard previously fell through to "Update Available" whenever a latest
+    version existed, which is a guess: 10 of 11 unrecorded devices were shown as
+    needing an update.
+    """
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="DashCo", slug="dashco"))
+
+        async def _tracked(name, installed):
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.OTHER,
+            ))
+            await ds.create_firmware_version(db, FirmwareVersionCreate(
+                device_model_id=model.id, version="2.0.6", is_latest=True,
+            ))
+            await ds.create_my_device(db, MyDeviceCreate(
+                device_model_id=model.id, current_firmware_version=installed,
+                notify_on_update=True,
+            ))
+
+        await _tracked("No Version Recorded", None)
+        await _tracked("Behind", "2.0.5")
+        await _tracked("Up To Date", "2.0.6")
+
+    response = await client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert html.count('data-status="unknown"') == 1
+    assert html.count('data-status="update"') == 1
+    assert html.count('data-status="current"') == 1
+    # And the filter offers the new state.
+    assert "Firmware Unknown" in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_does_not_flag_a_device_running_ahead(client):
+    """Installed newer than published is current, not an update.
+
+    The old check used !=, so a hotfix that never reached the vendor's list read as
+    an update being available.
+    """
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="AheadCo", slug="aheadco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Ahead Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.7.0", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="1.7.1", notify_on_update=True,
+        ))
+
+    html = (await client.get("/")).text
+    assert html.count('data-status="current"') == 1
+    assert 'data-status="update"' not in html
