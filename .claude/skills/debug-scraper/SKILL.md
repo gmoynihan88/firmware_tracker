@@ -42,16 +42,31 @@ characters; a stale URL or an unrendered SPA returns a few hundred.
 .venv/bin/python -c "
 import asyncio
 from src.scrapers.plugins.MODULE import CLASS
+DEAD = ('404', 'not found', 'could not find', 'sorry', 'page unavailable')
 async def main():
     s = CLASS()
-    html = await asyncio.wait_for(s.fetch_page_js('URL', wait_for_timeout=20000), timeout=90)
-    t = s.parse_html(html).get_text() if html else ''
-    print('html bytes:', len(html or ''), '| text chars:', len(t))
-    print('looks 404:', '404' in t[:400] or 'not found' in t[:500].lower())
+    for url in ['URL_A', 'URL_B']:          # two different products, deliberately
+        html = await asyncio.wait_for(s.fetch_page_js(url, wait_for_timeout=20000), timeout=90)
+        t = s.parse_html(html).get_text() if html else ''
+        head = t[:600].lower()
+        print(f'{len(html or \"\"):>8} html {len(t):>6} text  dead={any(d in head for d in DEAD)}  {url[-40:]}')
     await s.close()
 asyncio.run(main())
 "
 ```
+
+**Fetch two different products, and compare the text lengths.** Vendors serve dead
+pages in ways that defeat a single check:
+
+- **Line 6** returns HTTP 200 with "Sorry, we could not find that!" -- no "404", no
+  "not found". Every `/support/page/kb/<product>/` URL was dead and all fifteen read
+  as successful fetches of an empty page.
+- **Focusrite** serves its 404 with the full site chrome: 3,385 characters of nav,
+  search box and footer. A length threshold passes it.
+
+What catches both is **two different URLs returning identical text length**. Three
+Line 6 category pages all came back at exactly 1778 characters, which no real set of
+product pages does.
 
 Use the **full** URL from `KNOWN_PRODUCTS` — a truncated one 404s and sends you
 chasing a phantom. Real cases: QSC had 8 products on `/support/software-firmware/`
@@ -59,6 +74,25 @@ which now 404s, and every TC Electronic `modelCode` was dead.
 
 Also try `fetch_page` (aiohttp). Some vendors block it while allowing a real browser —
 TAL and Modartt both do, which is why `fetch_page_js` exists.
+
+## Step 1b — Does one page carry every product?
+
+Check before designing anything per-device. Several manufacturers publish a single
+listing covering their whole range:
+
+- Line 6: `/software/Firmware`, each entry naming the products it applies to.
+- GForce: the Updates And Releases page, which also gives canonical product URLs.
+- Focusrite: nothing per-device worth fetching at all.
+
+Fetch it once and cache it on the scraper instance, then look each device up. Line 6
+went from fifteen failures to seventeen successes in 9s this way; GForce does its
+whole catalogue in 4s.
+
+This is a correctness problem, not just speed. Fetching 28 Focusrite pages that carry
+no version consumed 95s of the 120s per-manufacturer budget, and the last two devices
+then failed on navigation timeouts -- which is indistinguishable from a broken page
+until you time it. If a scraper is slow *and* its last few devices fail, suspect the
+budget before the pages.
 
 ## Step 2 — If it renders in a browser but not for the scraper, find the real source
 
@@ -124,9 +158,53 @@ contains version-like strings that are not releases:
   from a **user review**. A looser pattern reports a reviewer's version as the
   product's. That source was removed rather than made to match.
 
+Units and money are the commonest false positives, because they are everywhere and
+they look exactly right:
+
+| Seen on the page | What it actually is |
+|---|---|
+| `149.99`, `1,139.00` | price |
+| `16.55 MB` | file size |
+| `3.5GB`, `12.5GB+` | sample library size |
+| `macOS 10.13 or above` | OS requirement |
+| `User Guide V4` | document revision |
+| `2.0` in "Browser 2.0 implementation" | a feature named in the changelog prose |
+
+A GForce product page yields four of these and no firmware version at all. If a
+pattern matches something on a page you believe has no version, that is the pattern
+being wrong, not the page being right.
+
 Pair a version with its own date in one entry. TAL's old parser took the first version
 and the first date from one block — different releases — recording 4.9.5 with 5.1.2's
 date. `_parse_changelog` in `tal.py` shows the entry-at-a-time approach.
+
+## Step 4b — Normalise product names before matching
+
+Every scraper fixed recently needed this, and getting it wrong is silent: the scrape
+creates a second row under the vendor's spelling and orphans the one your devices are
+attached to.
+
+| Vendor writes | Database has | Difference |
+|---|---|---|
+| `Oberheim OB-E®` | `Oberheim OB-E` | trademark symbol |
+| `Clarett⁺ 2Pre` | `Clarett+ 2Pre` | superscript plus (U+207A) |
+| `Scarlett 18i20 3rd gen` | `Scarlett 18i20 3rd Gen` | inconsistent casing |
+| `VSM IV` | `Virtual String Machine` | renamed product |
+| `Relay G10TII Transmitter` | `Relay G10II` | firmware ships under a component's name |
+
+Compare the names the site gives against the rows already in the database before
+writing the parser:
+
+```bash
+sqlite3 firmware_tracker.db "
+SELECT dm.name FROM device_models dm
+JOIN manufacturers m ON m.id=dm.manufacturer_id AND m.slug='SLUG' ORDER BY dm.name;"
+```
+
+Normalise punctuation and casing in code; keep genuine renames in an explicit alias
+map so the intent is readable. Prefer discovering product URLs from an index page
+over transcribing slugs -- Focusrite and GForce had both changed their URL shape, and
+a discovered list cannot go stale the same way.
 
 ## Step 5 — Never leave a hardcoded table as a silent fallback
 
@@ -173,5 +251,9 @@ correct scraper as broken. Always confirm on the vendor's page.
   `test_tal_pairs_each_version_with_its_own_date` for the pattern.
 - If a URL changed, note that `sync_devices` now refreshes `firmware_page_url` on
   existing rows, so the fix reaches devices already in the database.
+- **Read `devices_synced` after the first real scrape.** `{'created': 16,
+  'updated': 12}` means the existing twelve rows were refreshed and sixteen products
+  are new. If `created` is close to the old device count, the names stopped matching
+  and you have just duplicated the catalogue -- see Step 4b.
 - Deleting a product from `KNOWN_PRODUCTS` leaves an orphan row in the DB that fails
   every scrape. Delete it explicitly, and check `my_devices` first.
