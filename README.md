@@ -4,6 +4,10 @@
 
 A self-hosted web app that scrapes manufacturer websites for firmware and software updates across music production hardware and VST plugins. Track your gear, get notified when updates drop.
 
+![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
+
+*The dashboard, filtered to devices with an update waiting. Filter by status, brand or type; sort any column.*
+
 ## What it does
 
 - **Scrapes 22 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
