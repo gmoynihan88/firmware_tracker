@@ -6,7 +6,9 @@ from datetime import datetime
 
 from src.scrapers.registry import ScraperRegistry
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.config import get_settings
 from src.devices import service as device_service
+from src.notifications.transport import get_notifier
 from src.devices.schemas import (
     ManufacturerCreate,
     ManufacturerUpdate,
@@ -202,6 +204,12 @@ async def create_update_notifications(
                 ),
             )
             notifications_created += 1
+
+            # Delivery is a side effect of the record, never a precondition for it:
+            # the row is committed above and send() swallows its own failures.
+            await get_notifier(get_settings()).send(
+                title, message, url=firmware.download_url
+            )
 
     return notifications_created
 

@@ -451,3 +451,65 @@ async def test_qsc_products_without_firmware_are_not_failures():
 
     assert result.success is True
     assert result.firmware_versions == []
+
+
+def test_notifier_defaults_to_disabled():
+    """With no configuration the app still runs; it simply does not deliver."""
+    from src.config import Settings
+    from src.notifications.transport import get_notifier
+
+    assert get_notifier(Settings()).name == "none"
+
+
+def test_notifier_falls_back_when_misconfigured():
+    """A bad transport config disables delivery rather than breaking the tracker."""
+    from src.config import Settings
+    from src.notifications.transport import get_notifier
+
+    # ntfy selected but no topic to publish to
+    assert get_notifier(Settings(notify_transport="ntfy")).name == "none"
+    # a transport that does not exist
+    assert get_notifier(Settings(notify_transport="carrier-pigeon")).name == "none"
+
+
+def test_ntfy_endpoint_and_headers():
+    """Title and click-through travel as headers; the body is the message."""
+    from src.notifications.transport import NtfyNotifier
+
+    notifier = NtfyNotifier(topic="firmware-tracker-abc", server="https://ntfy.example/")
+
+    assert notifier.endpoint == "https://ntfy.example/firmware-tracker-abc"
+
+    headers = notifier._headers("Pianoteq 9 v9.2.5", "https://example.invalid/dl")
+    assert headers["Title"] == "Pianoteq 9 v9.2.5"
+    assert headers["Click"] == "https://example.invalid/dl"
+    # No URL means no Click header at all, rather than an empty one.
+    assert "Click" not in notifier._headers("No link", None)
+
+
+def test_ntfy_title_survives_non_latin1_characters():
+    """Headers are latin-1; product names are not always.
+
+    A raw encode would raise inside send() and lose the delivery.
+    """
+    from src.notifications.transport import NtfyNotifier
+
+    headers = NtfyNotifier(topic="t")._headers("TAL-U-NO-LX — 5.1.3", None)
+    assert headers["Title"].encode("latin-1")
+
+
+@pytest.mark.asyncio
+async def test_ntfy_send_failure_is_swallowed():
+    """A transport failure must not propagate; the Notification row is what matters."""
+    from src.notifications.transport import NtfyNotifier
+
+    # Port 1 is not listenable, so the POST fails at connect.
+    notifier = NtfyNotifier(topic="t", server="http://127.0.0.1:1", timeout=1)
+    assert await notifier.send("Title", "Message") is False
+
+
+@pytest.mark.asyncio
+async def test_null_notifier_reports_not_delivered():
+    from src.notifications.transport import NullNotifier
+
+    assert await NullNotifier().send("Title", "Message") is False

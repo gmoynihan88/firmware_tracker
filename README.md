@@ -45,6 +45,9 @@ Copy `.env.example` to `.env` (or export the variables):
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
 | `SCRAPE_INTERVAL_HOURS` | `6` | How often the scheduler checks for updates |
+| `NOTIFY_TRANSPORT` | `none` | Where to deliver notifications: `none` or `ntfy` |
+| `NTFY_TOPIC` | *(none)* | ntfy topic to publish to; required when transport is `ntfy` |
+| `NTFY_SERVER` | `https://ntfy.sh` | ntfy server, for self-hosting |
 
 ## Security
 
@@ -64,6 +67,10 @@ localhost (the `uvicorn` default) or behind a reverse proxy that handles auth.
 Also worth knowing:
 
 - `ANTHROPIC_API_KEY` is read from `.env`, which is gitignored. Keep it that way.
+- **On public ntfy.sh the topic name is the only secret.** Anyone who knows or guesses
+  it can read your notifications and publish to them, so use a long random value
+  (`firmware-tracker-$(openssl rand -hex 16)`) and keep it in `.env`. Self-host ntfy
+  with auth if that is not good enough for you.
 - Scrapers send a browser `User-Agent` and rate-limit themselves via `RATE_LIMIT_DELAY`.
   Be considerate about scrape frequency — `SCRAPE_INTERVAL_HOURS` defaults to 6.
 
@@ -98,6 +105,22 @@ Or scrape a single manufacturer:
 ```bash
 curl -X POST http://localhost:8000/api/firmware/scrape/strymon
 ```
+
+### Notifications
+
+Notifications are always recorded and shown at `/notifications`. To have them pushed
+to your phone as well, set a transport:
+
+```bash
+# .env
+NOTIFY_TRANSPORT=ntfy
+NTFY_TOPIC=firmware-tracker-<long random string>
+```
+
+Subscribe to the same topic in the [ntfy app](https://ntfy.sh/app) or at
+`https://ntfy.sh/<your-topic>`. Delivery is a side effect of recording a
+notification: if the transport is unreachable the notification is still stored, and
+the failure is logged rather than raised.
 
 ### Database backup
 
