@@ -6,7 +6,7 @@ A self-hosted web app that scrapes manufacturer websites for firmware and softwa
 
 ## What it does
 
-- **Scrapes 21 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
+- **Scrapes 22 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
 - **Tracks your devices** — add hardware and plugins you own, see at a glance what's current and what has updates
 - **Scans installed VST/AU/CLAP plugins** on macOS and matches them against the database
 - **Scheduled checks** — APScheduler runs periodic scrapes in the background
@@ -226,9 +226,9 @@ bash scripts/backup_db.sh restore backups/firmware_tracker_YYYYMMDD_HHMMSS.db
 | Focusrite | Modartt (Pianoteq) |
 | Line 6 | Moog |
 | Peterson | Native Instruments |
-| QSC | TAL Software |
-| Roland | Universal Audio |
-| Sound-Force | |
+| QSC | Steinberg |
+| Roland | TAL Software |
+| Sound-Force | Universal Audio |
 | Strymon | |
 | TC Electronic | |
 | Tascam | |
