@@ -1,6 +1,9 @@
 import asyncio
 import json
+import os
+import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -2170,3 +2173,36 @@ async def test_universal_audio_points_devices_at_the_release_notes():
         assert device.firmware_page_url == UniversalAudioScraper.RELEASE_NOTES_URL
         # The product page is still kept, just not as the firmware link.
         assert "uaudio.com/uad-plugins/" in device.product_url
+
+
+def test_alembic_prefers_database_url_over_the_ini(tmp_path, monkeypatch):
+    """Migrations must follow the app's database, not alembic.ini's relative path.
+
+    alembic.ini carries a sync sqlite:/// URL while the app uses an async one, so the
+    two can disagree about which file they mean. In a container they always do: the
+    database is on a mounted volume, and migrating alembic.ini's relative path would
+    quietly create and migrate a second, empty database inside the image -- leaving
+    the real one unmigrated and the failure invisible until a query hits a missing
+    column.
+    """
+    import subprocess
+    import sys
+
+    target = tmp_path / "volume" / "firmware_tracker.db"
+    target.parent.mkdir()
+
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=str(Path(__file__).parent.parent),
+        env={**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{target}"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    # The database named by DATABASE_URL exists and carries the schema.
+    assert target.exists()
+    with sqlite3.connect(target) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "manufacturers" in tables
+    assert "alembic_version" in tables
