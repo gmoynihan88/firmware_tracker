@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str = ""
 
+    # Authentication. Disabled when auth_password_hash is empty, which keeps a local
+    # install working with no setup -- the app warns loudly at startup in that state,
+    # because every write endpoint is open without it.
+    auth_password_hash: str = ""      # generate with: python -m src.auth.hash_password
+    secret_key: str = ""              # signs session cookies; rotating it logs everyone out
+    api_key: str = ""                 # optional, for X-API-Key on programmatic calls
+    session_lifetime_hours: int = 336  # 14 days
+
     # Notification delivery. Transport is "none" by default so the app runs with no
     # configuration; on public ntfy.sh the topic name is the only secret, so use a
     # long random one and keep it in .env.

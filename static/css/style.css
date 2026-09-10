@@ -2002,3 +2002,72 @@ select:disabled {
 .btn svg {
     flex-shrink: 0;
 }
+
+/* Login ------------------------------------------------------------------ */
+
+.login-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60vh;
+    padding: 2rem 1rem;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 22rem;
+    padding: 2rem;
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+    border-radius: 12px;
+    background: var(--surface-raised, rgba(148, 163, 184, 0.06));
+}
+
+.login-card h1 {
+    margin: 0 0 0.25rem;
+    font-size: 1.25rem;
+}
+
+.login-hint {
+    margin: 0 0 1.5rem;
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+}
+
+.login-error {
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    color: var(--amber-400);
+    background: var(--amber-glow);
+    font-size: 0.875rem;
+}
+
+.login-label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.login-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.25));
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+}
+
+.login-button {
+    width: 100%;
+    padding: 0.65rem 1rem;
+    border: 0;
+    border-radius: 8px;
+    background: var(--signal-green, #34d399);
+    color: #06231a;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+}
