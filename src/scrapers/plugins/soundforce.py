@@ -1,158 +1,154 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class SoundForceScraper(BaseScraper):
-    """Scraper for Sound-Force MIDI controllers."""
+    """Scraper for Sound-Force MIDI controllers.
+
+    Update pages are resolved from the Support page on every scrape rather than
+    hardcoded. The previous URLs were WordPress ?page_id= values, two of which had
+    changed: SFC-5's page is 5145 rather than 4617, and SFC-Mini's is 5110 rather
+    than 5050. Both dead ids returned an identical 1037-character "Page Not Found".
+
+    Sound-Force has since moved two products' notes onto a Notion site, which the
+    Support page links to alongside the rest.
+    """
 
     manufacturer_name = "Sound-Force"
     manufacturer_slug = "soundforce"
     manufacturer_website = "https://sound-force.nl"
 
-    # Known Sound-Force products
-    KNOWN_PRODUCTS = [
-        ("SFC-60", "midi_controller", "https://sound-force.nl/?page_id=5155"),
-        ("SFC-5", "midi_controller", "https://sound-force.nl/?page_id=4617"),
-        ("SFC-Mini", "midi_controller", "https://sound-force.nl/?page_id=5050"),
+    SUPPORT_URL = "https://sound-force.nl/support/"
+
+    # WordPress pages write "V1.11:"; the Notion pages prefix a date,
+    # "25/11/2025: V1.9:". One pattern covers both.
+    RELEASE = re.compile(
+        r"^(?:(\d{2})/(\d{2})/(\d{4}):\s*)?[Vv](\d+(?:\.\d+)+):"
+    )
+
+    # (device name, category, the Support page's link text)
+    # Device names are kept as they already exist in the database. Sound-Force titles
+    # its pages by hardware revision -- "SFC-60 V3 updates" -- and adopting those
+    # names wholesale would orphan the rows users' devices are attached to.
+    PRODUCTS = [
+        ("SFC-60", "midi_controller", "SFC-60 V3 updates"),
+        ("SFC-5", "midi_controller", "SFC-5 V2 updates"),
+        ("SFC-Mini", "midi_controller", "SFC-Mini V3 updates"),
+        ("SFC-Mini V4", "midi_controller", "SFC-Mini V4 updates"),
+        ("SFC-OB", "midi_controller", "SFC-OB updates"),
+        ("SFC-8", "midi_controller", "SFC-8 updates"),
     ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._update_pages: Optional[Dict[str, str]] = None
+
+    async def _get_update_pages(self) -> Optional[Dict[str, str]]:
+        """Map each Support page link to its update page, fetched once per scrape."""
+        if self._update_pages is not None:
+            return self._update_pages
+
+        html = await self.fetch_page_js(self.SUPPORT_URL, wait_for_timeout=25000)
+        if not html:
+            return None
+
+        soup = self.parse_html(html)
+        links = {}
+        for anchor in soup.find_all("a", href=True):
+            text = anchor.get_text(strip=True)
+            if text.lower().endswith("updates"):
+                links[text] = anchor["href"]
+
+        if not links:
+            return None
+
+        self._update_pages = links
+        return self._update_pages
+
+    def _parse_updates(self, html: str) -> List[ScrapedFirmware]:
+        """Read the release list from an update page.
+
+        Each version appears twice, once for the macOS updater and once for Windows,
+        so entries are de-duplicated on the version itself.
+        """
+        versions: List[ScrapedFirmware] = []
+        seen = set()
+
+        for line in self.parse_html(html).get_text("\n").splitlines():
+            match = self.RELEASE.match(line.strip())
+            if not match:
+                continue
+
+            day, month, year, version = match.groups()
+            if version in seen:
+                continue
+
+            release_date = None
+            if day and month and year:
+                try:
+                    release_date = datetime(int(year), int(month), int(day))
+                except ValueError:
+                    release_date = None
+
+            seen.add(version)
+            versions.append(ScrapedFirmware(version=version, release_date=release_date))
+
+        return sorted(
+            versions,
+            key=lambda fw: tuple(int(p) for p in re.findall(r"\d+", fw.version)),
+            reverse=True,
+        )
+
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Sound-Force products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=support_url,
-                product_url=support_url,
-            )
-            for name, category, support_url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category=category,
+                    firmware_page_url=self.SUPPORT_URL,
+                    product_url=self.SUPPORT_URL,
+                )
+                for name, category, _link in self.PRODUCTS
+            ],
+        )
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from a Sound-Force page."""
-        html = await self.fetch_page(firmware_page_url)
-        if not html:
+        pages = await self._get_update_pages()
+        if pages is None:
             return ScraperResult(
-                success=False, error=f"Failed to fetch {firmware_page_url}"
+                success=False,
+                error=f"Could not read the Sound-Force support page at {self.SUPPORT_URL}",
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-
-        all_text = soup.get_text()
-
-        # Sound-Force uses patterns like "v1.11" and dates like "07/10/2024"
-        version_pattern = r"[Vv](\d+\.\d+(?:\.\d+)?)"
-
-        # Look for content sections
-        content_sections = soup.find_all(
-            ["div", "section", "article", "p"],
-            class_=re.compile(r"content|entry|post|download|firmware", re.I)
+        link_text = next(
+            (link for name, _c, link in self.PRODUCTS if name == device_name), None
         )
+        if not link_text or link_text not in pages:
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"No update page linked for {device_name} "
+                    f"(looked for {link_text!r} on the support page)"
+                ),
+            )
 
-        # Also look for download links
-        download_links = soup.find_all("a", href=re.compile(r"\.(zip|hex|bin|syx)", re.I))
+        html = await self.fetch_page_js(pages[link_text], wait_for_timeout=25000)
+        if not html:
+            return ScraperResult(
+                success=False, error=f"Failed to fetch {pages[link_text]}"
+            )
 
-        for section in content_sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
+        versions = self._parse_updates(html)
+        if not versions:
+            return ScraperResult(
+                success=False,
+                error=f"No versions found for {device_name} at {pages[link_text]}",
+            )
 
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link in this section
-                download_link = section.find("a", href=re.compile(r"\.(zip|hex|bin|syx)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://sound-force.nl{download_url}"
-
-                # Look for date patterns: MM/DD/YYYY or DD/MM/YYYY or YYYY-MM-DD
-                date_patterns = [
-                    (r"(\d{2})/(\d{2})/(\d{4})", "%m/%d/%Y"),  # MM/DD/YYYY
-                    (r"(\d{4})-(\d{2})-(\d{2})", "%Y-%m-%d"),  # YYYY-MM-DD
-                    (r"(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})", None),
-                ]
-
-                release_date = None
-                for pattern, fmt in date_patterns:
-                    date_match = re.search(pattern, text, re.I)
-                    if date_match:
-                        if fmt:
-                            try:
-                                date_str = date_match.group(0)
-                                release_date = datetime.strptime(date_str, fmt)
-                                break
-                            except ValueError:
-                                continue
-                        else:
-                            # Handle "1 Jan 2024" style
-                            try:
-                                day = int(date_match.group(1))
-                                month_str = date_match.group(2)
-                                year = int(date_match.group(3))
-                                months = {
-                                    "jan": 1, "feb": 2, "mar": 3, "apr": 4,
-                                    "may": 5, "jun": 6, "jul": 7, "aug": 8,
-                                    "sep": 9, "oct": 10, "nov": 11, "dec": 12
-                                }
-                                month = months.get(month_str.lower()[:3], 1)
-                                release_date = datetime(year, month, day)
-                                break
-                            except (ValueError, KeyError):
-                                continue
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=text.strip()[:500] if text else None,
-                    )
-                )
-
-        # Check download links directly if no sections found
-        if not firmware_versions:
-            for link in download_links:
-                href = link.get("href", "")
-                link_text = link.get_text() + " " + (link.get("title", "") or "")
-                parent_text = link.parent.get_text() if link.parent else ""
-                combined_text = link_text + " " + parent_text
-
-                version_match = re.search(version_pattern, combined_text)
-                if version_match:
-                    version = version_match.group(1)
-                    download_url = href
-                    if not download_url.startswith("http"):
-                        download_url = f"https://sound-force.nl{download_url}"
-
-                    firmware_versions.append(
-                        ScrapedFirmware(
-                            version=version,
-                            download_url=download_url,
-                        )
-                    )
-
-        # Final fallback: scan entire page for versions
-        if not firmware_versions:
-            version_matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in version_matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        return ScraperResult(success=True, firmware_versions=versions)

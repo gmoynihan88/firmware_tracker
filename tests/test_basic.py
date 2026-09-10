@@ -1110,3 +1110,93 @@ async def test_gforce_superseded_product_is_not_a_failure():
     # Something genuinely unlisted still fails.
     unknown = await scraper.fetch_firmware_versions("Not A Product", scraper.RELEASES_URL)
     assert unknown.success is False
+
+
+def test_soundforce_parses_both_page_formats():
+    """WordPress pages write "V1.11:"; the Notion pages prefix a date."""
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    html = """
+    <html><body>
+      <p>V1.11:</p><p>MacOS updater app download</p>
+      <p>V1.11:</p><p>Windows updater</p>
+      <p>V1.10:</p><p>MacOS updater app download</p>
+      <p>25/11/2025: V1.9:</p><p>Notion-style entry with a date</p>
+    </body></html>
+    """
+    versions = SoundForceScraper()._parse_updates(html)
+
+    # Each version is listed twice, once per platform; they must not double up.
+    assert [fw.version for fw in versions] == ["1.11", "1.10", "1.9"]
+    assert versions[0].release_date is None          # WordPress entries carry no date
+    assert versions[2].release_date.strftime("%Y-%m-%d") == "2025-11-25"
+
+
+def test_soundforce_orders_versions_numerically():
+    """1.11 must outrank 1.9, which string ordering reverses."""
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    html = "<html><body><p>V1.9:</p><p>V1.11:</p><p>V1.10:</p></body></html>"
+    versions = SoundForceScraper()._parse_updates(html)
+
+    assert [fw.version for fw in versions] == ["1.11", "1.10", "1.9"]
+
+
+@pytest.mark.asyncio
+async def test_soundforce_resolves_update_pages_from_the_support_page():
+    """URLs come from the Support page, not from hardcoded WordPress page ids.
+
+    Two of the old ?page_id= values had changed and returned an identical
+    1037-character "Page Not Found".
+    """
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    scraper = SoundForceScraper()
+    support = """
+    <html><body>
+      <a href="https://sound-force.nl/?page_id=5155">SFC-60 V3 updates</a>
+      <a href="https://sound-force.nl/?page_id=5145">SFC-5 V2 updates</a>
+      <a href="https://sound-force.nl/shop">Webshop</a>
+    </body></html>
+    """
+    fetched = []
+
+    async def _page(url, *_args, **_kwargs):
+        fetched.append(url)
+        if url == scraper.SUPPORT_URL:
+            return support
+        return "<html><body><p>V2.7:</p></body></html>"
+
+    scraper.fetch_page_js = _page
+
+    result = await scraper.fetch_firmware_versions("SFC-5", scraper.SUPPORT_URL)
+    assert result.success is True
+    assert result.firmware_versions[0].version == "2.7"
+    # It followed the link the support page gave, not a hardcoded id.
+    assert "page_id=5145" in fetched[-1]
+
+    # A product the support page does not link is a failure, not an empty success.
+    missing = await scraper.fetch_firmware_versions("SFC-8", scraper.SUPPORT_URL)
+    assert missing.success is False
+
+
+@pytest.mark.asyncio
+async def test_soundforce_fetches_the_support_page_once():
+    """The index is shared by every device."""
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    scraper = SoundForceScraper()
+    support_fetches = []
+
+    async def _page(url, *_args, **_kwargs):
+        if url == scraper.SUPPORT_URL:
+            support_fetches.append(url)
+            return '<html><body><a href="/u">SFC-60 V3 updates</a><a href="/u">SFC-5 V2 updates</a></body></html>'
+        return "<html><body><p>V1.11:</p></body></html>"
+
+    scraper.fetch_page_js = _page
+
+    for name in ("SFC-60", "SFC-5"):
+        assert (await scraper.fetch_firmware_versions(name, scraper.SUPPORT_URL)).success
+
+    assert len(support_fetches) == 1
