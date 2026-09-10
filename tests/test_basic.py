@@ -100,3 +100,51 @@ async def test_api_scrapers(client):
     assert "qsc" in data["scrapers"]
     assert "nativeinstruments" in data["scrapers"]
     assert "uaudio" in data["scrapers"]
+
+
+@pytest.mark.asyncio
+async def test_scrape_summary_reports_devices_without_firmware():
+    """A device whose firmware fetch yields nothing must be named in the summary.
+
+    Scrapers routinely return success=True with an empty version list, so without
+    this the caller cannot tell a clean scrape from one that found nothing.
+    """
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+
+    class _StubScraper(BaseScraper):
+        manufacturer_name = "Stub Audio"
+        manufacturer_slug = "stubaudio"
+        manufacturer_website = "https://stub.example.com"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(
+                success=True,
+                devices=[
+                    ScrapedDevice("Has Firmware", "guitar_pedal", "https://stub.example.com/a"),
+                    ScrapedDevice("Empty Success", "guitar_pedal", "https://stub.example.com/b"),
+                    ScrapedDevice("Hard Failure", "guitar_pedal", "https://stub.example.com/c"),
+                ],
+            )
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            if device_name == "Has Firmware":
+                return ScraperResult(success=True, firmware_versions=[ScrapedFirmware("1.0")])
+            if device_name == "Empty Success":
+                # The silent-failure shape: reports success, returns nothing.
+                return ScraperResult(success=True, firmware_versions=[])
+            return ScraperResult(success=False, error="page returned no firmware content")
+
+    ScraperRegistry.register(_StubScraper)
+    try:
+        async with test_session_maker() as db:
+            result = await scraper_service.scrape_manufacturer(db, "stubaudio")
+
+        assert result["success"] is True
+        without = result["devices_without_firmware"]
+        assert "Empty Success" in without
+        assert "Hard Failure" in without
+        assert "Has Firmware" not in without
+    finally:
+        ScraperRegistry._scrapers.pop("stubaudio", None)

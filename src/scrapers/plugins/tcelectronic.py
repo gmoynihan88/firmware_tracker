@@ -328,4 +328,17 @@ class TCElectronicScraper(BaseScraper):
                     )
                 )
 
+        # Report failure rather than an empty success. TC Electronic product pages
+        # render as a JS shell that yields no firmware content, so an empty result
+        # here means the scrape did not work -- not that the product has no updates.
+        if not unique:
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"No firmware found for {device_name} "
+                    f"(modelCode={model_code or 'unknown'}): product page returned no "
+                    "firmware content and no API endpoint responded"
+                ),
+            )
+
         return ScraperResult(success=True, firmware_versions=unique)
