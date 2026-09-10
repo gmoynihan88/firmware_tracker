@@ -84,9 +84,19 @@
 
 html {
     scroll-behavior: smooth;
-    /* Reserve the scrollbar's width at all times. Without this, filtering down to
-       zero rows makes the page short enough to drop its scrollbar, and every
-       centred element jumps sideways into the reclaimed width. */
+    /* Keep the scrollbar's width reserved at all times. Without this, filtering
+       down to zero rows makes the page short enough to drop its scrollbar, the
+       viewport gains ~15px, and .container's `margin: 0 auto` re-centres every
+       element 7.5px to the right.
+
+       overflow-y does the work, because it is supported everywhere; Safari only
+       gained scrollbar-gutter in 18.2, which is why the gutter alone did not fix
+       this. The gutter stays for browsers that honour it -- where overflow-y is
+       already forcing a scrollbar the two reserve the same space, not two lots.
+
+       Neither costs anything under macOS overlay scrollbars, which take no width
+       and so never caused the shift. */
+    overflow-y: scroll;
     scrollbar-gutter: stable;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
