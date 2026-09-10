@@ -3,7 +3,6 @@ import logging
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from src.auth.middleware import SESSION_COOKIE
 from src.auth.security import issue_token, verify_password
@@ -12,7 +11,8 @@ from src.config import get_settings
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
-templates = Jinja2Templates(directory=str(settings.templates_dir))
+# Shared environment, so asset_version() is available to every template.
+from src.templating import templates  # noqa: E402
 
 router = APIRouter(tags=["auth"])
 
