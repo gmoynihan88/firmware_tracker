@@ -19,7 +19,8 @@
 
 {% if devices %}
 {# Collect unique manufacturers from devices #}
-{% set manufacturers = devices | map(attribute='device.device_model.manufacturer') | list | unique(attribute='slug') | list %}
+{# Derived from the tracked devices, so the filter only offers brands you own, not every manufacturer in the catalogue. Sorted for scanning. #}
+{% set manufacturers = devices | map(attribute='device.device_model.manufacturer') | list | unique(attribute='slug') | sort(attribute='name') | list %}
 
 <div class="filter-bar">
     <span class="filter-label">Filter by type:</span>
@@ -29,28 +30,28 @@
     </div>
     <div class="filter-checkboxes" id="category-filters">
         <label class="filter-checkbox">
-            <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
-            <span class="filter-chip">Guitar Pedal</span>
-        </label>
-        <label class="filter-checkbox">
             <input type="checkbox" value="audio_interface" checked onchange="filterDevices()">
             <span class="filter-chip">Audio Interface</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="synthesizer" checked onchange="filterDevices()">
-            <span class="filter-chip">Synthesizer</span>
+            <input type="checkbox" value="guitar_pedal" checked onchange="filterDevices()">
+            <span class="filter-chip">Guitar Pedal</span>
         </label>
         <label class="filter-checkbox">
             <input type="checkbox" value="midi_controller" checked onchange="filterDevices()">
             <span class="filter-chip">MIDI Controller</span>
         </label>
         <label class="filter-checkbox">
-            <input type="checkbox" value="vst_plugin" checked onchange="filterDevices()">
-            <span class="filter-chip">VST Plugin</span>
-        </label>
-        <label class="filter-checkbox">
             <input type="checkbox" value="other" checked onchange="filterDevices()">
             <span class="filter-chip">Other</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="synthesizer" checked onchange="filterDevices()">
+            <span class="filter-chip">Synthesizer</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="vst_plugin" checked onchange="filterDevices()">
+            <span class="filter-chip">VST Plugin</span>
         </label>
     </div>
 </div>
@@ -98,7 +99,8 @@
                 <th class="sortable" data-column="2" scope="col">Category</th>
                 <th class="sortable numeric" data-column="3" scope="col">Installed</th>
                 <th class="sortable numeric" data-column="4" scope="col">Latest</th>
-                <th class="sortable" data-column="5" scope="col">Status</th>
+                <th class="sortable" data-column="5" scope="col">Discovered</th>
+                <th class="sortable" data-column="6" scope="col">Status</th>
                 <th scope="col"><span class="visually-hidden">Details</span></th>
             </tr>
         </thead>
@@ -116,6 +118,9 @@
                 <td class="cell-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</td>
                 <td class="cell-version">{{ item.device.current_firmware_version or '—' }}</td>
                 <td class="cell-version">{% if item.latest_firmware %}{{ item.latest_firmware.version }}{% else %}—{% endif %}</td>
+                <td class="cell-date" title="When a scrape first recorded this version">
+                    {% if item.latest_firmware and item.latest_firmware.created_at %}{{ item.latest_firmware.created_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+                </td>
                 <td class="cell-status">
                     {% if item.status == 'update' %}
                     <span class="status-indicator update">Update</span>

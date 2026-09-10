@@ -406,7 +406,7 @@ body {
 .filter-checkboxes {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-sm);
+    gap: 0.3rem;
 }
 
 .filter-checkbox {
@@ -422,12 +422,15 @@ body {
 }
 
 .filter-chip {
+    /* Denser than the original: with 17 brands plus categories and statuses, the
+       filter bars took more vertical space than the table they filter. */
     display: inline-block;
-    padding: 0.375rem 0.75rem;
+    padding: 0.1875rem 0.5rem;
     background: var(--surface-600);
     border: var(--border-subtle);
     border-radius: var(--radius-md);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
     color: var(--text-secondary);
     transition: var(--transition-fast);
 }

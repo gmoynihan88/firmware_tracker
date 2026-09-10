@@ -1532,3 +1532,66 @@ async def test_dashboard_row_links_to_the_device_detail_page(client):
 
     html = (await client.get("/")).text
     assert f'href="/devices/{device.id}"' in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_filter_chips_are_alphabetical(client):
+    """Seventeen brands in insertion order is a list you have to read twice.
+
+    Status is deliberately left in severity order rather than alphabetised.
+    """
+    import re
+
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        # Created deliberately out of alphabetical order.
+        for name, slug in (("Zeta Audio", "zeta"), ("Alpha Audio", "alpha"), ("Mid Audio", "mid")):
+            mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=name, slug=slug))
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=f"{name} Box", category=DeviceCategory.OTHER,
+            ))
+            await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    brands = re.findall(
+        r'filter-chip">([^<]+)<',
+        re.search(r'id="brand-filters"(.*?)</div>', html, re.S).group(1),
+    )
+    assert brands == ["Alpha Audio", "Mid Audio", "Zeta Audio"]
+
+    categories = re.findall(
+        r'filter-chip">([^<]+)<',
+        re.search(r'id="category-filters"(.*?)</div>', html, re.S).group(1),
+    )
+    assert categories == sorted(categories)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
+    """The discovery date is the scrape that first recorded the version."""
+    from datetime import datetime
+
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="DateCo", slug="dateco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Dated Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.2.0", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    assert ">Discovered<" in html
+    assert firmware.created_at.strftime("%Y-%m-%d") in html
