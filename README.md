@@ -1,5 +1,7 @@
 # Firmware Tracker
 
+[![CI](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml)
+
 A self-hosted web app that scrapes manufacturer websites for firmware and software updates across music production hardware and VST plugins. Track your gear, get notified when updates drop.
 
 ## What it does
@@ -32,6 +34,8 @@ uvicorn src.main:app --reload
 
 Open http://localhost:8000.
 
+> **Note:** the app ships with no authentication. Keep it bound to localhost or put it behind an authenticating reverse proxy — see [Security](#security).
+
 ## Configuration
 
 Copy `.env.example` to `.env` (or export the variables):
@@ -41,6 +45,27 @@ Copy `.env.example` to `.env` (or export the variables):
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
 | `SCRAPE_INTERVAL_HOURS` | `6` | How often the scheduler checks for updates |
+
+## Security
+
+**There is no authentication.** Every route is open to anyone who can reach the port,
+including the write endpoints:
+
+- `POST /api/firmware/scrape-all` and `POST /api/firmware/scrape/{manufacturer}` — anyone
+  who can reach the server can trigger outbound scraping of 20 manufacturer sites, which
+  is both slow and a good way to get your IP rate-limited
+- `POST`/`PATCH`/`DELETE` on `/api/manufacturers`, `/api/device-models`, `/api/my-devices` —
+  full unauthenticated CRUD over your tracked gear
+
+This is intentional for a single-user, self-hosted tool on a trusted network. It is *not*
+safe to expose directly to the internet. Until authentication lands, run it bound to
+localhost (the `uvicorn` default) or behind a reverse proxy that handles auth.
+
+Also worth knowing:
+
+- `ANTHROPIC_API_KEY` is read from `.env`, which is gitignored. Keep it that way.
+- Scrapers send a browser `User-Agent` and rate-limit themselves via `RATE_LIMIT_DELAY`.
+  Be considerate about scrape frequency — `SCRAPE_INTERVAL_HOURS` defaults to 6.
 
 ## Usage
 
