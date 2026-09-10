@@ -150,44 +150,75 @@ async def test_scrape_summary_reports_devices_without_firmware():
         ScraperRegistry._scrapers.pop("stubaudio", None)
 
 
-@pytest.mark.asyncio
-async def test_tcelectronic_distinguishes_empty_page_from_no_firmware():
-    """A rendered page with no firmware is a valid empty result; a shell is a failure.
+def _rsc_page(downloads_json: str) -> str:
+    """Build a page that mimics Next.js RSC streaming, splitting mid-value.
 
-    Hall of Fame 2 is TonePrint-only and genuinely ships no firmware, so reporting it
-    as a scrape failure would be a false alarm. A few hundred characters of unrendered
-    JS shell, on the other hand, means the fetch really did fail.
+    The payload is deliberately cut across two pushes so the test fails if the
+    parser goes back to scanning the raw document.
+    """
+    import json as _json
+
+    payload = '{"product":{"downloads":' + downloads_json + '}}'
+    half = len(payload) // 2
+    parts = [payload[:half], payload[half:]]
+    pushes = "".join(
+        f'<script>self.__next_f.push([1,{_json.dumps(part)}])</script>' for part in parts
+    )
+    return f"<html><body>{pushes}</body></html>"
+
+
+def test_tcelectronic_parses_firmware_from_rsc_payload():
+    """Firmware entries with a version are kept; drivers, manuals and notes are not."""
+    from src.scrapers.plugins.tcelectronic import TCElectronicScraper
+
+    scraper = TCElectronicScraper()
+    downloads = """[
+        {"title": "Firmware Release Notes", "downloadType": "Firmware", "version": null,
+         "fileUrl": "https://example.invalid/notes"},
+        {"title": "Ditto Plus Firmware Mac", "downloadType": "Firmware", "version": "1.0.14",
+         "fileUrl": "https://example.invalid/DittoPlus-1.0.14.dmg"},
+        {"title": "Quick Start Guide", "downloadType": "Manual", "version": null,
+         "fileUrl": "https://example.invalid/qsg.pdf"},
+        {"title": "Ditto Plus Firmware PC", "downloadType": "Driver", "version": null,
+         "fileUrl": "https://example.invalid/pc"},
+        {"title": "Labelled", "downloadType": "Firmware", "version": "Version 1.3.11",
+         "fileUrl": "https://example.invalid/x3"}
+    ]"""
+
+    parsed = scraper._extract_rsc_downloads(_rsc_page(downloads))
+    assert parsed is not None and len(parsed) == 5
+
+    firmware = scraper._firmware_from_downloads(parsed)
+    # Release notes have no version, so they drop out; the label is stripped.
+    assert [f.version for f in firmware] == ["1.0.14", "1.3.11"]
+    assert firmware[0].download_url.endswith("DittoPlus-1.0.14.dmg")
+
+
+def test_tcelectronic_no_downloads_array_is_a_failure():
+    """A page without the payload is a scrape failure, not an absence of firmware."""
+    from src.scrapers.plugins.tcelectronic import TCElectronicScraper
+
+    scraper = TCElectronicScraper()
+    assert scraper._extract_rsc_downloads("<html><body>Loading</body></html>") is None
+    assert scraper._extract_rsc_downloads("") is None
+
+
+def test_tcelectronic_empty_downloads_is_not_a_failure():
+    """A rendered page listing no firmware is a valid, empty result.
+
+    Hall of Fame 2 is the real case: TonePrint app and manuals, no firmware.
     """
     from src.scrapers.plugins.tcelectronic import TCElectronicScraper
 
     scraper = TCElectronicScraper()
-    url = "https://www.tcelectronic.com/en/products/0709-ZZZ"
+    downloads = """[
+        {"title": "TonePrint App", "downloadType": "Software", "version": "4.7.2",
+         "fileUrl": "https://example.invalid/toneprint"},
+        {"title": "Quick Start Guide", "downloadType": "Manual", "version": null,
+         "fileUrl": "https://example.invalid/qsg.pdf"}
+    ]"""
 
-    async def _no_api(model_code):
-        return []
-
-    scraper._try_api_fetch = _no_api
-    scraper.fetch_page = lambda *a, **kw: _async_none()
-
-    # Rendered page, no firmware section -> success with an empty list.
-    rendered = "<html><body>" + ("TonePrint app and product blurb. " * 60) + "</body></html>"
-    scraper.fetch_page_js = lambda *a, **kw: _async_value(rendered)
-    result = await scraper.fetch_firmware_versions("Hall of Fame 2", url)
-    assert result.success is True
-    assert result.firmware_versions == []
-
-    # Unrendered shell -> failure, with the character count in the error.
-    scraper.fetch_page_js = lambda *a, **kw: _async_value("<html><body>Loading</body></html>")
-    result = await scraper.fetch_firmware_versions("Hall of Fame 2", url)
-    assert result.success is False
-    assert "below the" in result.error
-
-    await scraper.close()
-
-
-async def _async_value(value):
-    return value
-
-
-async def _async_none():
-    return None
+    parsed = scraper._extract_rsc_downloads(_rsc_page(downloads))
+    assert parsed == parsed and len(parsed) == 2
+    # Software and manuals are not firmware, so nothing is reported for the device.
+    assert scraper._firmware_from_downloads(parsed) == []

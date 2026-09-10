@@ -11,6 +11,7 @@ from src.devices.schemas import (
     ManufacturerCreate,
     ManufacturerUpdate,
     DeviceModelCreate,
+    DeviceModelUpdate,
     FirmwareVersionCreate,
     NotificationCreate,
 )
@@ -56,11 +57,13 @@ async def sync_devices(
 ) -> dict:
     """Sync scraped devices with database."""
     existing_models = await device_service.get_device_models(db, manufacturer_id)
-    existing_names = {m.name for m in existing_models}
+    existing_by_name = {m.name: m for m in existing_models}
 
     created = 0
+    updated = 0
     for device in devices:
-        if device.name not in existing_names:
+        existing = existing_by_name.get(device.name)
+        if existing is None:
             await device_service.create_device_model(
                 db,
                 DeviceModelCreate(
@@ -72,8 +75,23 @@ async def sync_devices(
                 ),
             )
             created += 1
+            continue
 
-    return {"created": created, "total": len(devices)}
+        # Refresh URLs that have moved. Without this a scraper can never correct a
+        # dead link for a device already in the database -- the stale URL is used
+        # forever and every fetch for that device fails.
+        changes = {}
+        if device.firmware_page_url and device.firmware_page_url != existing.firmware_page_url:
+            changes["firmware_page_url"] = device.firmware_page_url
+        if device.product_url and device.product_url != existing.product_url:
+            changes["product_url"] = device.product_url
+        if changes:
+            await device_service.update_device_model(
+                db, existing.id, DeviceModelUpdate(**changes)
+            )
+            updated += 1
+
+    return {"created": created, "updated": updated, "total": len(devices)}
 
 
 def parse_version(version: str) -> tuple:
