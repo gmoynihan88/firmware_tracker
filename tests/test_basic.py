@@ -1479,3 +1479,163 @@ def test_auth_stays_off_if_only_half_configured():
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="", secret_key="k")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="k")) is True
+
+
+@pytest.mark.asyncio
+async def test_dashboard_renders_a_table_with_the_expected_columns(client):
+    """One row per device, dense enough to scan 71 of them."""
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="TableCo", slug="tableco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Table Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.0.6", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="2.0.5", notify_on_update=True,
+        ))
+
+    html = (await client.get("/")).text
+
+    for column in ("Vendor", "Product", "Category", "Installed", "Latest", "Status"):
+        assert f">{column}<" in html, column
+
+    assert html.count('class="device-row') == 1
+    assert "TableCo" in html
+    assert "2.0.5" in html and "2.0.6" in html
+    # The row still carries the filter attributes.
+    assert 'data-status="update"' in html
+    assert 'data-brand="tableco"' in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_row_links_to_the_device_detail_page(client):
+    from src.devices.schemas import (
+        DeviceModelCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="LinkCo", slug="linkco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Link Pedal", category=DeviceCategory.GUITAR_PEDAL,
+        ))
+        device = await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+    assert f'href="/devices/{device.id}"' in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_filter_chips_are_alphabetical(client):
+    """Seventeen brands in insertion order is a list you have to read twice.
+
+    Status is deliberately left in severity order rather than alphabetised.
+    """
+    import re
+
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        # Created deliberately out of alphabetical order.
+        for name, slug in (("Zeta Audio", "zeta"), ("Alpha Audio", "alpha"), ("Mid Audio", "mid")):
+            mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=name, slug=slug))
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=f"{name} Box", category=DeviceCategory.OTHER,
+            ))
+            await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    def chip_labels(group_id: str) -> list:
+        """Chip text, past the drawn checkbox element that precedes it."""
+        block = re.search(rf'id="{group_id}"(.*?)</div>', html, re.S).group(1)
+        return [label.strip() for label in re.findall(r'</span>([^<]+)</span>', block)]
+
+    assert chip_labels("brand-filters") == ["Alpha Audio", "Mid Audio", "Zeta Audio"]
+
+    categories = chip_labels("category-filters")
+    assert categories and categories == sorted(categories)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
+    """The discovery date is the scrape that first recorded the version."""
+    from datetime import datetime
+
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="DateCo", slug="dateco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Dated Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.2.0", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    assert ">Discovered<" in html
+    assert firmware.created_at.strftime("%Y-%m-%d") in html
+
+
+async def _seed_one_device(name: str = "Filter Box", slug: str = "filterco"):
+    """The dashboard renders no filter bars when nothing is tracked."""
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=name, slug=slug))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name=f"{name} One", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+
+@pytest.mark.asyncio
+async def test_status_filter_comes_first(client):
+    """Status is the filter people reach for, so it leads.
+
+    Then brand, then device type.
+    """
+    import re
+
+    await _seed_one_device()
+    html = (await client.get("/")).text
+    order = re.findall(r'id="(status|brand|category)-filters"', html)
+
+    assert order == ["status", "brand", "category"]
+
+
+@pytest.mark.asyncio
+async def test_every_filter_chip_draws_a_checkbox(client):
+    """The native input is hidden, so the chip has to show the state itself.
+
+    Colour alone is not enough: the table already uses colour for "update
+    available", so a coloured chip read as a warning rather than a selection.
+    """
+    import re
+
+    await _seed_one_device()
+    html = (await client.get("/")).text
+
+    chips = re.findall(r'<span class="filter-chip">(.*?)</span>\s*</label>', html, re.S)
+    assert chips, "expected filter chips"
+    assert all('<span class="chip-box"></span>' in chip for chip in chips)

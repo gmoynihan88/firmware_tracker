@@ -406,7 +406,7 @@ body {
 .filter-checkboxes {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-sm);
+    gap: 0.3rem;
 }
 
 .filter-checkbox {
@@ -422,20 +422,69 @@ body {
 }
 
 .filter-chip {
-    display: inline-block;
-    padding: 0.375rem 0.75rem;
+    /* Denser than the original: with 17 brands plus categories and statuses, the
+       filter bars took more vertical space than the table they filter. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.1875rem 0.5rem;
     background: var(--surface-600);
     border: var(--border-subtle);
     border-radius: var(--radius-md);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
     color: var(--text-secondary);
     transition: var(--transition-fast);
 }
 
+/* A real checkbox, drawn. The native input is hidden for styling, so without this
+   the only signal that a filter is on is the chip's colour -- which is the same
+   signal the table uses for "update available", and read as a warning. */
+.chip-box {
+    position: relative;
+    flex: none;
+    width: 0.85em;
+    height: 0.85em;
+    border: 1px solid var(--border-medium, rgba(148, 163, 184, 0.5));
+    border-radius: 3px;
+    background: transparent;
+    transition: var(--transition-fast);
+}
+
+.filter-checkbox input:checked + .filter-chip .chip-box {
+    background: var(--signal-blue);
+    border-color: var(--signal-blue);
+}
+
+/* The tick itself: two borders on a rotated box, so it needs no font or image. */
+.filter-checkbox input:checked + .filter-chip .chip-box::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 0.2em;
+    height: 0.42em;
+    border: solid #0b1220;
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
 .filter-checkbox input:checked + .filter-chip {
-    background: var(--amber-glow);
-    border-color: var(--amber-500);
-    color: var(--amber-400);
+    /* Neutral rather than amber: selected is a state, not a warning. */
+    background: rgba(148, 163, 184, 0.14);
+    border-color: var(--border-medium, rgba(148, 163, 184, 0.45));
+    color: var(--text-primary);
+}
+
+/* Unselected should read as "off", not "disabled" -- keep it legible. */
+.filter-checkbox input:not(:checked) + .filter-chip {
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+
+.filter-checkbox input:focus-visible + .filter-chip {
+    outline: 2px solid var(--signal-blue);
+    outline-offset: 1px;
 }
 
 .filter-checkbox:hover .filter-chip {
@@ -2070,4 +2119,101 @@ select:disabled {
     font-weight: 600;
     font-size: 0.9375rem;
     cursor: pointer;
+}
+
+/* Device table ----------------------------------------------------------- */
+
+.device-table-wrap {
+    /* The table is the one thing allowed to scroll sideways on a narrow screen. */
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.18));
+    border-radius: 12px;
+}
+
+.device-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.device-table th,
+.device-table td {
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.device-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-raised, #14181f);
+    border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.25));
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+}
+
+.device-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.device-table th.sortable:hover { color: var(--text-primary); }
+
+/* Direction arrow, so the active sort is visible without reading the data. */
+.device-table th.sortable[data-direction="asc"]::after { content: " \2191"; }
+.device-table th.sortable[data-direction="desc"]::after { content: " \2193"; }
+
+.device-table tbody tr {
+    border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.10));
+}
+
+.device-table tbody tr:hover {
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.device-table tbody tr.has-update {
+    /* A left edge rather than a full row tint: legible without shouting. */
+    box-shadow: inset 3px 0 0 var(--amber-400, #fbbf24);
+}
+
+.cell-product a {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.cell-product a:hover { text-decoration: underline; }
+
+.cell-sub {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.cell-version {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.cell-category { color: var(--text-tertiary); }
+
+.cell-link {
+    color: var(--text-tertiary);
+    text-decoration: none;
+    font-size: 0.8125rem;
+}
+
+.cell-link:hover { color: var(--text-primary); }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
