@@ -1283,3 +1283,72 @@ async def test_soundforce_fetches_the_support_page_once():
         assert (await scraper.fetch_firmware_versions(name, scraper.SUPPORT_URL)).success
 
     assert len(support_fetches) == 1
+
+
+@pytest.mark.asyncio
+async def test_health_is_liveness_and_touches_nothing(client):
+    """Liveness must not depend on the database.
+
+    If it did, a slow disk would have the orchestrator kill and replace tasks, which
+    does not fix a slow disk.
+    """
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["uptime_seconds"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_the_database(client):
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "database": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_readiness_returns_503_when_the_database_is_unreachable(client):
+    """A failing probe answers 503 with a reason, rather than raising.
+
+    A health check that returns an empty error is one you end up debugging by hand.
+    """
+    from src.database import get_db
+    from src.main import app
+
+    async def _broken_db():
+        class _Failing:
+            async def execute(self, *_args, **_kwargs):
+                raise RuntimeError("unable to open database file")
+
+            async def close(self):
+                return None
+
+        yield _Failing()
+
+    previous = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = _broken_db
+    try:
+        response = await client.get("/health/ready")
+    finally:
+        if previous is not None:
+            app.dependency_overrides[get_db] = previous
+        else:
+            app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "unavailable"
+    assert body["database"] == "unreachable"
+    assert "unable to open database file" in body["detail"]
+
+
+@pytest.mark.asyncio
+async def test_health_endpoints_are_not_under_the_api_prefix(client):
+    """A load balancer does not know about /api and cannot present credentials."""
+    from src.main import app
+
+    paths = set(app.openapi()["paths"])
+    assert "/health" in paths and "/health/ready" in paths
+    assert not any(p.startswith("/api") and "health" in p for p in paths)

@@ -6,6 +6,7 @@ from src.config import get_settings
 from src.database import init_db
 from src.devices.router import router as devices_router
 from src.firmware.router import router as firmware_router
+from src.health.router import router as health_router
 from src.web.router import router as web_router
 from src.scheduler.scheduler import start_scheduler, shutdown_scheduler
 
@@ -34,6 +35,10 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 
 # Include API routers
+# Health endpoints are deliberately unprefixed and unauthenticated: a load
+# balancer cannot present credentials and does not know about /api.
+app.include_router(health_router)
+
 app.include_router(devices_router, prefix="/api", tags=["devices"])
 app.include_router(firmware_router, prefix="/api/firmware", tags=["firmware"])
 

@@ -162,6 +162,26 @@ NOTIFY_TRANSPORT=none .venv/bin/python -c "...trigger a scrape..."
 Worth doing while debugging a scraper: a scrape that finds versions for a device you
 track will notify, and repeated runs are how a phone ends up full of the same alert.
 
+### Health checks
+
+Two endpoints, for container orchestration:
+
+```bash
+curl http://localhost:8000/health        # liveness  -> {"status":"ok","uptime_seconds":2.9}
+curl http://localhost:8000/health/ready  # readiness -> {"status":"ok","database":"ok"}
+```
+
+`/health` touches nothing and always answers, so a failure means the process is
+wedged or gone. It deliberately does not check the database: if it did, a slow disk
+would have the orchestrator kill and replace tasks, which does not fix a slow disk.
+
+`/health/ready` runs a trivial query and returns **503** with a reason when the
+database is unreachable. On a deployment where the database is a file on a network
+mount, losing that mount is exactly what this catches.
+
+Both sit outside `/api` and take no authentication — a load balancer cannot present
+credentials, and a 200 here discloses nothing.
+
 ### Database backup
 
 ```bash
