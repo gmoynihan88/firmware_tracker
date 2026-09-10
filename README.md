@@ -48,6 +48,9 @@ Copy `.env.example` to `.env` (or export the variables):
 | `NOTIFY_TRANSPORT` | `none` | Where to deliver notifications: `none` or `ntfy` |
 | `NTFY_TOPIC` | *(none)* | ntfy topic to publish to; required when transport is `ntfy` |
 | `NTFY_SERVER` | `https://ntfy.sh` | ntfy server, for self-hosting |
+| `DEBUG` | `false` | Development mode |
+| `REQUEST_TIMEOUT` | `30` | Seconds before a scraper HTTP request gives up |
+| `RATE_LIMIT_DELAY` | `1.0` | Seconds between requests to the same manufacturer |
 
 ## Security
 
@@ -104,6 +107,29 @@ Or scrape a single manufacturer:
 
 ```bash
 curl -X POST http://localhost:8000/api/firmware/scrape/strymon
+```
+
+A scrape reports what it could not do, not just what it did:
+
+```json
+{
+  "new_firmware_versions": 195,
+  "devices_without_firmware": ["Hall of Fame 2"],
+  "devices_failed": [],
+  "devices_not_checked": []
+}
+```
+
+`devices_without_firmware` are products the manufacturer publishes no firmware for —
+a verified fact, not a failure. `devices_failed` is a fetch or parse that broke.
+`devices_not_checked` is the time budget running out before reaching them.
+
+Scraping only raises notifications for versions it discovers, so a device whose
+installed version you record *after* its latest is already known would never get one.
+This fills those in, and is safe to re-run — one notification per device per version:
+
+```bash
+curl -X POST http://localhost:8000/api/firmware/reconcile-notifications
 ```
 
 ### Notifications
@@ -176,6 +202,22 @@ class MyScraper(BaseScraper):
 
 It's auto-discovered on startup — no registration needed. Add an assertion for the new slug in `tests/test_basic.py::test_api_scrapers`.
 
+Return `success=False` when a fetch or parse breaks, and `success=True` with an empty
+list when the page loaded and the product genuinely has no firmware. Some products
+ship none at all, so the two are not the same thing and the scrape summary reports
+them separately.
+
+### Claude Code skills
+
+`.claude/skills/` carries two skills for this work:
+
+- **`add-scraper`** — conventions for a new plugin.
+- **`debug-scraper`** — a diagnostic ladder for a scraper returning nothing or
+  reporting versions that do not match the vendor. Worth reading before rewriting a
+  parser: the cause is usually a dead URL or a moved data source. Manufacturers
+  restructure their sites regularly, and several have replaced HTML pages with JSON
+  APIs that the page itself calls.
+
 ## Project structure
 
 ```
@@ -191,8 +233,12 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape → sync → notify
     plugins/           # One file per manufacturer (20 scrapers)
+  notifications/
+    transport.py       # Delivery to ntfy, behind a Notifier protocol
+    reconcile.py       # Raises notifications for devices behind their latest
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude API changelog summaries
+.claude/skills/        # Claude Code skills for adding and debugging scrapers
 templates/             # Jinja2 templates
 static/css/            # Stylesheets
 scripts/               # Plugin scanner, backup, utilities
