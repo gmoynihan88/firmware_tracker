@@ -411,3 +411,43 @@ def test_ikmultimedia_does_not_use_kvr_as_a_source():
 
     sources = IKMultimediaScraper()._get_sources_for_product("some-slug", "some.bundle")
     assert [s.name for s in sources] == ["MacUpdater"]
+
+def test_qsc_touchmix_models_map_to_their_own_firmware():
+    """TouchMix-8/-16 share a build; the -30 Pro has its own.
+
+    Matching on the family alone would give every model the first version listed.
+    """
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    text = (
+        "Recommended TouchMix-8/-16 Firmware: 3.0.0955 "
+        "Recommended TouchMix-30 Pro Firmware: 3.0.12462"
+    )
+    scraper = QSCScraper()
+
+    assert scraper._touchmix_version_for("TouchMix-8", text) == "3.0.0955"
+    assert scraper._touchmix_version_for("TouchMix-16", text) == "3.0.0955"
+    assert scraper._touchmix_version_for("TouchMix-30 Pro", text) == "3.0.12462"
+    assert scraper._touchmix_version_for("TouchMix-99", text) is None
+
+
+def test_qsc_k2_version_applies_to_the_whole_series():
+    """The K.2 page states one build for K8.2, K10.2 and K12.2 together."""
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    match = QSCScraper.K2_VERSION.search(
+        "Firmware version for all models: version 2.1.43 Firmware Updater App: version 2.2.6"
+    )
+    assert match and match.group(1) == "2.1.43"
+
+
+@pytest.mark.asyncio
+async def test_qsc_products_without_firmware_are_not_failures():
+    """CP, KS and KLA publish no firmware, so empty is the correct answer."""
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    scraper = QSCScraper()
+    result = await scraper.fetch_firmware_versions("CP12", "https://example.invalid")
+
+    assert result.success is True
+    assert result.firmware_versions == []
