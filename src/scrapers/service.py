@@ -9,6 +9,7 @@ from src.scrapers.registry import ScraperRegistry
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 from src.config import get_settings
 from src.devices import service as device_service
+from src.notifications.reconcile import is_behind
 from src.notifications.transport import get_notifier
 from src.devices.schemas import (
     ManufacturerCreate,
@@ -189,8 +190,11 @@ async def create_update_notifications(
 
     notifications_created = 0
     for my_device in my_devices:
-        # Check if user is not already on this version
-        if my_device.current_firmware_version != new_version:
+        # Same rule as the reconciliation pass, so the two paths cannot disagree.
+        # A plain != notified devices whose installed version is unknown (None is not
+        # equal to anything) and devices running a build newer than the vendor
+        # publishes, neither of which is behind.
+        if is_behind(my_device.current_firmware_version, new_version):
             device_model = await device_service.get_device_model(db, device_model_id)
             title = f"New firmware available: {device_model.name} v{new_version}"
             message = f"A new firmware version ({new_version}) is available for your {my_device.nickname or device_model.name}."

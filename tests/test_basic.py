@@ -880,3 +880,52 @@ async def test_line6_maps_device_names_to_their_release_names():
     # A product genuinely absent from the listing is a failure, not an empty success.
     missing = await scraper.fetch_firmware_versions("Nonexistent Pedal", scraper.FIRMWARE_URL)
     assert missing.success is False
+
+
+@pytest.mark.asyncio
+async def test_scrape_notifications_follow_the_same_rule_as_reconciliation():
+    """Both notification paths must agree on what "behind" means.
+
+    The scrape-time path used a plain !=, which notified devices whose installed
+    version is unknown (None equals nothing) and devices running a build newer than
+    the vendor publishes. Reconciliation skipped both. A Relay G10II with no recorded
+    version was told about firmware 2.06.0 on that basis.
+    """
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.scrapers.service import create_update_notifications
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="NotifyCo", slug="notifyco"))
+
+        async def _model(name):
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.OTHER,
+            ))
+            await ds.create_firmware_version(db, FirmwareVersionCreate(
+                device_model_id=model.id, version="2.0.6", is_latest=True,
+            ))
+            return model
+
+        unknown = await _model("Unknown Install")
+        ahead = await _model("Running Ahead")
+        behind = await _model("Genuinely Behind")
+
+        # No installed version recorded at all.
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=unknown.id, notify_on_update=True,
+        ))
+        # Installed build is newer than what the vendor lists.
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=ahead.id, current_firmware_version="2.0.7", notify_on_update=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=behind.id, current_firmware_version="2.0.5", notify_on_update=True,
+        ))
+
+        assert await create_update_notifications(db, unknown.id, "2.0.6") == 0
+        assert await create_update_notifications(db, ahead.id, "2.0.6") == 0
+        assert await create_update_notifications(db, behind.id, "2.0.6") == 1
