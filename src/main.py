@@ -6,6 +6,8 @@ from src.config import get_settings
 from src.database import init_db
 from src.devices.router import router as devices_router
 from src.firmware.router import router as firmware_router
+from src.auth.middleware import AuthMiddleware, warn_if_unprotected
+from src.auth.router import router as auth_router
 from src.health.router import router as health_router
 from src.web.router import router as web_router
 from src.scheduler.scheduler import start_scheduler, shutdown_scheduler
@@ -18,6 +20,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     await init_db()
+    warn_if_unprotected(settings)
     start_scheduler()
     yield
     # Shutdown
@@ -35,6 +38,12 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 
 # Include API routers
+# Authentication wraps everything except the paths listed in the middleware:
+# health checks, the login page and static assets.
+app.add_middleware(AuthMiddleware)
+
+app.include_router(auth_router)
+
 # Health endpoints are deliberately unprefixed and unauthenticated: a load
 # balancer cannot present credentials and does not know about /api.
 app.include_router(health_router)

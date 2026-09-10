@@ -48,14 +48,36 @@ Copy `.env.example` to `.env` (or export the variables):
 | `NOTIFY_TRANSPORT` | `none` | Where to deliver notifications: `none` or `ntfy` |
 | `NTFY_TOPIC` | *(none)* | ntfy topic to publish to; required when transport is `ntfy` |
 | `NTFY_SERVER` | `https://ntfy.sh` | ntfy server, for self-hosting |
+| `AUTH_PASSWORD_HASH` | *(none)* | Enables authentication; generate with `python -m src.auth.hash_password` |
+| `SECRET_KEY` | *(none)* | Signs session cookies; rotating it logs everyone out |
+| `API_KEY` | *(none)* | Optional `X-API-Key` for scripts |
+| `SESSION_LIFETIME_HOURS` | `336` | How long a login lasts (14 days) |
 | `DEBUG` | `false` | Development mode |
 | `REQUEST_TIMEOUT` | `30` | Seconds before a scraper HTTP request gives up |
 | `RATE_LIMIT_DELAY` | `1.0` | Seconds between requests to the same manufacturer |
 
 ## Security
 
-**There is no authentication.** Every route is open to anyone who can reach the port,
-including the write endpoints:
+**Authentication is off until you configure it.** Generate a password hash and a
+secret key, and put both in `.env`:
+
+```bash
+python -m src.auth.hash_password
+```
+
+The app warns at startup while it is unconfigured, naming what is exposed. With it
+on, everything requires a session except `/health`, `/health/ready`, `/login` and
+`/static` — a load balancer cannot present credentials, and requiring auth to reach
+the login form is a redirect loop.
+
+Scripts can send `X-API-Key` instead of logging in, if `API_KEY` is set. An unset
+`API_KEY` means the header is ignored entirely, not that any key works.
+
+Passwords are hashed with scrypt and sessions are signed with HMAC, both from the
+standard library — no additional dependencies.
+
+**Without it, every route is open** to anyone who can reach the port, including the
+write endpoints:
 
 - `POST /api/firmware/scrape-all` and `POST /api/firmware/scrape/{manufacturer}` — anyone
   who can reach the server can trigger outbound scraping of 20 manufacturer sites, which
@@ -63,9 +85,8 @@ including the write endpoints:
 - `POST`/`PATCH`/`DELETE` on `/api/manufacturers`, `/api/device-models`, `/api/my-devices` —
   full unauthenticated CRUD over your tracked gear
 
-This is intentional for a single-user, self-hosted tool on a trusted network. It is *not*
-safe to expose directly to the internet. Until authentication lands, run it bound to
-localhost (the `uvicorn` default) or behind a reverse proxy that handles auth.
+That default keeps a local install working with no setup, and is fine on localhost.
+Configure authentication before putting this on a public address.
 
 Also worth knowing:
 
