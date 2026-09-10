@@ -17,6 +17,7 @@ services:
       # here is deliberately safe to run unconfigured.
       DATABASE_URL: sqlite+aiosqlite:////data/firmware_tracker.db
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      LOG_HEALTH_CHECKS: "${LOG_HEALTH_CHECKS:-false}"
       SCRAPE_INTERVAL_HOURS: "${SCRAPE_INTERVAL_HOURS:-24}"
       RATE_LIMIT_DELAY: "${RATE_LIMIT_DELAY:-1.0}"
       HTTP_REVALIDATE: "${HTTP_REVALIDATE:-true}"
@@ -34,6 +35,15 @@ services:
       AUTH_PASSWORD_HASH: "${AUTH_PASSWORD_HASH:-}"
       SECRET_KEY: "${SECRET_KEY:-}"
     restart: unless-stopped
+    # Docker's default json-file driver keeps every line forever, so a long-running
+    # container's log is bounded only by the disk. 10MB across 3 files is far more
+    # history than this app produces in a year now that health-check access lines
+    # are filtered out.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   tracker-data:

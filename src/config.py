@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # so INFO vanishes silently -- see src/logging_config.py.
     log_level: str = "INFO"
 
+    # Access lines for /health are dropped by default. A container health check polls
+    # it every 30 seconds, which would be about 95MB of access log a year against
+    # roughly 1MB of scrape results. Set true when debugging the check itself.
+    log_health_checks: bool = False
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./firmware_tracker.db"
 

@@ -74,6 +74,7 @@ Copy `.env.example` to `.env` (or export the variables):
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
 | `LOG_LEVEL` | `INFO` | `DEBUG` adds every fetch; `WARNING` keeps only failures |
+| `LOG_HEALTH_CHECKS` | `false` | Log access lines for `/health` (noisy; a container polls it every 30s) |
 | `SCRAPE_INTERVAL_HOURS` | `24` | How often the scheduler checks for updates |
 | `SCRAPE_CACHE` | `false` | Development only: cache scraped responses on disk |
 | `SCRAPE_CACHE_TTL_HOURS` | `6` | How long a cached response stays usable |
@@ -130,6 +131,23 @@ Also worth knowing:
   with auth if that is not good enough for you.
 - Scrapers rate-limit themselves via `RATE_LIMIT_DELAY` and send a browser
   `User-Agent`. See [Being a good neighbour](#being-a-good-neighbour-to-the-vendors).
+
+## Logs
+
+The app writes to **stderr** and does not rotate anything itself, which is the
+correct division of labour: whatever supervises the process owns retention.
+
+- **Docker** — `docker-compose.yml` caps the json-file driver at 10MB across 3 files.
+  Without that Docker keeps every line forever, bounded only by the disk.
+- **systemd** — journald rotates already; nothing to do.
+- **`uvicorn ... > file &`** — nothing rotates it. Fine for development in `/tmp`;
+  use `logrotate` or a supervisor if you run it that way for real.
+
+Access lines for `/health` are dropped by default, because the container health
+check polls it every 30 seconds. That is 2,880 requests a day and roughly 95MB of
+access log a year, against about 1MB of actual scrape results — so left in, rotation
+would mostly be rotating the health check. Set `LOG_HEALTH_CHECKS=true` when
+debugging the check itself.
 
 ## Being a good neighbour to the vendors
 

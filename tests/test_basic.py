@@ -2406,3 +2406,70 @@ def test_scrape_logs_a_line_per_manufacturer(caplog):
 
     assert "Eventide scraped in 12.3s" in caplog.text
     assert "743 new versions" in caplog.text
+
+
+def _access_record(path: str) -> logging.LogRecord:
+    """Build a record shaped the way uvicorn logs access lines."""
+    return logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("127.0.0.1:1", "GET", path, "1.1", 200),
+        exc_info=None,
+    )
+
+
+def test_health_check_access_lines_are_dropped():
+    """A container health check polls /health every 30s: 2,880 lines a day of nothing."""
+    from src.logging_config import _DropHealthCheckAccess
+
+    drop = _DropHealthCheckAccess()
+
+    assert drop.filter(_access_record("/health")) is False
+    assert drop.filter(_access_record("/health/ready")) is False
+    # A query string must not smuggle it past the check.
+    assert drop.filter(_access_record("/health?debug=1")) is False
+
+
+def test_health_filter_keeps_everything_else():
+    """Matching on the path argument, not the message, so near-misses survive.
+
+    A substring test against the formatted line would also drop /api/health-report
+    and any request whose query string merely mentioned /health.
+    """
+    from src.logging_config import _DropHealthCheckAccess
+
+    drop = _DropHealthCheckAccess()
+
+    for path in ("/", "/catalog", "/healthy", "/api/health-report", "/devices/1?ref=/health"):
+        assert drop.filter(_access_record(path)) is True, path
+
+    # A record that is not shaped like an access line passes through untouched.
+    plain = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, "hello", None, None)
+    assert drop.filter(plain) is True
+
+
+def test_health_filter_is_not_stacked_and_can_be_turned_off():
+    from src.config import Settings
+    from src.logging_config import configure_logging, _DropHealthCheckAccess
+
+    access = logging.getLogger("uvicorn.access")
+    _reset_root_logging()
+    for f in [f for f in access.filters if isinstance(f, _DropHealthCheckAccess)]:
+        access.removeFilter(f)
+    try:
+        settings = Settings(_env_file=None, log_health_checks=False)
+        configure_logging(settings)
+        configure_logging(settings)
+        ours = [f for f in access.filters if isinstance(f, _DropHealthCheckAccess)]
+        assert len(ours) == 1
+
+        # Turning it on removes the filter rather than leaving a stale one behind.
+        configure_logging(Settings(_env_file=None, log_health_checks=True))
+        assert not [f for f in access.filters if isinstance(f, _DropHealthCheckAccess)]
+    finally:
+        _reset_root_logging()
+        for f in [f for f in access.filters if isinstance(f, _DropHealthCheckAccess)]:
+            access.removeFilter(f)
