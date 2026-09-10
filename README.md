@@ -297,6 +297,44 @@ bash scripts/backup_db.sh restore backups/firmware_tracker_YYYYMMDD_HHMMSS.db
 | Tascam | |
 | Yamaha | |
 
+## Alternatives
+
+Worth knowing what else exists before you invest time in this one.
+
+**[FW//RADAR](https://fwradar.com)** is the closest thing, and for tracking hardware
+it is probably the better choice for most people. It is a hosted service covering
+synths, drum machines, samplers, effects and Eurorack, with a device list, version
+history, Telegram and email notifications, and an iPhone app. It also shows used
+market prices, which nothing here does. It is closed-source and not self-hostable,
+and it does not look at what is installed on your machine.
+
+**[thelukehendy/daw-plugin-manager](https://github.com/thelukehendy/daw-plugin-manager)**
+overlaps on the plugin half: a macOS app that scans plugin folders, reads versions
+from bundle metadata and reports installed against latest. The difference is where
+"latest" comes from — it refreshes a curated version catalog, where this project
+scrapes each vendor directly. A catalog is far less work to keep running; scraping
+cannot go stale because nobody updated a file. Pick whichever failure mode you prefer.
+
+**[pluginvault](https://github.com/GalAzu/pluginvault)** organises and
+enables/disables plugins rather than tracking versions.
+**[VST-Version-Scanner](https://github.com/BasShiFteR/VST-Version-Scanner)** reports
+installed VST versions on Windows with nothing to compare them against.
+
+### What is different here
+
+- **Self-hosted and open source.** Your device list stays on your machine.
+- **Hardware and plugins in one place**, rather than one or the other.
+- **Versions are scraped from each vendor**, not curated by hand. That is more
+  fragile and the [debugging skill](.claude/skills/debug-scraper/SKILL.md) exists
+  because of it, but there is no catalog to fall behind.
+- **It says when it does not know.** A vendor that publishes no version produces
+  "Firmware Unknown" rather than a plausible guess — see `universal_audio.py`, whose
+  docstring records every source ruled out.
+
+If you only own hardware and want something that works today, use FW//RADAR. This is
+for people who want the data locally, want plugins covered too, or want to add their
+own vendor.
+
 ## Adding a new scraper
 
 Create a file in `src/scrapers/plugins/` that subclasses `BaseScraper`:
