@@ -13,9 +13,11 @@ class MoogScraper(BaseScraper):
     manufacturer_website = "https://www.moogmusic.com"
 
     # Moog publishes a software update page per product, but only Mariana actually
-    # has one: every other slug -- including invented ones -- returns the same
-    # sixteen-line shell. The old www.moogmusic.com/products/<slug> URLs all 404,
-    # Mariana's included, so the site is no longer a usable source at all.
+    # has one. Every other slug returns the same sixteen-line shell -- verified with
+    # deliberately impossible slugs, so the endpoint answers identically for anything
+    # rather than 404ing on an unknown product. The old
+    # www.moogmusic.com/products/<slug> URLs all 404, Mariana's included, so the site
+    # is no longer a usable source at all.
     SOFTWARE_UPDATE_URL = "https://software.moogmusic.com/softwareUpdate/{slug}"
     SOFTWARE_STORE = "https://software.moogmusic.com/"
 
