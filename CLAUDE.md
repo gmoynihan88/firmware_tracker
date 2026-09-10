@@ -61,6 +61,11 @@ Scrapers live in `src/scrapers/plugins/` and are auto-discovered by `ScraperRegi
 
 `BaseScraper` provides: `fetch_page()` (aiohttp), `fetch_page_js()` (Playwright for JS-rendered pages), `parse_html()` (BeautifulSoup/lxml), rate limiting, session management.
 
+**Skills:** `.claude/skills/` carries two scraper skills — `add-scraper` for writing a
+new plugin, and `debug-scraper` for diagnosing one that returns nothing or reports data
+that does not match the vendor. The debugging ladder there is worth reading before
+rewriting a parser: the failure is usually a dead URL or a moved data source.
+
 **To add a new manufacturer scraper:** Create a new file in `src/scrapers/plugins/`, define a class inheriting `BaseScraper` with the required class attributes and abstract methods. It will be auto-registered. After adding a new scraper, add an assertion for its slug in `tests/test_basic.py::test_api_scrapers`.
 
 **Registry caveat:** `ScraperRegistry` uses class-level state (`_scrapers`, `_initialized`). It persists across tests in the same process, which is fine for read-only checks but matters if a test modifies the registry.

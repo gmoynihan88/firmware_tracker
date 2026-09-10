@@ -454,11 +454,16 @@ async def test_qsc_products_without_firmware_are_not_failures():
 
 
 def test_notifier_defaults_to_disabled():
-    """With no configuration the app still runs; it simply does not deliver."""
+    """With no configuration the app still runs; it simply does not deliver.
+
+    _env_file=None keeps this reading the code's defaults rather than whatever the
+    developer has in .env -- otherwise a configured machine fails a test that CI,
+    which has no .env, passes.
+    """
     from src.config import Settings
     from src.notifications.transport import get_notifier
 
-    assert get_notifier(Settings()).name == "none"
+    assert get_notifier(Settings(_env_file=None)).name == "none"
 
 
 def test_notifier_falls_back_when_misconfigured():
@@ -467,9 +472,11 @@ def test_notifier_falls_back_when_misconfigured():
     from src.notifications.transport import get_notifier
 
     # ntfy selected but no topic to publish to
-    assert get_notifier(Settings(notify_transport="ntfy")).name == "none"
+    assert get_notifier(Settings(_env_file=None, notify_transport="ntfy")).name == "none"
     # a transport that does not exist
-    assert get_notifier(Settings(notify_transport="carrier-pigeon")).name == "none"
+    assert get_notifier(
+        Settings(_env_file=None, notify_transport="carrier-pigeon")
+    ).name == "none"
 
 
 def test_ntfy_endpoint_and_headers():
