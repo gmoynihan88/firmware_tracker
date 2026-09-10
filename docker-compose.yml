@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    image: firmware-tracker
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      # The database. Without this the container is a demo -- every restart loses the
+      # devices you added and the versions discovered so far.
+      - tracker-data:/data
+      # The response store. Worth persisting even though it is only a cache: it holds
+      # the ETags that earn 304s, and a fresh volume means every vendor serves a full
+      # page again on the next run.
+      - tracker-cache:/app/.scrape_cache
+    environment:
+      # Read from a .env file if present, otherwise these defaults apply. Everything
+      # here is deliberately safe to run unconfigured.
+      DATABASE_URL: sqlite+aiosqlite:////data/firmware_tracker.db
+      SCRAPE_INTERVAL_HOURS: "${SCRAPE_INTERVAL_HOURS:-24}"
+      RATE_LIMIT_DELAY: "${RATE_LIMIT_DELAY:-1.0}"
+      HTTP_REVALIDATE: "${HTTP_REVALIDATE:-true}"
+      # Off in a container. It is a debugging tool, and a cached run cannot discover
+      # a new firmware version.
+      SCRAPE_CACHE: "false"
+      # No notifications and no AI summaries unless you configure them.
+      NOTIFY_TRANSPORT: "${NOTIFY_TRANSPORT:-none}"
+      NTFY_TOPIC: "${NTFY_TOPIC:-}"
+      NTFY_SERVER: "${NTFY_SERVER:-https://ntfy.sh}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Authentication is off unless both are set; the app warns at startup. Set them
+      # before binding this to anything but localhost -- see the Security section of
+      # the README.
+      AUTH_PASSWORD_HASH: "${AUTH_PASSWORD_HASH:-}"
+      SECRET_KEY: "${SECRET_KEY:-}"
+    restart: unless-stopped
+
+volumes:
+  tracker-data:
+  tracker-cache:

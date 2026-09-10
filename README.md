@@ -18,6 +18,31 @@ A self-hosted web app that scrapes manufacturer websites for firmware and softwa
 
 ## Quick start
 
+### With Docker
+
+```bash
+git clone https://github.com/gmoynihan88/firmware_tracker.git
+cd firmware_tracker
+docker compose up
+```
+
+Open http://localhost:8000. Nothing else to configure — it starts with no
+notifications, no AI summaries and no authentication, which is safe on localhost.
+
+Two named volumes are used, and both matter. `tracker-data` holds the SQLite
+database, without which every restart loses the devices you added. `tracker-cache`
+holds the response store, which is only a cache but carries the ETags that let
+unchanged vendor pages come back as `304` — a fresh volume means every vendor serves
+a full page again.
+
+The image includes Chromium, because ten of the twenty-two scrapers need a real
+browser. That is most of its size and there is no useful smaller build.
+
+To configure anything, copy `.env.example` to `.env` before starting; compose reads
+it. `PORT` changes the published port.
+
+### Without Docker
+
 Requires Python 3.11+.
 
 ```bash
