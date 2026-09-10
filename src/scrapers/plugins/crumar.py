@@ -12,10 +12,19 @@ class CrumarScraper(BaseScraper):
     manufacturer_slug = "crumar"
     manufacturer_website = "https://www.crumar.it"
 
-    # Known firmware versions (for GitHub-hosted Arduino projects)
-    KNOWN_FIRMWARE = {
+    # No public version source exists for the D9-X. The GitHub repository holds
+    # hardware design files (PCB, Eagle, 3D) with no releases, no tags and no
+    # version string in the sketch, and https://www.crumar.it/downloads/ returns
+    # 404. This value is therefore unverifiable rather than merely unchecked, and
+    # says so in its changelog so it is not mistaken for a real lookup.
+    UNVERIFIED_FIRMWARE = {
         "D9-X": [
-            ("1.0.0", "2019-03-21", "Open source Arduino firmware for GMLAB D9X drawbar controller. Available on GitHub."),
+            (
+                "1.0.0",
+                "2019-03-21",
+                "Unverified: no public version source. The GMLAB D9X repository "
+                "publishes no releases or tags and Crumar's downloads page is gone.",
+            ),
         ],
     }
 
@@ -27,7 +36,8 @@ class CrumarScraper(BaseScraper):
         ("Mojo Desktop", "synthesizer", "https://www.crumar.it/mojo-desktop/"),
     ]
 
-    DOWNLOADS_URL = "https://www.crumar.it/downloads/"
+    # Note: the old /downloads/ path now 404s; product pages are the only route.
+    DOWNLOADS_URL = "https://www.crumar.it/"
 
     async def fetch_device_list(self) -> ScraperResult:
         """Return the list of known Crumar products."""
@@ -47,9 +57,9 @@ class CrumarScraper(BaseScraper):
     ) -> ScraperResult:
         """Fetch firmware versions from Crumar pages."""
         # Use known firmware data for GitHub-hosted projects
-        if device_name in self.KNOWN_FIRMWARE:
+        if device_name in self.UNVERIFIED_FIRMWARE:
             firmware_versions = []
-            for version, date_str, changelog in self.KNOWN_FIRMWARE[device_name]:
+            for version, date_str, changelog in self.UNVERIFIED_FIRMWARE[device_name]:
                 try:
                     release_date = datetime.strptime(date_str, "%Y-%m-%d")
                 except ValueError:

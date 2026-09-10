@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
@@ -95,9 +95,16 @@ class ModarttScraper(BaseScraper):
         ("Pianoteq 9 Pro", "vst_plugin", "https://www.modartt.com/pianoteq_overview"),
     ]
 
-    # Public page for version history
-    VERSION_HISTORY_URL = "https://www.modartt.com/pianoteq_changes"
-    DOWNLOAD_PAGE_URL = "https://www.modartt.com/download"
+    # The /pianoteq_changes page renders nothing server-side; its content is loaded
+    # from this endpoint, which returns {"maj": 9, "min": 25, "html": "<changelog>"}.
+    # maj/min give the shipping release (9.2.5 here) and html the dated history.
+    PRODUCTS_API = "https://www.modartt.com/api/0/products"
+    PRODUCTS_PAYLOAD = {"action": "changelog", "software": "pianoteq"}
+
+    # Changelog entries look like: <div class="mrt-title">9.2.5 (2026/09/09)</div>
+    CHANGELOG_TITLE = re.compile(
+        r"^\s*(\d+(?:\.\d+)+)\s*\((\d{4})/(\d{1,2})/(\d{1,2})\)"
+    )
 
     async def fetch_device_list(self) -> ScraperResult:
         """Return the list of known Modartt products."""
@@ -112,173 +119,87 @@ class ModarttScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
-    def _parse_changelog_page(self, html: str) -> list[ScrapedFirmware]:
-        """Parse the Pianoteq changelog page for version information."""
-        soup = self.parse_html(html)
-        firmware_versions = []
-
-        # Find the changes div which contains the full changelog
-        changes_div = soup.find("div", class_=re.compile(r"changes", re.I))
-        if not changes_div:
-            return []
-
-        text = changes_div.get_text()
-
-        # Pianoteq changelog format: "9.1.0 (12/9/2025)" followed by changes
-        # Pattern matches version with date in parentheses
-        version_pattern = r"(\d+\.\d+\.\d+)\s*\((\d{1,2}/\d{1,2}/\d{4})\)"
-
-        # Split the text by version entries
-        parts = re.split(version_pattern, text)
-
-        # parts will be: [intro, version1, date1, changes1, version2, date2, changes2, ...]
-        # Skip the first element (intro text before first version)
-        i = 1
-        while i < len(parts) - 2:
-            version = parts[i]
-            date_str = parts[i + 1]
-            changes = parts[i + 2].strip() if i + 2 < len(parts) else ""
-
-            # Parse date (MM/DD/YYYY format)
-            release_date = None
-            try:
-                release_date = datetime.strptime(date_str, "%m/%d/%Y")
-            except ValueError:
-                try:
-                    release_date = datetime.strptime(date_str, "%d/%m/%Y")
-                except ValueError:
-                    pass
-
-            # Clean up changelog - take first meaningful lines
-            changelog_lines = [line.strip() for line in changes.split("\n") if line.strip()]
-            changelog = " ".join(changelog_lines[:10])[:500] if changelog_lines else None
-
-            # Only include Pianoteq 8+ versions (skip old 7.x, 6.x, etc.)
-            if version.startswith(("8.", "9.", "10.")):
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        changelog=changelog,
-                    )
-                )
-
-            i += 3
-
-        return firmware_versions
-
     def _major_version_prefix(self, device_name: str) -> str:
-        """Extract major version prefix from device name: 'Pianoteq 8 Pro' → '8.'."""
+        """Extract major version prefix from device name: 'Pianoteq 8 Pro' -> '8.'."""
         m = re.search(r"(\d+)", device_name)
         return f"{m.group(1)}." if m else "8."
+
+    async def _fetch_products_payload(self) -> Optional[dict]:
+        """Fetch the JSON payload backing the changelog page."""
+        await self._rate_limit()
+        session = await self._get_session()
+        try:
+            async with session.post(self.PRODUCTS_API, json=self.PRODUCTS_PAYLOAD) as response:
+                if response.status != 200:
+                    return None
+                return await response.json(content_type=None)
+        except Exception:
+            return None
+
+    def _parse_changelog(self, html: str) -> List[ScrapedFirmware]:
+        """Parse the dated version list out of the changelog markup.
+
+        Only the title divs are read. Scanning raw text picks up version-like
+        strings from the descriptions themselves (an OS version, say) that are not
+        Pianoteq releases at all.
+        """
+        soup = self.parse_html(html)
+        versions = []
+
+        for title in soup.find_all("div", class_="mrt-title"):
+            match = self.CHANGELOG_TITLE.match(title.get_text(" ", strip=True))
+            if not match:
+                continue
+
+            version, year, month, day = match.groups()
+            try:
+                release_date = datetime(int(year), int(month), int(day))
+            except ValueError:
+                release_date = None
+
+            body = title.find_next_sibling()
+            changelog = body.get_text(" ", strip=True)[:500] if body else None
+
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    changelog=changelog or None,
+                )
+            )
+
+        return versions
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch Pianoteq versions from the changelog page using Playwright."""
+        """Fetch Pianoteq versions for the edition's major release.
+
+        Every edition of a major version -- Stage, Standard, Pro -- ships the same
+        build, so they share the changelog and differ only in unlocked features.
+        """
         prefix = self._major_version_prefix(device_name)
 
-        # Try scraping the changelog page with Playwright (JS-rendered)
-        html = await self.fetch_page_js(self.VERSION_HISTORY_URL, wait_for_timeout=15000)
-
-        if html:
-            firmware_versions = [
-                fw for fw in self._parse_changelog_page(html)
+        payload = await self._fetch_products_payload()
+        if payload:
+            versions = [
+                fw for fw in self._parse_changelog(payload.get("html", ""))
                 if fw.version.startswith(prefix)
             ]
-            if firmware_versions:
-                return ScraperResult(success=True, firmware_versions=firmware_versions)
 
-        # Fall back to known firmware data if Playwright scraping fails
-        if device_name in self.KNOWN_FIRMWARE:
-            firmware_versions = []
-            for version, date_str, changelog in self.KNOWN_FIRMWARE[device_name]:
-                try:
-                    release_date = datetime.strptime(date_str, "%Y-%m-%d")
-                except ValueError:
-                    release_date = None
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        changelog=changelog,
-                    )
-                )
-            return ScraperResult(success=True, firmware_versions=firmware_versions)
+            # maj/min name the shipping build, which can lead the changelog.
+            maj, minor = payload.get("maj"), payload.get("min")
+            if isinstance(maj, int) and isinstance(minor, int) and str(maj) == prefix.rstrip("."):
+                current = f"{maj}.{minor // 10}.{minor % 10}"
+                if not any(fw.version == current for fw in versions):
+                    versions.insert(0, ScrapedFirmware(version=current))
 
-        # Try the download page as last resort
-        html = await self.fetch_page(self.DOWNLOAD_PAGE_URL)
-        if not html:
-            html = await self.fetch_page(firmware_page_url)
-        if not html:
-            return ScraperResult(
-                success=False, error=f"Failed to fetch version info"
-            )
+            if versions:
+                return ScraperResult(success=True, firmware_versions=versions)
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
-
-        # Pianoteq versions look like "8.2.1" or "Pianoteq 8.2.1"
-        version_pattern = r"(?:Pianoteq\s+)?(\d+\.\d+(?:\.\d+)?)"
-
-        # Look for download sections or version info
-        sections = soup.find_all(
-            ["div", "section", "p", "td"],
-            class_=re.compile(r"download|version|release|update", re.I)
+        # The API is the only source that carries real versions, so a failure here
+        # is a failure -- falling back to a static table is how this went stale.
+        return ScraperResult(
+            success=False,
+            error=f"Could not read Pianoteq versions for {device_name} from {self.PRODUCTS_API}",
         )
-
-        for section in sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(dmg|pkg|exe|zip)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://www.modartt.com{download_url}"
-
-                # Look for date
-                date_pattern = r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\w+\s+\d{1,2},?\s+\d{4})"
-                date_match = re.search(date_pattern, text)
-                release_date = None
-                if date_match:
-                    date_str = date_match.group(1)
-                    for fmt in ["%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%B %d %Y"]:
-                        try:
-                            release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                            break
-                        except ValueError:
-                            continue
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=text.strip()[:500] if text else None,
-                    )
-                )
-
-        # Fallback: extract any version numbers from page
-        if not firmware_versions:
-            # Look specifically for "Pianoteq X.X.X" patterns
-            matches = re.findall(r"Pianoteq\s+(\d+\.\d+(?:\.\d+)?)", all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
