@@ -16,6 +16,7 @@ services:
       # Read from a .env file if present, otherwise these defaults apply. Everything
       # here is deliberately safe to run unconfigured.
       DATABASE_URL: sqlite+aiosqlite:////data/firmware_tracker.db
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       SCRAPE_INTERVAL_HOURS: "${SCRAPE_INTERVAL_HOURS:-24}"
       RATE_LIMIT_DELAY: "${RATE_LIMIT_DELAY:-1.0}"
       HTTP_REVALIDATE: "${HTTP_REVALIDATE:-true}"

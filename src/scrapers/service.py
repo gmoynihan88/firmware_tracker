@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,8 @@ from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, Scrap
 from src.config import get_settings
 from src.devices import service as device_service
 from src.notifications.reconcile import is_behind
+
+logger = logging.getLogger(__name__)
 from src.notifications.transport import get_notifier
 from src.devices.schemas import (
     ManufacturerCreate,
@@ -248,8 +251,10 @@ async def scrape_manufacturer(
     """
     scraper = ScraperRegistry.create(scraper_type)
     if not scraper:
+        logger.error("Unknown scraper type: %s", scraper_type)
         return {"success": False, "error": f"Unknown scraper type: {scraper_type}"}
 
+    started = time.monotonic()
     try:
         # Ensure manufacturer exists
         manufacturer_id = await ensure_manufacturer(db, scraper)
@@ -283,9 +288,9 @@ async def scrape_manufacturer(
         for index, model in enumerate(device_models):
             if time.monotonic() > deadline:
                 devices_not_checked = [m.name for m in device_models[index:]]
-                print(
-                    f"Budget exhausted for {scraper_type} after {index} of "
-                    f"{len(device_models)} devices; {len(devices_not_checked)} not checked"
+                logger.warning(
+                    "Budget exhausted for %s after %d of %d devices; %d not checked",
+                    scraper_type, index, len(device_models), len(devices_not_checked),
                 )
                 break
 
@@ -298,7 +303,7 @@ async def scrape_manufacturer(
                         timeout=30,
                     )
                 except asyncio.TimeoutError:
-                    print(f"Timeout fetching firmware for {model.name}, skipping")
+                    logger.warning("Timeout fetching firmware for %s, skipping", model.name)
                     devices_failed.append(model.name)
                     continue
                 if fw_result.success and fw_result.firmware_versions:
@@ -321,6 +326,25 @@ async def scrape_manufacturer(
             db, manufacturer_id, ManufacturerUpdate(last_scraped_at=datetime.utcnow())
         )
 
+        # One line per manufacturer, which is what makes a scheduled run reviewable
+        # afterwards: the global totals say something went wrong, this says where.
+        logger.info(
+            "%s scraped in %.1fs: %d new versions, %d notifications, "
+            "%d without firmware, %d failed, %d unchecked",
+            scraper.manufacturer_name,
+            time.monotonic() - started,
+            total_new_firmware,
+            notifications_created,
+            len(devices_without_firmware),
+            len(devices_failed),
+            len(devices_not_checked),
+        )
+        if devices_failed:
+            logger.warning(
+                "%s devices that failed: %s",
+                scraper.manufacturer_name, ", ".join(devices_failed),
+            )
+
         return {
             "success": True,
             "manufacturer": scraper.manufacturer_name,
@@ -333,6 +357,9 @@ async def scrape_manufacturer(
         }
 
     except Exception as e:
+        # The caller only gets str(e), which for most exceptions is a bare message
+        # with no indication of where it came from. Keep the traceback.
+        logger.exception("Scrape of %s failed after %.1fs", scraper_type, time.monotonic() - started)
         return {"success": False, "error": str(e)}
     finally:
         await scraper.close()
