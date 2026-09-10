@@ -75,22 +75,30 @@ which now 404s, and every TC Electronic `modelCode` was dead.
 Also try `fetch_page` (aiohttp). Some vendors block it while allowing a real browser —
 TAL and Modartt both do, which is why `fetch_page_js` exists.
 
-### Always probe with a slug you know is fake
+### Always probe with a slug that cannot possibly be a product
 
-When guessing candidate URLs, include one that cannot exist. Some endpoints never
-404: Moog's `softwareUpdate/<slug>` returns the same sixteen-line shell for every
-slug, so a 200 proves nothing.
+When guessing candidate URLs, include a control: a slug you are certain does not
+exist. Some endpoints never 404. Moog's `softwareUpdate/<slug>` returns the same
+sixteen-line shell for anything, so a 200 there proves nothing.
 
 ```
-model-15          16285b  lines=16  versions=[]
-minimoog-model-d  16325b  lines=16  versions=[]
-moogerfooger      16305b  lines=16  versions=[]   <- invented, responds identically
-mariana           20364b  lines=59  versions=['1.2.0', '1.1.0', '1.0.1']
+mariana                   20364b  lines=59   <- real content
+moogerfooger              16305b  lines=16
+spectravox                16295b  lines=16
+messenger                 16290b  lines=16
+zzqx-not-a-product-9f3a   16360b  lines=16   <- control, responds identically
+definitely-fake-slug-xyz  16365b  lines=16   <- control, responds identically
 ```
 
-Without the invented slug in that list, the honest reading is "those products publish
-no firmware". With it, the reading is "this endpoint answers the same way for
-anything, and only mariana has content" -- a different conclusion entirely.
+Without a control the honest reading is "those products publish no firmware". With
+one it is "this endpoint answers the same way for anything, and only mariana has
+content" -- a different conclusion, reached from the same responses.
+
+**Make the control obviously impossible, like a random string.** The first attempt at
+this used `moogerfooger`, `spectravox` and `messenger` as the fakes. All three are
+real Moog products. A plausible-sounding name you have not heard of is a name you
+have not heard of, not a name that does not exist, and a control chosen that way
+tests nothing. The conclusion happened to survive; the evidence for it did not.
 
 This is the identical-length tell sharpened: comparing two real URLs catches a dead
 path, comparing a real one against a fabricated one catches an endpoint that cannot
