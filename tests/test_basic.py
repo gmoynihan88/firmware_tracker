@@ -513,3 +513,110 @@ async def test_null_notifier_reports_not_delivered():
     from src.notifications.transport import NullNotifier
 
     assert await NullNotifier().send("Title", "Message") is False
+
+
+def test_is_behind_compares_numerically_not_as_strings():
+    """String inequality would flag a device running ahead of the published version.
+
+    That happens in practice: a hotfix that never reached the vendor's list. It also
+    gets 9.2.10 vs 9.2.9 wrong, which string ordering reverses.
+    """
+    from src.notifications.reconcile import is_behind
+
+    assert is_behind("2.0.5", "2.0.6") is True
+    assert is_behind("9.2.4", "9.2.5") is True
+    assert is_behind("9.2.9", "9.2.10") is True   # string compare would say False
+    assert is_behind("2.0.6", "2.0.6") is False
+    assert is_behind("1.7.1", "1.7.0") is False   # installed is ahead
+    # Nothing to compare against.
+    assert is_behind("", "1.0.0") is False
+    assert is_behind("1.0.0", "") is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_notifies_a_device_left_behind():
+    """The case scraping misses: latest was already known when the install was recorded."""
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.notifications.reconcile import reconcile_notifications
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Stub", slug="stub"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Stub Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.0.6", is_latest=True,
+        ))
+        # Installed version recorded after the latest was already in the database.
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="2.0.5", notify_on_update=True,
+        ))
+
+        first = await reconcile_notifications(db)
+        assert first["notifications_created"] == 1
+
+        # Idempotent: running again must not notify a second time.
+        second = await reconcile_notifications(db)
+        assert second["notifications_created"] == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_devices_with_no_installed_version():
+    """Without an installed version a device is unrecorded, not behind."""
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.notifications.reconcile import reconcile_notifications
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Stub2", slug="stub2"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Stub Pedal", category=DeviceCategory.GUITAR_PEDAL,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.5.0", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, notify_on_update=True,
+        ))
+
+        result = await reconcile_notifications(db)
+
+        assert result["notifications_created"] == 0
+        assert result["devices_without_installed_version"] == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_respects_notify_opt_out(client):
+    """A device with notify_on_update off is never notified."""
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.notifications.reconcile import reconcile_notifications
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Stub3", slug="stub3"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Quiet Box", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="3.0.0", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="1.0.0", notify_on_update=False,
+        ))
+
+        assert (await reconcile_notifications(db))["notifications_created"] == 0
+
+    # And the endpoint is reachable.
+    response = await client.post("/api/firmware/reconcile-notifications")
+    assert response.status_code == 200
+    assert "notifications_created" in response.json()
