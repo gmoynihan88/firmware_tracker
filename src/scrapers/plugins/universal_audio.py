@@ -1,51 +1,48 @@
-from datetime import datetime
-
-from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.base import BaseScraper, ScrapedDevice, ScraperResult
 
 
 class UniversalAudioScraper(BaseScraper):
-    """Scraper for Universal Audio UADX plugins.
+    """Universal Audio UADX plugins, whose versions are not published anywhere public.
 
-    UA distributes exclusively through UA Connect — no public version
-    info on their website. Uses hardcoded KNOWN_FIRMWARE data.
+    This scraper deliberately reports no firmware versions. That is the finding, not
+    a gap waiting to be filled, so the search below is written down to save the next
+    person repeating it (checked 2026-09-10):
+
+    - `help.uaudio.com` runs Zendesk and its Help Center API answers fine. There is a
+      "UAD Native Plug-Ins Release Notes" article, which sounds exactly right and is
+      not. It groups changes by month, names the plugins that changed, and gives no
+      version numbers at all -- the only version-shaped strings in it are DAW versions
+      like "Pro Tools 2025.6". Two of the ten products here are mentioned; the rest
+      never appear.
+    - UA Connect fetches `external-content.db` from S3, which would be the manifest.
+      It is an encrypted blob.
+    - `plugins.uaudio.com` returns 403 for everything, including a slug made up to
+      test it, so its refusal says nothing about what exists.
+    - Every `uaudio.com` release-notes path 404s, confirmed against a control URL that
+      returned byte-identical content.
+
+    The previous version of this file carried a `KNOWN_FIRMWARE` table, and the
+    problem with it was worse than going stale. Its ten entries matched the versions
+    installed on the developer's own machine exactly, because that is where they came
+    from. So it reported every UA plugin as up to date by construction, could never
+    report anything else, and paired each version with an invented release date. The
+    app's whole purpose is to say when an update is waiting; for these plugins it
+    cannot, and saying so is more useful than a permanent green tick.
+
+    Devices therefore land in `devices_without_firmware`, show as "Firmware Unknown"
+    on the dashboard, and link to UA's release notes so the check can be done by hand.
     """
 
     manufacturer_name = "Universal Audio"
     manufacturer_slug = "uaudio"
     manufacturer_website = "https://www.uaudio.com"
 
-    KNOWN_FIRMWARE = {
-        "Ampex ATR-102 Tape": [
-            ("1.0.6", "2025-01-01", None),
-        ],
-        "Distressor": [
-            ("1.0.9", "2025-01-01", None),
-        ],
-        "Dream Amp": [
-            ("1.0.5", "2025-01-01", None),
-        ],
-        "Galaxy Tape Echo": [
-            ("1.3.16", "2025-06-01", None),
-        ],
-        "Lion Amp": [
-            ("1.0.5", "2025-01-01", None),
-        ],
-        "Polymax": [
-            ("1.0.16", "2025-06-01", None),
-        ],
-        "Ruby Amp": [
-            ("1.0.5", "2025-01-01", None),
-        ],
-        "Sound City Studios": [
-            ("1.0.9", "2025-01-01", None),
-        ],
-        "Verve": [
-            ("1.0.6", "2025-01-01", None),
-        ],
-        "Waterfall Rotary Speaker": [
-            ("1.2.16", "2025-06-01", None),
-        ],
-    }
+    # The closest thing UA has to a firmware page. It carries no versions, but it is
+    # where a human would look, so it is what the device's "Details" link should open.
+    RELEASE_NOTES_URL = (
+        "https://help.uaudio.com/hc/en-us/articles/"
+        "32181404310420-UAD-Native-Plug-Ins-Release-Notes"
+    )
 
     # Map from plist CFBundleName to human-readable product name
     PLIST_NAME_MAP = {
@@ -75,34 +72,29 @@ class UniversalAudioScraper(BaseScraper):
     ]
 
     async def fetch_device_list(self) -> ScraperResult:
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url,
-            )
-            for name, category, url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category=category,
+                    # firmware_page_url is what a device's "Details" link opens, so it
+                    # points at the release notes rather than the shop page.
+                    firmware_page_url=self.RELEASE_NOTES_URL,
+                    product_url=url,
+                )
+                for name, category, url in self.KNOWN_PRODUCTS
+            ],
+        )
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        if device_name in self.KNOWN_FIRMWARE:
-            firmware_versions = []
-            for version, date_str, changelog in self.KNOWN_FIRMWARE[device_name]:
-                try:
-                    release_date = datetime.strptime(date_str, "%Y-%m-%d")
-                except ValueError:
-                    release_date = None
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        changelog=changelog,
-                    )
-                )
-            return ScraperResult(success=True, firmware_versions=firmware_versions)
+        """Succeed while reporting nothing, because nothing is what UA publishes.
 
+        This is success, not failure: the fetch did not break, the product simply has
+        no discoverable version. The service keeps those apart -- `devices_failed`
+        against `devices_without_firmware` -- and conflating them would either hide a
+        real breakage or raise a false alarm every run.
+        """
         return ScraperResult(success=True, firmware_versions=[])
