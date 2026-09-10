@@ -1,131 +1,180 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class GForceScraper(BaseScraper):
-    """Scraper for GForce Software virtual instruments."""
+    """Scraper for GForce Software instruments.
+
+    Product pages carry no version -- only prices, sample-library sizes and an OS
+    requirement, all of which look like versions to a loose pattern. Every release is
+    instead listed on one Updates And Releases page, which also gives each product's
+    canonical URL. That page is fetched once per scrape and reused.
+
+    The previous /products/<slug>/ URLs were wrong in two ways: the path is singular
+    (/product/), and several slugs have changed.
+    """
 
     manufacturer_name = "GForce Software"
     manufacturer_slug = "gforce"
     manufacturer_website = "https://www.gforcesoftware.com"
 
-    # Known GForce products with public product pages
-    KNOWN_PRODUCTS = [
-        ("M-Tron Pro IV", "vst_plugin", "https://www.gforcesoftware.com/products/m-tron-pro-iv/"),
-        ("M-Tron Pro", "vst_plugin", "https://www.gforcesoftware.com/products/m-tron-pro/"),
-        ("Oberheim OB-E", "vst_plugin", "https://www.gforcesoftware.com/products/oberheim-ob-e/"),
-        ("Oberheim SEM", "vst_plugin", "https://www.gforcesoftware.com/products/oberheim-sem/"),
-        ("impOSCar3", "vst_plugin", "https://www.gforcesoftware.com/products/imposcar3/"),
-        ("Minimonsta2", "vst_plugin", "https://www.gforcesoftware.com/products/minimonsta2/"),
-        ("Virtual String Machine", "vst_plugin", "https://www.gforcesoftware.com/products/virtual-string-machine/"),
-    ]
+    RELEASES_URL = "https://www.gforcesoftware.com/help/updates-and-releases/"
+
+    # Each entry is a div.update-release-item holding a date, the product name, a
+    # <h3>vX.Y.Z</h3>, the notes, and a link to the product.
+    VERSION_HEADING = re.compile(r"^v(\d+(?:\.\d+)+)$")
+    RELEASE_DATE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+
+    # Products renamed since they were first tracked. Without these the scrape
+    # creates a new row under the new name and orphans the old one.
+    RENAMED = {
+        "Virtual String Machine": "VSM IV",
+    }
+
+    # Listed on the site but with no releases of their own: superseded by a later
+    # product that is tracked. Reported as having no firmware rather than as a
+    # failure, since the absence is a fact about the product.
+    SUPERSEDED = {"M-Tron Pro"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._releases: Optional[Dict[str, List[ScrapedFirmware]]] = None
+
+    @staticmethod
+    def _normalise(name: str) -> str:
+        """GForce writes trademark symbols into product names ("Oberheim OB-E®")."""
+        return re.sub(r"\s+", " ", name.replace("®", "").replace("™", "")).strip()
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
+
+    def _parse_releases(self, html: str) -> Dict[str, List[ScrapedFirmware]]:
+        """Build a product -> releases map from the Updates And Releases page."""
+        releases: Dict[str, List[ScrapedFirmware]] = {}
+
+        for row in self.parse_html(html).find_all("div", class_="update-release-item"):
+            description = row.find("div", class_="description")
+            if not description:
+                continue
+
+            heading = description.find("h3")
+            if not heading:
+                continue
+            version_match = self.VERSION_HEADING.match(heading.get_text(strip=True))
+            if not version_match:
+                continue
+
+            release_date = None
+            for text in row.stripped_strings:
+                date_match = self.RELEASE_DATE.match(text)
+                if date_match:
+                    month, day, year = date_match.groups()
+                    try:
+                        release_date = datetime(int(year), int(month), int(day))
+                    except ValueError:
+                        release_date = None
+                    break
+
+            link = description.find("a", class_="product-link")
+            if not link:
+                continue
+            product = self._normalise(link.get_text(strip=True).replace("View", ""))
+            if not product:
+                continue
+
+            notes = description.find("ul")
+            changelog = notes.get_text(" ", strip=True)[:500] if notes else None
+
+            releases.setdefault(product, []).append(
+                ScrapedFirmware(
+                    version=version_match.group(1),
+                    release_date=release_date,
+                    download_url=urljoin(self.manufacturer_website, link.get("href") or ""),
+                    changelog=changelog,
+                )
+            )
+
+        return {
+            product: sorted(items, key=lambda fw: self._version_key(fw.version), reverse=True)
+            for product, items in releases.items()
+        }
+
+    async def _get_releases(self) -> Optional[Dict[str, List[ScrapedFirmware]]]:
+        if self._releases is not None:
+            return self._releases
+
+        html = await self.fetch_page_js(self.RELEASES_URL, wait_for_timeout=25000)
+        if not html:
+            return None
+
+        parsed = self._parse_releases(html)
+        if not parsed:
+            return None
+
+        self._releases = parsed
+        return self._releases
 
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known GForce products."""
+        """Discover products from the releases page, keeping superseded ones listed."""
+        releases = await self._get_releases()
+        if releases is None:
+            return ScraperResult(
+                success=False,
+                error=f"Could not read the GForce releases page at {self.RELEASES_URL}",
+            )
+
         devices = [
             ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url,
+                name=product,
+                category="vst_plugin",
+                firmware_page_url=self.RELEASES_URL,
+                product_url=items[0].download_url or self.manufacturer_website,
             )
-            for name, category, url in self.KNOWN_PRODUCTS
+            for product, items in releases.items()
         ]
+
+        # Keep products that have no releases of their own, so their existing rows do
+        # not become orphans failing every scrape.
+        for name in sorted(self.SUPERSEDED):
+            devices.append(
+                ScrapedDevice(
+                    name=name,
+                    category="vst_plugin",
+                    firmware_page_url=self.RELEASES_URL,
+                    product_url=self.manufacturer_website,
+                )
+            )
+
         return ScraperResult(success=True, devices=devices)
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch versions from a GForce product page."""
-        html = await self.fetch_page(firmware_page_url)
-        if not html:
+        releases = await self._get_releases()
+        if releases is None:
             return ScraperResult(
-                success=False, error=f"Failed to fetch {firmware_page_url}"
+                success=False,
+                error=f"Could not read the GForce releases page at {self.RELEASES_URL}",
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
+        if device_name in self.SUPERSEDED:
+            # Superseded by a later product; GForce lists no releases for it.
+            return ScraperResult(success=True, firmware_versions=[])
 
-        # GForce versions look like "Version 1.0.2" or "v1.0.2"
-        version_pattern = r"[Vv](?:ersion)?\s*(\d+\.\d+(?:\.\d+)?)"
+        lookup = self.RENAMED.get(device_name, device_name)
+        found = releases.get(lookup)
+        if not found:
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"{device_name} has no releases on the GForce updates page "
+                    f"(looked for {lookup!r})"
+                ),
+            )
 
-        # Look for version/specs sections
-        sections = soup.find_all(
-            ["div", "section", "p", "span", "li"],
-            class_=re.compile(r"version|spec|info|detail|feature", re.I)
-        )
-
-        # Also check for any element containing version text
-        version_elements = soup.find_all(
-            string=re.compile(r"[Vv]ersion\s*\d+\.\d+", re.I)
-        )
-
-        for section in sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(dmg|pkg|exe|zip)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://www.gforcesoftware.com{download_url}"
-
-                # Look for date
-                date_pattern = r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\w+\s+\d{1,2},?\s+\d{4}|\d{4})"
-                date_match = re.search(date_pattern, text)
-                release_date = None
-                if date_match:
-                    date_str = date_match.group(1)
-                    if len(date_str) == 4:  # Just year
-                        release_date = datetime(int(date_str), 1, 1)
-                    else:
-                        for fmt in ["%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%B %d %Y"]:
-                            try:
-                                release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                                break
-                            except ValueError:
-                                continue
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                    )
-                )
-
-        # Check version elements
-        for elem in version_elements:
-            if elem and elem.parent:
-                text = elem.parent.get_text()
-                version_match = re.search(version_pattern, text)
-                if version_match:
-                    version = version_match.group(1)
-                    if not any(fw.version == version for fw in firmware_versions):
-                        firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Fallback: scan entire page
-        if not firmware_versions:
-            matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        return ScraperResult(success=True, firmware_versions=found)
