@@ -29,6 +29,14 @@ Prefix manual runs with `NOTIFY_TRANSPORT=none` if a transport is configured.
 Environment variables beat `.env`, and a scrape that finds versions for a tracked
 device will deliver -- repeatedly, across a debugging session.
 
+**Add `SCRAPE_CACHE=1` once you have the page in hand.** Debugging means running the
+same fetch dozens of times against data that has not changed, and the vendors carry
+all of it. The cache stores bodies under `.scrape_cache/` for six hours, keyed on the
+full request, and a hit returns before Playwright launches -- a four-product Steinberg
+run goes 2.25s to 0.00s. Turn it *off* to confirm a fix against the live site, since
+a cached run cannot discover a new version. Delete `.scrape_cache/` to force a refetch
+without changing the flag.
+
 `devices_failed` means the fetch or parse broke. `devices_without_firmware` means the
 scraper succeeded and the product genuinely has none — those are different, and the
 distinction is load-bearing. Do not "fix" the second kind.

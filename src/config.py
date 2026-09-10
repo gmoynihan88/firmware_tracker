@@ -29,14 +29,26 @@ class Settings(BaseSettings):
     ntfy_server: str = "https://ntfy.sh"
 
     # Scraping settings
-    scrape_interval_hours: int = 6
+    #
+    # Firmware ships a few times a year, so checking once a day is already far more
+    # often than the data changes. Four times a day cost the vendors four times as
+    # much for nothing.
+    scrape_interval_hours: int = 24
     request_timeout: int = 30
     rate_limit_delay: float = 1.0  # seconds between requests per manufacturer
+
+    # An on-disk response cache for development only, off by default so production
+    # always fetches live. Debugging a scraper means running it repeatedly against
+    # data that has not changed; SCRAPE_CACHE=1 makes those repeats hit disk instead
+    # of the vendor. See src/scrapers/cache.py.
+    scrape_cache: bool = False
+    scrape_cache_ttl_hours: float = 6.0
 
     # Paths
     base_dir: Path = Path(__file__).parent.parent
     templates_dir: Path = base_dir / "templates"
     static_dir: Path = base_dir / "static"
+    scrape_cache_dir: Path = base_dir / ".scrape_cache"
 
     class Config:
         env_file = ".env"

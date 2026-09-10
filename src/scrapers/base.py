@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 import asyncio
+import json
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -13,6 +14,7 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 from src.config import get_settings
+from src.scrapers.cache import ResponseCache
 
 
 @dataclass
@@ -56,6 +58,14 @@ class BaseScraper(ABC):
         self._session: Optional[aiohttp.ClientSession] = None
         self._playwright = None
         self._browser: Optional["Browser"] = None
+        self._cache: Optional[ResponseCache] = (
+            ResponseCache(
+                self.settings.scrape_cache_dir,
+                self.settings.scrape_cache_ttl_hours * 3600,
+            )
+            if self.settings.scrape_cache
+            else None
+        )
 
     @property
     def scraper_type(self) -> str:
@@ -85,16 +95,61 @@ class BaseScraper(ABC):
 
     async def fetch_page(self, url: str) -> Optional[str]:
         """Fetch a page with rate limiting (static HTML only)."""
+        cached = self._cache.get("GET", url) if self._cache else None
+        if cached is not None:
+            return cached
+
         await self._rate_limit()
         session = await self._get_session()
         try:
             async with session.get(url) as response:
                 if response.status == 200:
-                    return await response.text()
+                    body = await response.text()
+                    if self._cache:
+                        self._cache.set("GET", url, body)
+                    return body
                 return None
         except Exception as e:
             print(f"Error fetching {url}: {e}")
             return None
+
+    async def fetch_json(
+        self, url: str, method: str = "GET", json_body: Optional[dict] = None, **kwargs
+    ) -> Optional[dict]:
+        """Fetch and decode JSON, through the same cache as fetch_page.
+
+        Scrapers that read an API were reaching for the session directly and so sat
+        outside the cache entirely. The request body is part of the cache key,
+        because Modartt picks a product with one.
+        """
+        body_repr = json.dumps(json_body, sort_keys=True) if json_body else None
+        if self._cache:
+            cached = self._cache.get(method, url, body_repr)
+            if cached is not None:
+                try:
+                    return json.loads(cached)
+                except ValueError:
+                    pass  # fall through and refetch
+
+        await self._rate_limit()
+        session = await self._get_session()
+        try:
+            async with session.request(method, url, json=json_body, **kwargs) as response:
+                if response.status != 200:
+                    return None
+                text = await response.text()
+        except Exception as e:
+            print(f"Error fetching {url}: {e}")
+            return None
+
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return None
+
+        if self._cache:
+            self._cache.set(method, url, text, body_repr)
+        return data
 
     async def _get_browser(self) -> "Browser":
         """Get or create a Playwright browser instance."""
@@ -124,6 +179,19 @@ class BaseScraper(ABC):
         Returns:
             The fully rendered HTML content, or None on error
         """
+        # The selectors are part of the key: clicking a tab changes what the page
+        # renders, so the same URL fetched with a different click_selector is a
+        # different response, not a repeat of the same one.
+        variant = json.dumps(
+            {"click": click_selector, "wait": wait_for_selector}, sort_keys=True
+        )
+        if self._cache:
+            cached = self._cache.get("GET-JS", url, variant)
+            if cached is not None:
+                # Returning before _get_browser also skips launching Chromium, which
+                # is most of what makes a cached debug run fast.
+                return cached
+
         await self._rate_limit()
         try:
             browser = await self._get_browser()
@@ -148,6 +216,8 @@ class BaseScraper(ABC):
                 else:
                     await page.wait_for_timeout(1000)
                 html = await page.content()
+                if self._cache and html:
+                    self._cache.set("GET-JS", url, html, variant)
                 return html
             finally:
                 await page.close()
