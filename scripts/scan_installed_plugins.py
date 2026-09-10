@@ -11,10 +11,12 @@ Usage:
 import argparse
 import json
 import plistlib
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from typing import Optional
 
 PLUGIN_DIRS = [
     (Path("/Library/Audio/Plug-Ins/VST3/"), "VST3"),
@@ -80,18 +82,79 @@ MANUFACTURER_NAMES = {
     "steinberg": "Steinberg",
     "uaudio": "Universal Audio",
     "gforcesoftware": "GForce Software",
-    "ch": "TAL Software",
+    "toguaudioline": "TAL Software",
 }
 
 
-def extract_manufacturer(bundle_id: str) -> str:
-    parts = bundle_id.split(".")
-    if len(parts) >= 2:
-        prefix = parts[0]
-        vendor = parts[1]
-        if prefix in ("com", "net", "org", "io"):
-            return vendor
-        return prefix
+# A reverse-DNS bundle id: com.vendor.product, de.vendor.product, and so on.
+REVERSE_DNS = re.compile(r"^(?:com|net|org|io|co|de|uk|fr|ch|eu)\.([A-Za-z0-9_-]+)\.")
+
+# "1.4.6 (R3), Copyright © 2022 Native Instruments GmbH" -> "Native Instruments"
+COPYRIGHT_VENDOR = re.compile(
+    r"copyright\s*(?:\(c\)|©|&#169;)?\s*[\d\s,\-–]*(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+# Legal suffixes carry no identifying information and differ between a vendor's own
+# products, which would otherwise split one vendor into several.
+LEGAL_SUFFIXES = re.compile(
+    r"\s*[,.]?\s*\b(?:GmbH|Inc|Inc\.|LLC|L\.L\.C\.|Ltd|Ltd\.|Limited|Corp|Corp\.|"
+    r"Corporation|S\.A\.S|SAS|SARL|AB|BV|B\.V\.|AG|Oy|ApS|Pty|Co\.?|Software|"
+    r"Audio Software|All rights reserved)\b\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _vendor_from_copyright(plist: dict) -> Optional[str]:
+    """Read the vendor out of a copyright string.
+
+    Native Instruments' older plugins have no reverse-DNS identifier at all -- the
+    bundle id is effectively the filename ("Absynth 5.MusicDevice.component") -- but
+    they do carry "Copyright © 2021 Native Instruments GmbH".
+    """
+    for key in ("NSHumanReadableCopyright", "CFBundleGetInfoString", "CFBundleLongVersionString"):
+        value = plist.get(key)
+        if not isinstance(value, str) or "copyright" not in value.lower():
+            continue
+
+        match = COPYRIGHT_VENDOR.search(value)
+        if not match:
+            continue
+
+        vendor = match.group(1).strip(" .,-–©")
+        # Strip legal suffixes repeatedly: "Native Instruments GmbH" and
+        # "Foo Software Inc." both need more than one pass.
+        for _ in range(3):
+            stripped = LEGAL_SUFFIXES.sub("", vendor).strip(" .,-")
+            if stripped == vendor:
+                break
+            vendor = stripped
+
+        if vendor and not vendor[0].isdigit() and len(vendor) > 1:
+            # Slugify to match the shape of a reverse-DNS vendor segment. Without
+            # this, plugins from one vendor split in two -- "native-instruments"
+            # from the bundle ids and "Native Instruments" from the copyright.
+            return re.sub(r"[^a-z0-9]+", "-", vendor.lower()).strip("-")
+    return None
+
+
+def extract_manufacturer(bundle_id: str, plist: Optional[dict] = None) -> str:
+    """Identify the vendor, preferring a reverse-DNS bundle id.
+
+    The previous version took the first segment of any bundle id, so a plugin whose
+    id is not reverse-DNS reported its own product name as the manufacturer:
+    "Absynth 5", "FM8" and "Kontakt 5" all showed up as vendors, and Native
+    Instruments' plugin count read as 26 when it is closer to 45.
+    """
+    match = REVERSE_DNS.match(bundle_id or "")
+    if match:
+        return match.group(1)
+
+    vendor = _vendor_from_copyright(plist or {})
+    if vendor:
+        return vendor
+
+    # Better to admit ignorance than to report a product name as a vendor.
     return "unknown"
 
 
@@ -167,7 +230,7 @@ def scan_plugins() -> list[PluginInfo]:
                 plist.get("CFBundleVersion", "unknown"),
             )
             bundle_id = plist.get("CFBundleIdentifier", "")
-            manufacturer = extract_manufacturer(bundle_id)
+            manufacturer = extract_manufacturer(bundle_id, plist)
             is_instrument = classify_instrument(name, bundle_id)
 
             key = (name, fmt)
