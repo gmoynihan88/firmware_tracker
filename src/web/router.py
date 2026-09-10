@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -13,7 +12,8 @@ from src.scrapers.registry import ScraperRegistry
 from src.scrapers import service as scraper_service
 
 settings = get_settings()
-templates = Jinja2Templates(directory=str(settings.templates_dir))
+# Shared environment, so asset_version() is available to every template.
+from src.templating import templates  # noqa: E402
 
 router = APIRouter()
 

@@ -1639,3 +1639,60 @@ async def test_every_filter_chip_draws_a_checkbox(client):
     chips = re.findall(r'<span class="filter-chip">(.*?)</span>\s*</label>', html, re.S)
     assert chips, "expected filter chips"
     assert all('<span class="chip-box"></span>' in chip for chip in chips)
+
+
+def test_asset_version_tracks_file_contents(tmp_path, monkeypatch):
+    """The version must change when the file does, without a restart.
+
+    uvicorn's reloader only watches Python files, so a version captured at import
+    would go stale exactly when a stylesheet is being edited.
+    """
+    from src import templating
+
+    stylesheet = tmp_path / "css"
+    stylesheet.mkdir()
+    target = stylesheet / "style.css"
+    target.write_text("body { color: red }")
+
+    monkeypatch.setattr(templating.settings, "static_dir", tmp_path)
+
+    first = templating.asset_version("css/style.css")
+    assert first == templating.asset_version("css/style.css")   # stable while unchanged
+
+    # Rewrite with different contents and a different mtime.
+    import os
+    import time
+
+    target.write_text("body { color: blue }")
+    os.utime(target, (time.time() + 2, time.time() + 2))
+
+    assert templating.asset_version("css/style.css") != first
+
+
+def test_asset_version_survives_a_missing_file():
+    """A missing asset must not break rendering the page."""
+    from src.templating import asset_version
+
+    assert asset_version("css/does-not-exist.css") == "0"
+
+
+@pytest.mark.asyncio
+async def test_stylesheet_link_is_content_versioned(client):
+    """The link used to carry a hand-written ?v=6 that nobody remembered to bump."""
+    import re
+
+    html = (await client.get("/")).text
+    match = re.search(r'style\.css\?v=([a-f0-9]+)', html)
+
+    assert match, "stylesheet link should carry a version"
+    assert len(match.group(1)) >= 8, "expected a content hash, not a hand-set number"
+
+
+@pytest.mark.asyncio
+async def test_static_assets_are_cacheable(client):
+    """Safe to cache hard only because the URL changes when the file does."""
+    response = await client.get("/static/css/style.css")
+
+    assert response.status_code == 200
+    assert "max-age=31536000" in response.headers["cache-control"]
+    assert "immutable" in response.headers["cache-control"]

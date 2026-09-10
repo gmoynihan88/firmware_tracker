@@ -35,7 +35,22 @@ app = FastAPI(
 )
 
 # Mount static files
-app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
+class VersionedStaticFiles(StaticFiles):
+    """Static assets, cached hard because their URLs carry a content hash.
+
+    Without an explicit Cache-Control a browser falls back to heuristic caching: with
+    only Last-Modified to go on it may reuse a stale file without revalidating, which
+    is why a changed stylesheet could appear not to have changed. Caching for a year
+    is safe precisely because the URL changes whenever the file does.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+app.mount("/static", VersionedStaticFiles(directory=str(settings.static_dir)), name="static")
 
 # Include API routers
 # Authentication wraps everything except the paths listed in the middleware:
