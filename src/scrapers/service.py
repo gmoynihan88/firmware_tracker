@@ -11,6 +11,7 @@ from src.devices.schemas import (
     ManufacturerCreate,
     ManufacturerUpdate,
     DeviceModelCreate,
+    DeviceModelUpdate,
     FirmwareVersionCreate,
     NotificationCreate,
 )
@@ -56,11 +57,13 @@ async def sync_devices(
 ) -> dict:
     """Sync scraped devices with database."""
     existing_models = await device_service.get_device_models(db, manufacturer_id)
-    existing_names = {m.name for m in existing_models}
+    existing_by_name = {m.name: m for m in existing_models}
 
     created = 0
+    updated = 0
     for device in devices:
-        if device.name not in existing_names:
+        existing = existing_by_name.get(device.name)
+        if existing is None:
             await device_service.create_device_model(
                 db,
                 DeviceModelCreate(
@@ -72,8 +75,23 @@ async def sync_devices(
                 ),
             )
             created += 1
+            continue
 
-    return {"created": created, "total": len(devices)}
+        # Refresh URLs that have moved. Without this a scraper can never correct a
+        # dead link for a device already in the database -- the stale URL is used
+        # forever and every fetch for that device fails.
+        changes = {}
+        if device.firmware_page_url and device.firmware_page_url != existing.firmware_page_url:
+            changes["firmware_page_url"] = device.firmware_page_url
+        if device.product_url and device.product_url != existing.product_url:
+            changes["product_url"] = device.product_url
+        if changes:
+            await device_service.update_device_model(
+                db, existing.id, DeviceModelUpdate(**changes)
+            )
+            updated += 1
+
+    return {"created": created, "updated": updated, "total": len(devices)}
 
 
 def parse_version(version: str) -> tuple:
@@ -217,6 +235,13 @@ async def scrape_manufacturer(
         device_models = await device_service.get_device_models(db, manufacturer_id)
         total_new_firmware = 0
         notifications_created = 0
+        # Devices that yielded no firmware, split by cause. Scrapers generally report
+        # success even when they find no versions, so without this the summary cannot
+        # distinguish "scraped fine" from "scraped nothing at all". The two lists are
+        # kept apart because they mean different things: a product can legitimately
+        # have no firmware, which is not a failure to investigate.
+        devices_without_firmware = []  # scraped OK, product has no firmware
+        devices_failed = []  # fetch failed or timed out
 
         for model in device_models:
             if model.firmware_page_url:
@@ -229,6 +254,7 @@ async def scrape_manufacturer(
                     )
                 except asyncio.TimeoutError:
                     print(f"Timeout fetching firmware for {model.name}, skipping")
+                    devices_failed.append(model.name)
                     continue
                 if fw_result.success and fw_result.firmware_versions:
                     new_count, latest = await sync_firmware_for_device(
@@ -240,6 +266,10 @@ async def scrape_manufacturer(
                     if latest:
                         notifs = await create_update_notifications(db, model.id, latest)
                         notifications_created += notifs
+                elif fw_result.success:
+                    devices_without_firmware.append(model.name)
+                else:
+                    devices_failed.append(model.name)
 
         # Update last_scraped_at timestamp on success
         await device_service.update_manufacturer(
@@ -252,6 +282,8 @@ async def scrape_manufacturer(
             "devices_synced": device_sync,
             "new_firmware_versions": total_new_firmware,
             "notifications_created": notifications_created,
+            "devices_without_firmware": devices_without_firmware,
+            "devices_failed": devices_failed,
         }
 
     except Exception as e:
