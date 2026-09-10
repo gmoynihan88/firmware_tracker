@@ -277,6 +277,31 @@ What the audit found across six scrapers with hardcoded tables: **one fabricated
 claimed Pianoteq 9.2.4 against 9.2.5), two accurate but unchecked, one fine, one
 genuinely unverifiable.
 
+### The worst case is a table copied from your own machine
+
+Universal Audio's `KNOWN_FIRMWARE` held ten versions that matched the plugins
+installed on this laptop **exactly**, because that is where they came from. So it
+reported every UA plugin as up to date by construction, could never report anything
+else, and paired each version with an invented release date. It looked like the
+healthiest scraper in the repo: 0.01s, no failures, everything green.
+
+The tell is a scraper that never fetches and whose versions equal what
+`scripts/scan_installed_plugins.py` finds. Check that before trusting a table:
+
+```bash
+sqlite3 firmware_tracker.db "SELECT dm.name, fv.version FROM firmware_versions fv
+JOIN device_models dm ON dm.id=fv.device_model_id
+JOIN manufacturers m ON m.id=dm.manufacturer_id AND m.slug='SLUG' WHERE fv.is_latest=1;"
+# then compare against the installed bundle versions
+```
+
+If a vendor genuinely publishes nothing, **report no version** rather than the
+installed one. `devices_without_firmware` renders as "Firmware Unknown", which is
+true and prompts a manual check; a permanent green tick is false and prevents one.
+Keep the product rows and point `firmware_page_url` at the closest human-readable
+page. See `universal_audio.py`, whose docstring records every source ruled out so the
+search is not repeated.
+
 Choose deliberately:
 
 - Source exists → scrape it, and **fail loudly** when the fetch breaks.

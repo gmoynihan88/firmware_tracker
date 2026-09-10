@@ -1990,20 +1990,40 @@ def test_response_cache_expires_and_survives_corruption(tmp_path):
     assert fresh.get("GET", "https://example.invalid/b") is None
 
 
+def test_serving_from_cache_is_off_by_default():
+    """Shipped defaults must fetch live. Read from Settings, not the developer's .env.
+
+    The declared field defaults are read, not an instance. _env_file=None blocks the
+    .env file but pydantic still reads environment variables, so an instance would
+    assert whatever the developer last exported -- and this machine has
+    SCRAPE_CACHE=true set for debugging.
+    """
+    from src.config import Settings
+
+    assert Settings.model_fields["scrape_cache"].default is False
+    assert Settings.model_fields["http_revalidate"].default is True
+
+
 @pytest.mark.asyncio
-async def test_serving_from_cache_is_off_by_default_even_though_the_store_exists():
+async def test_the_store_exists_for_validators_but_never_answers_on_its_own(monkeypatch):
     """Revalidation keeps a store in production, and that must not serve stale bodies.
 
-    The store exists by default now, because conditional requests need somewhere to
-    keep validators. If its presence alone were enough to short-circuit a fetch, then
-    turning revalidation on would quietly stop the app finding new firmware.
+    The store exists whenever revalidation is on, because conditional requests need
+    somewhere to keep validators. If its presence alone were enough to short-circuit a
+    fetch, turning revalidation on would quietly stop the app finding new firmware.
     """
-    from src.scrapers.plugins.steinberg import SteinbergScraper
+    from src.config import Settings
+    from src.scrapers.plugins import steinberg as module
 
-    scraper = SteinbergScraper()
+    # Stated explicitly rather than relying on defaults: env vars reach Settings even
+    # with _env_file=None, so this pins the production combination under any shell.
+    production = Settings(_env_file=None, scrape_cache=False, http_revalidate=True)
+    monkeypatch.setattr("src.scrapers.base.get_settings", lambda: production)
 
-    assert scraper._cache is not None      # needed to hold ETags
-    assert scraper._serve_from_cache is False   # but never answers without asking
+    scraper = module.SteinbergScraper()
+
+    assert scraper._cache is not None          # needed to hold ETags
+    assert scraper._serve_from_cache is False  # but never answers without asking
     assert scraper._revalidate is True
 
 
@@ -2114,3 +2134,39 @@ def test_prune_drops_only_what_has_gone_quiet(tmp_path):
     assert cache.prune(86400 * 14) == 1
     assert cache.entry("GET", "https://example.invalid/live") is not None
     assert cache.entry("GET", "https://example.invalid/dead") is None
+
+
+@pytest.mark.asyncio
+async def test_universal_audio_reports_no_version_rather_than_a_guess():
+    """UA publishes no per-plugin versions, and claiming one is worse than admitting it.
+
+    The table this replaced held the versions installed on the developer's own
+    machine, so it reported every UA plugin as up to date by construction and could
+    never report anything else. Reporting nothing puts them in
+    devices_without_firmware, which the dashboard shows as "Firmware Unknown".
+    """
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    scraper = UniversalAudioScraper()
+
+    # Success, not failure: the fetch did not break, the version simply is not public.
+    result = await scraper.fetch_firmware_versions("Polymax", "https://example.invalid")
+    assert result.success is True
+    assert result.firmware_versions == []
+
+    # No hardcoded version table survives anywhere on the class.
+    assert not hasattr(scraper, "KNOWN_FIRMWARE")
+
+
+@pytest.mark.asyncio
+async def test_universal_audio_points_devices_at_the_release_notes():
+    """There is no firmware page, so Details should open the nearest useful thing."""
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    result = await UniversalAudioScraper().fetch_device_list()
+
+    assert len(result.devices) == 10
+    for device in result.devices:
+        assert device.firmware_page_url == UniversalAudioScraper.RELEASE_NOTES_URL
+        # The product page is still kept, just not as the firmware link.
+        assert "uaudio.com/uad-plugins/" in device.product_url
