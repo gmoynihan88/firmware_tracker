@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -42,6 +43,9 @@ class ScraperResult:
     devices: List[ScrapedDevice] = field(default_factory=list)
     firmware_versions: List[ScrapedFirmware] = field(default_factory=list)
     error: Optional[str] = None
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseScraper(ABC):
@@ -112,6 +116,7 @@ class BaseScraper(ABC):
             ResponseCache.conditional_headers(stored) if self._revalidate else {}
         )
 
+        logger.debug("GET %s%s", url, " (conditional)" if headers else "")
         await self._rate_limit()
         session = await self._get_session()
         try:
@@ -120,6 +125,7 @@ class BaseScraper(ABC):
                 # we already have. Only reachable when a validator was sent, and
                 # conditional_headers only sends one when a body exists.
                 if response.status == 304 and stored and stored.get("body"):
+                    logger.debug("304 unchanged, reusing stored body for %s", url)
                     self._cache.touch("GET", url)
                     return stored["body"]
                 if response.status == 200:
@@ -135,7 +141,7 @@ class BaseScraper(ABC):
                     return body
                 return None
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            logger.warning("Fetch failed for %s: %s", url, e)
             return None
 
     async def fetch_json(
@@ -161,6 +167,7 @@ class BaseScraper(ABC):
         if self._revalidate:
             headers.update(ResponseCache.conditional_headers(stored))
 
+        logger.debug("%s %s", method, url)
         await self._rate_limit()
         session = await self._get_session()
         try:
@@ -179,7 +186,7 @@ class BaseScraper(ABC):
                 etag = response.headers.get("ETag")
                 last_modified = response.headers.get("Last-Modified")
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            logger.warning("Fetch failed for %s: %s", url, e)
             return None
 
         try:
@@ -237,6 +244,7 @@ class BaseScraper(ABC):
                 # is most of what makes a cached debug run fast.
                 return cached
 
+        logger.debug("GET (rendered) %s", url)
         await self._rate_limit()
         try:
             browser = await self._get_browser()
@@ -267,7 +275,7 @@ class BaseScraper(ABC):
             finally:
                 await page.close()
         except Exception as e:
-            print(f"Error fetching JS page {url}: {e}")
+            logger.warning("Rendered fetch failed for %s: %s", url, e)
             return None
 
     def parse_html(self, html: str) -> BeautifulSoup:

@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     app_name: str = "Firmware Tracker"
     debug: bool = False
 
+    # INFO shows scrape results and the scheduler's interval; DEBUG adds every fetch.
+    # Without a configured handler Python's lastResort emits only WARNING and above,
+    # so INFO vanishes silently -- see src/logging_config.py.
+    log_level: str = "INFO"
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./firmware_tracker.db"
 

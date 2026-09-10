@@ -1,8 +1,11 @@
 import importlib
+import logging
 import pkgutil
 from typing import Dict, Type, Optional, List
 
 from src.scrapers.base import BaseScraper
+
+logger = logging.getLogger(__name__)
 
 
 class ScraperRegistry:
@@ -36,7 +39,9 @@ class ScraperRegistry:
                     ):
                         cls._scrapers[attr.manufacturer_slug] = attr
             except Exception as e:
-                print(f"Error loading scraper plugin {modname}: {e}")
+                # An exception here means a whole manufacturer silently disappears
+                # from the registry, so it is an error rather than a warning.
+                logger.error("Scraper plugin %s failed to load: %s", modname, e)
 
         cls._initialized = True
 

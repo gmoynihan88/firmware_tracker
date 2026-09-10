@@ -1,7 +1,10 @@
+import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from src.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -40,7 +43,7 @@ async def init_db():
 
     if not healthy:
         import subprocess, sys
-        print("WARNING: Database tables missing but alembic stamp present — repairing...")
+        logger.warning("Database tables missing but alembic stamp present; repairing")
         async with engine.begin() as conn:
             await conn.run_sync(_clear_alembic_stamp)
         await engine.dispose()
@@ -48,7 +51,7 @@ async def init_db():
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             check=True,
         )
-        print("Database repaired successfully.")
+        logger.info("Database repaired successfully")
     else:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

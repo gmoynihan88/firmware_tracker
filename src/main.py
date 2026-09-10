@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.config import get_settings
 from src.database import init_db
+from src.logging_config import configure_logging
 from src.devices.router import router as devices_router
 from src.firmware.router import router as firmware_router
 from src.auth.middleware import AuthMiddleware, warn_if_unprotected
@@ -18,7 +19,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    # Startup
+    # Startup. Logging goes first so everything below it is actually visible.
+    configure_logging(settings)
     await init_db()
     warn_if_unprotected(settings)
     start_scheduler()

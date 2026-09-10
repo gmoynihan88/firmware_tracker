@@ -73,6 +73,7 @@ Copy `.env.example` to `.env` (or export the variables):
 |---|---|---|
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
+| `LOG_LEVEL` | `INFO` | `DEBUG` adds every fetch; `WARNING` keeps only failures |
 | `SCRAPE_INTERVAL_HOURS` | `24` | How often the scheduler checks for updates |
 | `SCRAPE_CACHE` | `false` | Development only: cache scraped responses on disk |
 | `SCRAPE_CACHE_TTL_HOURS` | `6` | How long a cached response stays usable |

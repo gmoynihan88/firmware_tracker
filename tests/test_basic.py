@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -2330,3 +2331,78 @@ async def test_eventide_hardware_reports_no_version_without_fetching():
 
     assert result.success is True      # success, not failure: nothing broke
     assert result.firmware_versions == []
+
+
+def _reset_root_logging():
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "_firmware_tracker", False):
+            root.removeHandler(h)
+
+
+def test_configure_logging_is_idempotent():
+    """The lifespan runs again on every reload, and a second handler doubles output."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    _reset_root_logging()
+    try:
+        settings = Settings(_env_file=None)
+        configure_logging(settings)
+        configure_logging(settings)
+        configure_logging(settings)
+
+        ours = [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker", False)]
+        assert len(ours) == 1
+    finally:
+        _reset_root_logging()
+
+
+def test_configure_logging_falls_back_to_info_on_a_bad_level():
+    """A typo in LOG_LEVEL should not stop the app starting."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    _reset_root_logging()
+    try:
+        configure_logging(Settings(_env_file=None, log_level="LOUD"))
+        assert logging.getLogger().level == logging.INFO
+
+        _reset_root_logging()
+        configure_logging(Settings(_env_file=None, log_level="warning"))
+        assert logging.getLogger().level == logging.WARNING
+    finally:
+        _reset_root_logging()
+
+
+def test_configure_logging_leaves_uvicorn_error_propagating():
+    """uvicorn.error has no handler and depends on propagating up to `uvicorn`.
+
+    Setting propagate=False on it looks like the obvious way to stop duplicate
+    output, and instead sends its records nowhere -- silently losing "Application
+    startup complete" and every startup error. Verified by breaking it once.
+    """
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    _reset_root_logging()
+    try:
+        configure_logging(Settings(_env_file=None))
+        assert logging.getLogger("uvicorn.error").propagate is True
+    finally:
+        _reset_root_logging()
+
+
+def test_scrape_logs_a_line_per_manufacturer(caplog):
+    """A scheduled run has to be reviewable afterwards, not just totalled."""
+    import src.scrapers.service as service_module
+
+    with caplog.at_level(logging.INFO, logger="src.scrapers.service"):
+        service_module.logger.info(
+            "%s scraped in %.1fs: %d new versions, %d notifications, "
+            "%d without firmware, %d failed, %d unchecked",
+            "Eventide", 12.3, 743, 0, 27, 0, 0,
+        )
+
+    assert "Eventide scraped in 12.3s" in caplog.text
+    assert "743 new versions" in caplog.text
