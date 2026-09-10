@@ -192,11 +192,23 @@ function filterDevices() {
         .filter(cb => cb.checked)
         .map(cb => cb.value);
 
+    const allCategories = Array.from(categoryCheckboxes).map(cb => cb.value);
+    const allBrands = Array.from(brandCheckboxes).map(cb => cb.value);
+    const allStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
+
+    // Fail open. A card whose value no filter offers is left visible rather than
+    // hidden: if the page and the route ever disagree -- a stale server process
+    // serving a new template, say -- every card carries a value no checkbox has, and
+    // hiding them all blanks the page the instant a filter is touched. Showing too
+    // much is a far better failure than showing nothing.
+    const matches = (value, active, offered) =>
+        offered.includes(value) ? active.includes(value) : true;
+
     const cards = document.querySelectorAll('.device-card');
     cards.forEach(card => {
-        const matchesCategory = activeCategories.includes(card.dataset.category);
-        const matchesBrand = activeBrands.includes(card.dataset.brand);
-        const matchesStatus = activeStatuses.includes(card.dataset.status);
+        const matchesCategory = matches(card.dataset.category, activeCategories, allCategories);
+        const matchesBrand = matches(card.dataset.brand, activeBrands, allBrands);
+        const matchesStatus = matches(card.dataset.status, activeStatuses, allStatuses);
 
         card.hidden = !(matchesCategory && matchesBrand && matchesStatus);
     });
