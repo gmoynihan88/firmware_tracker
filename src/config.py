@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str = ""
 
+    # Notification delivery. Transport is "none" by default so the app runs with no
+    # configuration; on public ntfy.sh the topic name is the only secret, so use a
+    # long random one and keep it in .env.
+    notify_transport: str = "none"  # none | ntfy
+    ntfy_topic: str = ""
+    ntfy_server: str = "https://ntfy.sh"
+
     # Scraping settings
     scrape_interval_hours: int = 6
     request_timeout: int = 30
