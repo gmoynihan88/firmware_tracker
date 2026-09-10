@@ -1,4 +1,12 @@
-"""Script to add user's devices to My Devices."""
+"""Seed My Devices with an example set of hardware and plugins.
+
+Runs the relevant scrapers to populate the catalog, then adds each entry below
+to My Devices. Edit EXAMPLE_DEVICES to match the gear you actually own, or use
+`scripts/scan_installed_plugins.py --add` to import installed plugins instead.
+
+Usage:
+    python scripts/seed_example_devices.py
+"""
 import asyncio
 import sys
 sys.path.insert(0, '.')
@@ -9,30 +17,17 @@ from src.devices.schemas import MyDeviceCreate
 from src.scrapers import service as scraper_service
 
 
-# User's devices to add
-MY_DEVICES = [
+# Example devices — edit this list to match your own gear.
+# "manufacturer" must be a scraper slug (see GET /api/firmware/scrapers).
+EXAMPLE_DEVICES = [
     # Hardware
-    {"manufacturer": "tascam", "model": "Model 12", "nickname": None},
-    {"manufacturer": "boss", "model": "IR-200", "nickname": None},
+    {"manufacturer": "elektron", "model": "Digitakt", "nickname": None},
     {"manufacturer": "boss", "model": "DD-500", "nickname": None},
-    {"manufacturer": "boss", "model": "RC-500", "nickname": None},
-    {"manufacturer": "soundforce", "model": "SFC-60", "nickname": None},
-    {"manufacturer": "tcelectronic", "model": "Ditto+", "nickname": None},
-    {"manufacturer": "tcelectronic", "model": "Hall of Fame 2", "nickname": None},
-    {"manufacturer": "roland", "model": "MC-101", "nickname": None},
-    {"manufacturer": "roland", "model": "SE-02", "nickname": None},
-    {"manufacturer": "peterson", "model": "StroboStomp Mini", "nickname": None},
-    {"manufacturer": "crumar", "model": "D9-X", "nickname": None},
-    {"manufacturer": "yamaha", "model": "THR30II Wireless", "nickname": None},
-    {"manufacturer": "line6", "model": "Relay G10II", "nickname": None},
-    {"manufacturer": "qsc", "model": "K12.2", "nickname": None},
+    {"manufacturer": "strymon", "model": "BigSky", "nickname": None},
+    {"manufacturer": "focusrite", "model": "Scarlett 2i2", "nickname": None},
     # VST Plugins
     {"manufacturer": "modartt", "model": "Pianoteq", "nickname": None},
-    {"manufacturer": "gforce", "model": "M-Tron Pro IV", "nickname": None},
-    {"manufacturer": "ikmultimedia", "model": "Hammond B-3X", "nickname": None},
-    {"manufacturer": "moog", "model": "Mariana", "nickname": None},
-    {"manufacturer": "tal", "model": "TAL-U-NO-LX-V2", "nickname": None},
-    {"manufacturer": "tal", "model": "TAL-J-8", "nickname": None},
+    {"manufacturer": "nativeinstruments", "model": "Kontakt", "nickname": None},
 ]
 
 
@@ -41,7 +36,7 @@ async def main():
 
     async with async_session_maker() as db:
         # First, run all scrapers to import devices
-        scrapers_to_run = list(set(d["manufacturer"] for d in MY_DEVICES))
+        scrapers_to_run = list(set(d["manufacturer"] for d in EXAMPLE_DEVICES))
         print(f"Importing devices from {len(scrapers_to_run)} manufacturers...")
 
         for scraper_type in scrapers_to_run:
@@ -57,10 +52,10 @@ async def main():
                 print(f"ERROR: {e}")
 
         # Now add each device to My Devices
-        print(f"\nAdding {len(MY_DEVICES)} devices to My Devices...")
+        print(f"\nAdding {len(EXAMPLE_DEVICES)} devices to My Devices...")
 
         added_count = 0
-        for device_info in MY_DEVICES:
+        for device_info in EXAMPLE_DEVICES:
             # Find the device model
             device_models = await device_service.get_device_models(db)
 
