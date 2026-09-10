@@ -1,0 +1,8 @@
+# Maps the identities git auto-generated before user.name and user.email were set.
+# `gregorymoynihan@Mac.lan` is a hostname-derived address, not a real mailbox, so it
+# was never linked to the GitHub account. This unifies `git log`, `git shortlog` and
+# `git blame` without rewriting history; GitHub's contribution graph reads the commit
+# objects themselves and is unaffected.
+Greg Moynihan <47155250+gmoynihan88@users.noreply.github.com> <gregorymoynihan@Mac.lan>
+Greg Moynihan <47155250+gmoynihan88@users.noreply.github.com> <gregorymoynihan@Mac.localdomain>
+Greg Moynihan <47155250+gmoynihan88@users.noreply.github.com> Gregory Moynihan <gregorymoynihan@Mac.lan>
