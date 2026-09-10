@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import List
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
@@ -101,131 +102,111 @@ class TALScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
+    # TAL lists the shipping version on its own in the download block ("v5.1.3")
+    # and the history as dated entries ("Version 5.1.2 / 03.11.2025") followed by
+    # the change description. Pairing version and date within a single entry is
+    # what keeps a release from inheriting its neighbour's date.
+    # Spacing after the "v" varies by product page: "v5.1.3" but "v 1.9.8".
+    DOWNLOAD_VERSION = re.compile(r"^v\s*(\d+(?:\.\d+)+)$")
+    CHANGELOG_ENTRY = re.compile(
+        r"^Version\s+(\d+(?:\.\d+)+)\s*/\s*(\d{1,2})\.(\d{1,2})\.(\d{4})$"
+    )
+
+    def _parse_changelog(self, html: str) -> List[ScrapedFirmware]:
+        """Parse the version history out of a TAL product page."""
+        lines = [
+            line.strip()
+            for line in self.parse_html(html).get_text("\n").splitlines()
+            if line.strip()
+        ]
+
+        versions: List[ScrapedFirmware] = []
+        seen = set()
+
+        # The shipping version is not always in the changelog: 5.1.3 ships while the
+        # history starts at 5.1.2. Take it first so it is never missed.
+        for line in lines:
+            match = self.DOWNLOAD_VERSION.match(line)
+            if match and match.group(1) not in seen:
+                seen.add(match.group(1))
+                versions.append(ScrapedFirmware(version=match.group(1)))
+                break
+
+        for index, line in enumerate(lines):
+            match = self.CHANGELOG_ENTRY.match(line)
+            if not match:
+                continue
+
+            version, day, month, year = match.groups()
+            try:
+                release_date = datetime(int(year), int(month), int(day))
+            except ValueError:
+                release_date = None
+
+            # The description runs until the next entry or the next version marker.
+            description = []
+            for following in lines[index + 1:]:
+                if self.CHANGELOG_ENTRY.match(following) or self.DOWNLOAD_VERSION.match(following):
+                    break
+                description.append(following)
+                if len(description) >= 3:
+                    break
+
+            if version in seen:
+                # Already added from the download block, but now we have its date.
+                for existing in versions:
+                    if existing.version == version:
+                        existing.release_date = existing.release_date or release_date
+                        existing.changelog = existing.changelog or (" ".join(description)[:500] or None)
+                continue
+
+            seen.add(version)
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    changelog=" ".join(description)[:500] or None,
+                )
+            )
+
+        return versions
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch versions from a TAL product page."""
-        # Use known firmware data for products with JS-loaded changelogs
-        if device_name in self.KNOWN_FIRMWARE:
-            firmware_versions = []
-            for version, date_str, changelog in self.KNOWN_FIRMWARE[device_name]:
-                try:
-                    release_date = datetime.strptime(date_str, "%Y-%m-%d")
-                except ValueError:
-                    release_date = None
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        changelog=changelog,
-                    )
-                )
-            return ScraperResult(success=True, firmware_versions=firmware_versions)
+        """Fetch versions from a TAL product page.
 
-        # TAL pages use JavaScript to load changelog - try Playwright first
-        html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=10000)
-        # Fall back to static fetch if JS fetch fails
-        if not html:
-            html = await self.fetch_page(firmware_page_url)
-        if not html:
+        The page is read first so the shipping version is always current. Anything
+        in KNOWN_FIRMWARE that the page no longer lists is merged in afterwards as
+        history -- TAL trims its changelog over time, and those entries were
+        transcribed from this same page.
+        """
+        # TAL blocks plain HTTP fetches, so the rendered page is the only route in.
+        html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=20000)
+
+        versions = self._parse_changelog(html) if html else []
+
+        if not versions and device_name not in self.KNOWN_FIRMWARE:
             return ScraperResult(
-                success=False, error=f"Failed to fetch {firmware_page_url}"
+                success=False,
+                error=f"No versions found for {device_name} at {firmware_page_url}",
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
-
-        # TAL versions look like "v5.1.3" or "Version 2.0.4"
-        version_pattern = r"[Vv](?:ersion)?\s*(\d+\.\d+(?:\.\d+)?)"
-
-        # TAL product pages typically have version info and changelog
-        # Look for version/changelog sections
-        sections = soup.find_all(
-            ["div", "section", "p", "span", "td", "li", "article"],
-            class_=re.compile(r"version|changelog|update|download|info|content", re.I)
-        )
-
-        # Also look for download buttons/links
-        download_sections = soup.find_all(
-            ["div", "a"],
-            class_=re.compile(r"download|button", re.I)
-        )
-
-        for section in sections + download_sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(dmg|pkg|exe|zip|vst)", re.I))
-                if not download_link:
-                    download_link = section.find_parent("a")
-                download_url = None
-                if download_link and download_link.get("href"):
-                    download_url = download_link["href"]
-                    if not download_url.startswith("http"):
-                        download_url = f"https://tal-software.com{download_url}"
-
-                # TAL uses dates like "29.12.2025" (DD.MM.YYYY)
-                date_patterns = [
-                    (r"(\d{1,2})\.(\d{1,2})\.(\d{4})", "dmy"),  # DD.MM.YYYY
-                    (r"(\d{1,2})/(\d{1,2})/(\d{4})", "mdy"),   # MM/DD/YYYY
-                    (r"(\w+)\s+(\d{4})", "month_year"),         # Month YYYY
-                ]
+        seen = {fw.version for fw in versions}
+        for version, date_str, changelog in self.KNOWN_FIRMWARE.get(device_name, []):
+            if version in seen:
+                continue
+            try:
+                release_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except (ValueError, TypeError):
                 release_date = None
-                for pattern, fmt_type in date_patterns:
-                    date_match = re.search(pattern, text)
-                    if date_match:
-                        try:
-                            if fmt_type == "dmy":
-                                day, month, year = date_match.groups()
-                                release_date = datetime(int(year), int(month), int(day))
-                            elif fmt_type == "mdy":
-                                month, day, year = date_match.groups()
-                                release_date = datetime(int(year), int(month), int(day))
-                            elif fmt_type == "month_year":
-                                month_str, year = date_match.groups()
-                                release_date = datetime.strptime(f"{month_str} {year}", "%B %Y")
-                            break
-                        except ValueError:
-                            continue
-
-                # Get changelog text
-                changelog = None
-                changelog_section = section.find(
-                    ["ul", "div", "p"],
-                    class_=re.compile(r"changelog|changes|notes", re.I)
+            seen.add(version)
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    changelog=changelog,
                 )
-                if changelog_section:
-                    changelog = changelog_section.get_text(strip=True)[:500]
+            )
 
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=changelog,
-                    )
-                )
-
-        # Fallback: scan entire page for version strings
-        if not firmware_versions:
-            matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        return ScraperResult(success=True, firmware_versions=versions)
