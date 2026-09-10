@@ -4,11 +4,13 @@ import logging
 
 from src.config import get_settings
 from src.database import async_session_maker
+from src.notifications.reconcile import reconcile_notifications
 from src.scrapers import service as scraper_service
 from src.summarizer.service import summarize_pending_changelogs
 
 settings = get_settings()
 scheduler = AsyncIOScheduler()
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,8 +22,16 @@ async def check_firmware_updates():
             results = await scraper_service.scrape_all_manufacturers(db)
             total_new = sum(r.get("new_firmware_versions", 0) for r in results if r.get("success"))
             total_notifications = sum(r.get("notifications_created", 0) for r in results if r.get("success"))
+
+            # Catch devices that are behind but whose latest version was already
+            # known, so no scrape ever raised a notification for them.
+            reconciled = await reconcile_notifications(db)
+            total_notifications += reconciled["notifications_created"]
+
+            total_failed = sum(len(r.get("devices_failed") or []) for r in results if r.get("success"))
             logger.info(
-                f"Firmware check complete. New versions: {total_new}, Notifications: {total_notifications}"
+                f"Firmware check complete. New versions: {total_new}, "
+                f"Notifications: {total_notifications}, Devices failed: {total_failed}"
             )
         except Exception as e:
             logger.error(f"Error during firmware check: {e}")
