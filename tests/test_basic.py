@@ -142,9 +142,52 @@ async def test_scrape_summary_reports_devices_without_firmware():
             result = await scraper_service.scrape_manufacturer(db, "stubaudio")
 
         assert result["success"] is True
-        without = result["devices_without_firmware"]
-        assert "Empty Success" in without
-        assert "Hard Failure" in without
-        assert "Has Firmware" not in without
+        # The two causes are reported separately: a product that genuinely has no
+        # firmware is not the same as a fetch that broke.
+        assert result["devices_without_firmware"] == ["Empty Success"]
+        assert result["devices_failed"] == ["Hard Failure"]
     finally:
         ScraperRegistry._scrapers.pop("stubaudio", None)
+
+
+@pytest.mark.asyncio
+async def test_tcelectronic_distinguishes_empty_page_from_no_firmware():
+    """A rendered page with no firmware is a valid empty result; a shell is a failure.
+
+    Hall of Fame 2 is TonePrint-only and genuinely ships no firmware, so reporting it
+    as a scrape failure would be a false alarm. A few hundred characters of unrendered
+    JS shell, on the other hand, means the fetch really did fail.
+    """
+    from src.scrapers.plugins.tcelectronic import TCElectronicScraper
+
+    scraper = TCElectronicScraper()
+    url = "https://www.tcelectronic.com/en/products/0709-ZZZ"
+
+    async def _no_api(model_code):
+        return []
+
+    scraper._try_api_fetch = _no_api
+    scraper.fetch_page = lambda *a, **kw: _async_none()
+
+    # Rendered page, no firmware section -> success with an empty list.
+    rendered = "<html><body>" + ("TonePrint app and product blurb. " * 60) + "</body></html>"
+    scraper.fetch_page_js = lambda *a, **kw: _async_value(rendered)
+    result = await scraper.fetch_firmware_versions("Hall of Fame 2", url)
+    assert result.success is True
+    assert result.firmware_versions == []
+
+    # Unrendered shell -> failure, with the character count in the error.
+    scraper.fetch_page_js = lambda *a, **kw: _async_value("<html><body>Loading</body></html>")
+    result = await scraper.fetch_firmware_versions("Hall of Fame 2", url)
+    assert result.success is False
+    assert "below the" in result.error
+
+    await scraper.close()
+
+
+async def _async_value(value):
+    return value
+
+
+async def _async_none():
+    return None

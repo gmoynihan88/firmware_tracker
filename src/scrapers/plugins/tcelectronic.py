@@ -17,6 +17,13 @@ class TCElectronicScraper(BaseScraper):
     # API endpoint for product downloads (Music Tribe platform)
     DOWNLOADS_API = "https://www.tcelectronic.com/.rest/api/v1/product/{model_code}/downloads"
 
+    # A product page that actually renders runs to several thousand characters of text;
+    # a stale or unresolved modelCode returns a shell of a few hundred (observed: 160-652
+    # for the codes below, vs 4495 for a live one). This separates "the page loaded and
+    # this product has no firmware" from "the page never loaded" -- both of which
+    # otherwise look like an empty result.
+    MIN_RENDERED_TEXT = 1000
+
     # Known TC Electronic products with firmware updates
     # Format: (name, category, product_page_url)
     KNOWN_PRODUCTS = [
@@ -24,7 +31,10 @@ class TCElectronicScraper(BaseScraper):
         ("Ditto X4", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=0709-AGA"),
         ("Ditto Looper", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0CM7"),
         ("Flashback 2", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0DDD"),
-        ("Hall of Fame 2", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0DDC"),
+        # Verified live: this code renders, and the pedal is TonePrint-only with no
+        # firmware downloads. The other entries below still use stale codes that no
+        # longer resolve -- they need re-deriving from the current catalogue.
+        ("Hall of Fame 2", "guitar_pedal", "https://www.tcelectronic.com/en/products/0709-AFS"),
         ("Plethora X5", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0DQS"),
         ("Plethora X3", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0DWB"),
         ("PolyTune 3", "guitar_pedal", "https://www.tcelectronic.com/product.html?modelCode=P0DDG"),
@@ -328,16 +338,22 @@ class TCElectronicScraper(BaseScraper):
                     )
                 )
 
-        # Report failure rather than an empty success. TC Electronic product pages
-        # render as a JS shell that yields no firmware content, so an empty result
-        # here means the scrape did not work -- not that the product has no updates.
         if not unique:
+            page_text = self.parse_html(html).get_text() if html else ""
+            if len(page_text) >= self.MIN_RENDERED_TEXT:
+                # The page rendered and simply lists no firmware. Some TC pedals are
+                # genuinely firmware-free -- Hall of Fame 2 ships TonePrint only -- so
+                # this is a valid empty result, not a scrape failure.
+                return ScraperResult(success=True, firmware_versions=[])
+
+            # Too little content to have rendered: the fetch or the modelCode is broken.
             return ScraperResult(
                 success=False,
                 error=(
                     f"No firmware found for {device_name} "
-                    f"(modelCode={model_code or 'unknown'}): product page returned no "
-                    "firmware content and no API endpoint responded"
+                    f"(modelCode={model_code or 'unknown'}): product page returned "
+                    f"{len(page_text)} chars of text, below the {self.MIN_RENDERED_TEXT} "
+                    "expected of a rendered page, and no API endpoint responded"
                 ),
             )
 
