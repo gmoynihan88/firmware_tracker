@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     scrape_cache: bool = False
     scrape_cache_ttl_hours: float = 6.0
 
+    # Conditional requests, on by default. Each response's ETag/Last-Modified is kept
+    # and sent back as If-None-Match/If-Modified-Since, so an unchanged page answers
+    # 304 with no body. Only about a quarter of the tracked vendors send a validator,
+    # so this is a partial saving -- see src/scrapers/cache.py.
+    http_revalidate: bool = True
+
     # Paths
     base_dir: Path = Path(__file__).parent.parent
     templates_dir: Path = base_dir / "templates"

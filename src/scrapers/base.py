@@ -58,12 +58,19 @@ class BaseScraper(ABC):
         self._session: Optional[aiohttp.ClientSession] = None
         self._playwright = None
         self._browser: Optional["Browser"] = None
+        # The store backs two different behaviours, so it exists if either is on.
+        # _serve_from_cache is the development one that skips the network entirely;
+        # _revalidate is the production one that still fetches, but conditionally.
+        # Keeping them separate matters: if a stale body could be served whenever the
+        # store exists, enabling revalidation would silently stop finding new firmware.
+        self._serve_from_cache = self.settings.scrape_cache
+        self._revalidate = self.settings.http_revalidate
         self._cache: Optional[ResponseCache] = (
             ResponseCache(
                 self.settings.scrape_cache_dir,
                 self.settings.scrape_cache_ttl_hours * 3600,
             )
-            if self.settings.scrape_cache
+            if (self._serve_from_cache or self._revalidate)
             else None
         )
 
@@ -95,18 +102,36 @@ class BaseScraper(ABC):
 
     async def fetch_page(self, url: str) -> Optional[str]:
         """Fetch a page with rate limiting (static HTML only)."""
-        cached = self._cache.get("GET", url) if self._cache else None
-        if cached is not None:
-            return cached
+        if self._serve_from_cache and self._cache:
+            cached = self._cache.get("GET", url)
+            if cached is not None:
+                return cached
+
+        stored = self._cache.entry("GET", url) if self._cache else None
+        headers = (
+            ResponseCache.conditional_headers(stored) if self._revalidate else {}
+        )
 
         await self._rate_limit()
         session = await self._get_session()
         try:
-            async with session.get(url) as response:
+            async with session.get(url, headers=headers) as response:
+                # 304: the page is unchanged and carries no body, so reuse the one
+                # we already have. Only reachable when a validator was sent, and
+                # conditional_headers only sends one when a body exists.
+                if response.status == 304 and stored and stored.get("body"):
+                    self._cache.touch("GET", url)
+                    return stored["body"]
                 if response.status == 200:
                     body = await response.text()
                     if self._cache:
-                        self._cache.set("GET", url, body)
+                        self._cache.set(
+                            "GET",
+                            url,
+                            body,
+                            etag=response.headers.get("ETag"),
+                            last_modified=response.headers.get("Last-Modified"),
+                        )
                     return body
                 return None
         except Exception as e:
@@ -123,7 +148,7 @@ class BaseScraper(ABC):
         because Modartt picks a product with one.
         """
         body_repr = json.dumps(json_body, sort_keys=True) if json_body else None
-        if self._cache:
+        if self._serve_from_cache and self._cache:
             cached = self._cache.get(method, url, body_repr)
             if cached is not None:
                 try:
@@ -131,13 +156,28 @@ class BaseScraper(ABC):
                 except ValueError:
                     pass  # fall through and refetch
 
+        stored = self._cache.entry(method, url, body_repr) if self._cache else None
+        headers = dict(kwargs.pop("headers", None) or {})
+        if self._revalidate:
+            headers.update(ResponseCache.conditional_headers(stored))
+
         await self._rate_limit()
         session = await self._get_session()
         try:
-            async with session.request(method, url, json=json_body, **kwargs) as response:
+            async with session.request(
+                method, url, json=json_body, headers=headers, **kwargs
+            ) as response:
+                if response.status == 304 and stored and stored.get("body"):
+                    self._cache.touch(method, url, body_repr)
+                    try:
+                        return json.loads(stored["body"])
+                    except ValueError:
+                        return None
                 if response.status != 200:
                     return None
                 text = await response.text()
+                etag = response.headers.get("ETag")
+                last_modified = response.headers.get("Last-Modified")
         except Exception as e:
             print(f"Error fetching {url}: {e}")
             return None
@@ -148,7 +188,9 @@ class BaseScraper(ABC):
             return None
 
         if self._cache:
-            self._cache.set(method, url, text, body_repr)
+            self._cache.set(
+                method, url, text, body_repr, etag=etag, last_modified=last_modified
+            )
         return data
 
     async def _get_browser(self) -> "Browser":
@@ -185,7 +227,10 @@ class BaseScraper(ABC):
         variant = json.dumps(
             {"click": click_selector, "wait": wait_for_selector}, sort_keys=True
         )
-        if self._cache:
+        # No revalidation branch here: a Playwright navigation has no practical way
+        # to send If-None-Match and act on a 304, so rendered pages are only ever
+        # served from the development cache.
+        if self._serve_from_cache and self._cache:
             cached = self._cache.get("GET-JS", url, variant)
             if cached is not None:
                 # Returning before _get_browser also skips launching Chromium, which

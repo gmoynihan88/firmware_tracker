@@ -6,12 +6,17 @@ from src.config import get_settings
 from src.database import async_session_maker
 from src.notifications.reconcile import reconcile_notifications
 from src.scrapers import service as scraper_service
+from src.scrapers.cache import ResponseCache
 from src.summarizer.service import summarize_pending_changelogs
 
 settings = get_settings()
 scheduler = AsyncIOScheduler()
 
 logger = logging.getLogger(__name__)
+
+# A page nothing has fetched in this long is not coming back -- a discontinued
+# product, or a URL the vendor moved.
+RESPONSE_CACHE_MAX_AGE_DAYS = 14
 
 
 async def check_firmware_updates():
@@ -37,8 +42,29 @@ async def check_firmware_updates():
                 f"Notifications: {total_notifications}, Devices failed: {total_failed}, "
                 f"Not checked (budget): {total_unchecked}"
             )
+
+            # Revalidation keeps every fetched body on disk, so the store needs a
+            # bound. A 304 touches its entry, so anything still being scraped stays
+            # young; what ages out is pages nothing asks for any more.
+            _prune_response_cache()
         except Exception as e:
             logger.error(f"Error during firmware check: {e}")
+
+
+def _prune_response_cache() -> None:
+    """Drop cached responses nothing has asked for in a fortnight."""
+    settings = get_settings()
+    if not (settings.http_revalidate or settings.scrape_cache):
+        return
+    try:
+        removed = ResponseCache(
+            settings.scrape_cache_dir, settings.scrape_cache_ttl_hours * 3600
+        ).prune(RESPONSE_CACHE_MAX_AGE_DAYS * 86400)
+        if removed:
+            logger.info(f"Pruned {removed} stale cached responses")
+    except Exception as e:
+        # Housekeeping must never take the scheduled check down with it.
+        logger.warning(f"Could not prune the response cache: {e}")
 
 
 async def generate_summaries():

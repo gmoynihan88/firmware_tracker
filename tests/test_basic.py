@@ -1,4 +1,7 @@
 import asyncio
+import json
+import time
+
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from httpx import AsyncClient, ASGITransport
@@ -1988,11 +1991,20 @@ def test_response_cache_expires_and_survives_corruption(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_scraper_cache_is_off_by_default():
-    """Production must always fetch live -- a cached run cannot find new firmware."""
+async def test_serving_from_cache_is_off_by_default_even_though_the_store_exists():
+    """Revalidation keeps a store in production, and that must not serve stale bodies.
+
+    The store exists by default now, because conditional requests need somewhere to
+    keep validators. If its presence alone were enough to short-circuit a fetch, then
+    turning revalidation on would quietly stop the app finding new firmware.
+    """
     from src.scrapers.plugins.steinberg import SteinbergScraper
 
-    assert SteinbergScraper()._cache is None
+    scraper = SteinbergScraper()
+
+    assert scraper._cache is not None      # needed to hold ETags
+    assert scraper._serve_from_cache is False   # but never answers without asking
+    assert scraper._revalidate is True
 
 
 @pytest.mark.asyncio
@@ -2012,6 +2024,9 @@ async def test_fetch_page_js_keys_on_the_click_selector(tmp_path, monkeypatch):
 
     scraper = Stub()
     scraper._cache = ResponseCache(tmp_path, ttl_seconds=3600)
+    # Rendered pages are only served from the development cache; the store alone is
+    # not enough, or production would answer from disk without asking the vendor.
+    scraper._serve_from_cache = True
 
     # Prime the cache as if the two tabs had been fetched.
     import json as _json
@@ -2028,3 +2043,74 @@ async def test_fetch_page_js_keys_on_the_click_selector(tmp_path, monkeypatch):
 
     assert await scraper.fetch_page_js("https://e.invalid/p", click_selector="#tab-a") == "<p>A</p>"
     assert await scraper.fetch_page_js("https://e.invalid/p", click_selector="#tab-b") == "<p>B</p>"
+
+
+def test_conditional_headers_need_a_body_to_fall_back_on(tmp_path):
+    """Sending If-None-Match with no stored body would earn a 304 carrying nothing.
+
+    The caller would be left with no content and no way to parse it, so an entry
+    without a body must not produce conditional headers at all.
+    """
+    from src.scrapers.cache import ResponseCache
+
+    assert ResponseCache.conditional_headers(None) == {}
+    assert ResponseCache.conditional_headers({"etag": 'W/"abc"', "body": ""}) == {}
+    assert ResponseCache.conditional_headers({"etag": 'W/"abc"', "body": "<html>"}) == {
+        "If-None-Match": 'W/"abc"'
+    }
+    assert ResponseCache.conditional_headers(
+        {"last_modified": "Wed, 10 Sep 2026 00:00:00 GMT", "body": "<html>"}
+    ) == {"If-Modified-Since": "Wed, 10 Sep 2026 00:00:00 GMT"}
+
+
+def test_entry_ignores_ttl_but_get_respects_it(tmp_path):
+    """A stale entry is still what revalidation needs: its ETag earns the 304.
+
+    get() is the development path and must expire; entry() is the revalidation path
+    and must not, or an old-but-valid ETag would never be sent.
+    """
+    from src.scrapers.cache import ResponseCache
+
+    cache = ResponseCache(tmp_path, ttl_seconds=0)
+    cache.set("GET", "https://example.invalid/p", "<html>", etag='W/"abc"')
+
+    assert cache.get("GET", "https://example.invalid/p") is None
+    stored = cache.entry("GET", "https://example.invalid/p")
+    assert stored["body"] == "<html>"
+    assert ResponseCache.conditional_headers(stored) == {"If-None-Match": 'W/"abc"'}
+
+
+def test_touch_refreshes_age_without_losing_the_body(tmp_path):
+    """A 304 confirms the stored copy is current, so its age resets but not its content."""
+    from src.scrapers.cache import ResponseCache
+
+    cache = ResponseCache(tmp_path, ttl_seconds=3600)
+    cache.set("GET", "https://example.invalid/p", "<html>", etag='W/"abc"')
+    before = cache.entry("GET", "https://example.invalid/p")["fetched_at"]
+
+    time.sleep(0.01)
+    cache.touch("GET", "https://example.invalid/p")
+    after = cache.entry("GET", "https://example.invalid/p")
+
+    assert after["fetched_at"] > before
+    assert after["body"] == "<html>"
+    assert after["etag"] == 'W/"abc"'
+
+
+def test_prune_drops_only_what_has_gone_quiet(tmp_path):
+    """A 304 touches its entry, so live pages stay young; dead URLs age out."""
+    from src.scrapers.cache import ResponseCache
+
+    cache = ResponseCache(tmp_path, ttl_seconds=3600)
+    cache.set("GET", "https://example.invalid/live", "<html>")
+    cache.set("GET", "https://example.invalid/dead", "<html>")
+
+    # Age the second entry past the cutoff.
+    dead = tmp_path / f"{ResponseCache.key('GET', 'https://example.invalid/dead')}.json"
+    entry = json.loads(dead.read_text())
+    entry["fetched_at"] -= 86400 * 30
+    dead.write_text(json.dumps(entry))
+
+    assert cache.prune(86400 * 14) == 1
+    assert cache.entry("GET", "https://example.invalid/live") is not None
+    assert cache.entry("GET", "https://example.invalid/dead") is None

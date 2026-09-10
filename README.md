@@ -51,6 +51,7 @@ Copy `.env.example` to `.env` (or export the variables):
 | `SCRAPE_INTERVAL_HOURS` | `24` | How often the scheduler checks for updates |
 | `SCRAPE_CACHE` | `false` | Development only: cache scraped responses on disk |
 | `SCRAPE_CACHE_TTL_HOURS` | `6` | How long a cached response stays usable |
+| `HTTP_REVALIDATE` | `true` | Send `If-None-Match`/`If-Modified-Since` so unchanged pages return 304 |
 | `NOTIFY_TRANSPORT` | `none` | Where to deliver notifications: `none` or `ntfy` |
 | `NTFY_TOPIC` | *(none)* | ntfy topic to publish to; required when transport is `ntfy` |
 | `NTFY_SERVER` | `https://ntfy.sh` | ntfy server, for self-hosting |
@@ -118,6 +119,14 @@ as possible, and it is worth keeping them that way if you fork this.
   vendor serves every one of those. Responses are stored under `.scrape_cache/` for
   `SCRAPE_CACHE_TTL_HOURS`, keyed on the full request. It is off by default and should
   stay off in normal use — a cached run cannot discover a new firmware version.
+- **Conditional requests are on by default** (`HTTP_REVALIDATE`). Each page's `ETag`
+  and `Last-Modified` are kept and sent back, so an unchanged page answers `304 Not
+  Modified` with no body. Measured across the tracked vendors, 5 of 20 send a
+  validator — but for those the saving is the entire page: iZotope, Universal Audio,
+  Native Instruments and TC Electronic together return about 3 MB per run for a
+  header exchange. The other 15 answer `no-store` and are refetched in full.
+  Rendered (Playwright) pages are not revalidated; a browser navigation has no
+  practical way to act on a 304.
 - Scrapers currently send a browser `User-Agent`, because some vendors reject
   non-browser clients outright. The trade-off is that they cannot tell who is calling
   or ask you to stop, which is not ideal; an identifying UA with per-scraper overrides
