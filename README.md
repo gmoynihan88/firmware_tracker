@@ -148,6 +148,20 @@ Subscribe to the same topic in the [ntfy app](https://ntfy.sh/app) or at
 notification: if the transport is unreachable the notification is still stored, and
 the failure is logged rather than raised.
 
+**The test suite never delivers.** `tests/conftest.py` forces the transport off, so
+running `pytest` on a machine with ntfy configured cannot push fixture notifications
+to your phone.
+
+**Silencing a manual run.** Environment variables take precedence over `.env`, so
+prefix anything you are only running to inspect output:
+
+```bash
+NOTIFY_TRANSPORT=none .venv/bin/python -c "...trigger a scrape..."
+```
+
+Worth doing while debugging a scraper: a scrape that finds versions for a device you
+track will notify, and repeated runs are how a phone ends up full of the same alert.
+
 ### Database backup
 
 ```bash

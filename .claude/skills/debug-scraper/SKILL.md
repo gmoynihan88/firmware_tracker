@@ -25,6 +25,10 @@ asyncio.run(main())
 "
 ```
 
+Prefix manual runs with `NOTIFY_TRANSPORT=none` if a transport is configured.
+Environment variables beat `.env`, and a scrape that finds versions for a tracked
+device will deliver -- repeatedly, across a debugging session.
+
 `devices_failed` means the fetch or parse broke. `devices_without_firmware` means the
 scraper succeeded and the product genuinely has none — those are different, and the
 distinction is load-bearing. Do not "fix" the second kind.
