@@ -28,7 +28,7 @@ class SteinbergScraper(BaseScraper):
     SEARCH_URL = "https://forums.steinberg.net/search.json?q={query}"
     SITE_URL = "https://forums.steinberg.net/site.json"
 
-    # (device name, forum category, search term)
+    # (device name, forum category, search term, major version or None)
     #
     # HALion Sonic and Groove Agent SE ship on the same release train as the full
     # products, so they read the same announcements. The joint titles are the evidence:
@@ -37,15 +37,23 @@ class SteinbergScraper(BaseScraper):
     # titles abbreviate to "HALion 7.1.40 Maintenance available", but user threads in
     # the same forum reference HALion Sonic 7.1.40, so the train did not split; the
     # title just got shorter.
+    # Cubase is tracked per major version because its tiers do not move together.
+    # LE, AI and Elements ship inside a major and stay there -- a forum thread
+    # reads "Cubase Elements 13.0.30" against the announcement "Cubase 13.0.40
+    # Maintenance Update", so the tiers share the numbering within a major but an
+    # Elements 13 owner is not on the 15 train and must not be told 15.0.30 is
+    # their update. Same reasoning as Pianoteq's editions in modartt.py.
     PRODUCTS = [
-        ("HALion", "HALion", "HALion maintenance"),
-        ("HALion Sonic", "HALion", "HALion maintenance"),
-        ("Groove Agent", "Groove Agent", "Groove Agent maintenance"),
-        ("Groove Agent SE", "Groove Agent", "Groove Agent maintenance"),
-        ("Cubase", "Cubase", "Cubase maintenance update"),
-        ("Nuendo", "Nuendo", "Nuendo maintenance update"),
-        ("WaveLab", "WaveLab", "WaveLab maintenance update"),
-        ("Dorico", "Dorico", "Dorico maintenance update"),
+        ("HALion", "HALion", "HALion maintenance", None),
+        ("HALion Sonic", "HALion", "HALion maintenance", None),
+        ("Groove Agent", "Groove Agent", "Groove Agent maintenance", None),
+        ("Groove Agent SE", "Groove Agent", "Groove Agent maintenance", None),
+        ("Cubase", "Cubase", "Cubase maintenance update", None),
+        ("Cubase 12", "Cubase", "Cubase maintenance update", "12"),
+        ("Cubase 13", "Cubase", "Cubase maintenance update", "13"),
+        ("Nuendo", "Nuendo", "Nuendo maintenance update", None),
+        ("WaveLab", "WaveLab", "WaveLab maintenance update", None),
+        ("Dorico", "Dorico", "Dorico maintenance update", None),
     ]
 
     # "New Groove Agent (SE) 5.2.30 Maintenance available". Anchored at the start and
@@ -107,7 +115,7 @@ class SteinbergScraper(BaseScraper):
                     firmware_page_url=self.manufacturer_website,
                     product_url=self.manufacturer_website,
                 )
-                for name, _cat, _query in self.PRODUCTS
+                for name, _cat, _query, _major in self.PRODUCTS
             ],
         )
 
@@ -120,7 +128,7 @@ class SteinbergScraper(BaseScraper):
                 success=False, error=f"No Steinberg product configured for {device_name}"
             )
 
-        name, category, query = entry
+        name, category, query, major = entry
 
         categories = await self._get_categories()
         topics = await self._search(query)
@@ -146,6 +154,8 @@ class SteinbergScraper(BaseScraper):
                 continue
 
             version = match.group(1)
+            if major and not version.startswith(f"{major}."):
+                continue
             if version in seen:
                 continue
 

@@ -1922,3 +1922,33 @@ async def test_steinberg_unreadable_forum_fails_rather_than_reporting_no_firmwar
 
     assert result.success is False
     assert "search api" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_steinberg_cubase_tiers_stay_on_their_own_major():
+    """An Elements 13 owner must not be told 15.0.30 is their update.
+
+    Cubase tiers share numbering within a major but do not move between majors,
+    so a per-major device only reads announcements from its own train.
+    """
+    from src.scrapers.plugins.steinberg import SteinbergScraper
+
+    scraper = SteinbergScraper()
+    scraper._categories = {1: "Cubase"}
+    scraper._searches["Cubase maintenance update"] = [
+        {"title": "Cubase 15.0.30 Maintenance Update", "category_id": 1,
+         "created_at": "2026-06-03T09:00:00.000Z", "id": 1, "slug": "c15"},
+        {"title": "Cubase 13.0.50 maintenance update", "category_id": 1,
+         "created_at": "2024-09-10T09:00:00.000Z", "id": 2, "slug": "c13-50"},
+        {"title": "Cubase 13.0.40 Maintenance Update", "category_id": 1,
+         "created_at": "2024-05-14T09:00:00.000Z", "id": 3, "slug": "c13-40"},
+        {"title": "Cubase 12.0.70 maintenance update", "category_id": 1,
+         "created_at": "2023-02-08T09:00:00.000Z", "id": 4, "slug": "c12-70"},
+    ]
+
+    thirteen = await scraper.fetch_firmware_versions("Cubase 13", "https://www.steinberg.net")
+    assert [fw.version for fw in thirteen.firmware_versions] == ["13.0.50", "13.0.40"]
+
+    # The unversioned entry tracks the current line and still sees everything.
+    every = await scraper.fetch_firmware_versions("Cubase", "https://www.steinberg.net")
+    assert every.firmware_versions[0].version == "15.0.30"
