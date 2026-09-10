@@ -12,60 +12,90 @@ class MoogScraper(BaseScraper):
     manufacturer_slug = "moog"
     manufacturer_website = "https://www.moogmusic.com"
 
-    # Software update API endpoint
+    # Moog publishes a software update page per product, but only Mariana actually
+    # has one: every other slug -- including invented ones -- returns the same
+    # sixteen-line shell. The old www.moogmusic.com/products/<slug> URLs all 404,
+    # Mariana's included, so the site is no longer a usable source at all.
     SOFTWARE_UPDATE_URL = "https://software.moogmusic.com/softwareUpdate/{slug}"
+    SOFTWARE_STORE = "https://software.moogmusic.com/"
 
-    # Known Moog software products - (name, category, firmware_url, product_url)
+    # (name, category, slug)
     KNOWN_PRODUCTS = [
-        ("Mariana", "vst_plugin", "https://software.moogmusic.com/softwareUpdate/mariana", "https://www.moogmusic.com/products/mariana"),
-        ("Animoog Z", "vst_plugin", "https://software.moogmusic.com/softwareUpdate/animoog-z", "https://www.moogmusic.com/products/animoog-z"),
-        ("Moog Model 15", "vst_plugin", "https://www.moogmusic.com/products/model-15-app", "https://www.moogmusic.com/products/model-15-app"),
-        ("Minimoog Model D App", "vst_plugin", "https://www.moogmusic.com/products/minimoog-model-d-app", "https://www.moogmusic.com/products/minimoog-model-d-app"),
+        ("Mariana", "vst_plugin", "mariana"),
+        ("Animoog Z", "vst_plugin", "animoog-z"),
+        ("Moog Model 15", "vst_plugin", "model-15"),
+        ("Minimoog Model D App", "vst_plugin", "minimoog-model-d"),
     ]
+
+    # iOS apps distributed through the App Store. Their moogmusic.com product pages
+    # return "404 Not Found | Moog Music" and their software update pages carry no
+    # version, so Moog publishes nothing to read. Reported as having no firmware
+    # rather than as a failure: the absence is a fact about where they are shipped.
+    NO_PUBLISHED_VERSION = {"Animoog Z", "Moog Model 15", "Minimoog Model D App"}
+
+    # "macOS All Formats v1.2.0" names the shipping build; the Change Log lists the
+    # history as <p class="sub-header">1.2.0</p> followed by its notes.
+    DOWNLOAD_VERSION = re.compile(r"(?:macOS|Windows)\s+All\s+Formats\s+v(\d+(?:\.\d+)+)")
+    CHANGELOG_VERSION = re.compile(r"^\d+(?:\.\d+)+$")
 
     async def fetch_device_list(self) -> ScraperResult:
         """Return the list of known Moog software products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=firmware_url,
-                product_url=product_url,
-            )
-            for name, category, firmware_url, product_url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category=category,
+                    firmware_page_url=self.SOFTWARE_UPDATE_URL.format(slug=slug),
+                    product_url=self.SOFTWARE_STORE,
+                )
+                for name, category, slug in self.KNOWN_PRODUCTS
+            ],
+        )
 
     def _parse_software_update_page(self, html: str) -> list[ScrapedFirmware]:
-        """Parse version from Moog software update page.
-
-        Format: "macOS All Formats v1.2.3" or "Windows All Formats v1.2.3"
-        """
-        firmware_versions = []
-
-        # Extract versions from format like "macOS All Formats v1.2.3"
-        version_pattern = r"(?:macOS|Windows)\s+All\s+Formats\s+v(\d+\.\d+\.\d+)"
-        matches = re.findall(version_pattern, html)
-
+        """Read the shipping version and the Change Log from a software update page."""
+        soup = self.parse_html(html)
+        versions: list[ScrapedFirmware] = []
         seen = set()
-        for version in matches:
-            if version not in seen:
-                seen.add(version)
-                firmware_versions.append(ScrapedFirmware(version=version))
 
-        return firmware_versions
+        # The Change Log carries the history, newest first, each version in its own
+        # sub-header followed by the notes for that release.
+        for header in soup.find_all("p", class_="sub-header"):
+            version = header.get_text(strip=True)
+            if not self.CHANGELOG_VERSION.match(version) or version in seen:
+                continue
+
+            notes = []
+            for sibling in header.find_next_siblings():
+                if sibling.name == "p" and "sub-header" in (sibling.get("class") or []):
+                    break
+                text = sibling.get_text(" ", strip=True)
+                if text:
+                    notes.append(text)
+
+            seen.add(version)
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    changelog=" ".join(notes)[:500] or None,
+                )
+            )
+
+        # The download blurb names the shipping build, which need not appear in the
+        # Change Log.
+        for match in self.DOWNLOAD_VERSION.finditer(html):
+            if match.group(1) not in seen:
+                seen.add(match.group(1))
+                versions.insert(0, ScrapedFirmware(version=match.group(1)))
+
+        return versions
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch versions from a Moog product page."""
-        # Use software update endpoint if available
-        if "software.moogmusic.com/softwareUpdate" in firmware_page_url:
-            html = await self.fetch_page(firmware_page_url)
-            if html:
-                firmware_versions = self._parse_software_update_page(html)
-                if firmware_versions:
-                    return ScraperResult(success=True, firmware_versions=firmware_versions)
+        if device_name in self.NO_PUBLISHED_VERSION:
+            return ScraperResult(success=True, firmware_versions=[])
 
         html = await self.fetch_page(firmware_page_url)
         if not html:
@@ -73,77 +103,14 @@ class MoogScraper(BaseScraper):
                 success=False, error=f"Failed to fetch {firmware_page_url}"
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
+        versions = self._parse_software_update_page(html)
+        if not versions:
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"No version found for {device_name} at {firmware_page_url}; "
+                    "the page returned the generic software-store shell"
+                ),
+            )
 
-        # Moog versions look like "Version 1.2.0" or "v1.2.0"
-        version_pattern = r"[Vv](?:ersion)?\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
-
-        # Look for version info sections
-        sections = soup.find_all(
-            ["div", "section", "p", "span", "td", "li"],
-            class_=re.compile(r"version|spec|info|detail|feature|description", re.I)
-        )
-
-        for section in sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link (if available on public page)
-                download_link = section.find("a", href=re.compile(r"\.(dmg|pkg|exe|zip)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://www.moogmusic.com{download_url}"
-
-                # Look for release date
-                date_pattern = r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\w+\s+\d{1,2},?\s+\d{4})"
-                date_match = re.search(date_pattern, text)
-                release_date = None
-                if date_match:
-                    date_str = date_match.group(1)
-                    for fmt in ["%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%B %d %Y"]:
-                        try:
-                            release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                            break
-                        except ValueError:
-                            continue
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                    )
-                )
-
-        # Check meta tags and structured data
-        meta_version = soup.find("meta", {"name": re.compile(r"version", re.I)})
-        if meta_version and meta_version.get("content"):
-            version_match = re.search(version_pattern, meta_version["content"])
-            if version_match:
-                version = version_match.group(1)
-                if not any(fw.version == version for fw in firmware_versions):
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Fallback: scan entire page
-        if not firmware_versions:
-            matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        return ScraperResult(success=True, firmware_versions=versions)
