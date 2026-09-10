@@ -6,7 +6,7 @@ A self-hosted web app that scrapes manufacturer websites for firmware and softwa
 
 ## What it does
 
-- **Scrapes 20 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
+- **Scrapes 21 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
 - **Tracks your devices** — add hardware and plugins you own, see at a glance what's current and what has updates
 - **Scans installed VST/AU/CLAP plugins** on macOS and matches them against the database
 - **Scheduled checks** — APScheduler runs periodic scrapes in the background
@@ -222,12 +222,12 @@ bash scripts/backup_db.sh restore backups/firmware_tracker_YYYYMMDD_HHMMSS.db
 |---|---|
 | Boss | GForce Software |
 | Crumar | IK Multimedia |
-| Elektron | Modartt (Pianoteq) |
-| Focusrite | Moog |
-| Line 6 | Native Instruments |
-| Peterson | TAL Software |
-| QSC | Universal Audio |
-| Roland | |
+| Elektron | iZotope |
+| Focusrite | Modartt (Pianoteq) |
+| Line 6 | Moog |
+| Peterson | Native Instruments |
+| QSC | TAL Software |
+| Roland | Universal Audio |
 | Sound-Force | |
 | Strymon | |
 | TC Electronic | |
@@ -287,7 +287,7 @@ src/
     base.py            # BaseScraper with aiohttp + Playwright helpers
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape → sync → notify
-    plugins/           # One file per manufacturer (20 scrapers)
+    plugins/           # One file per manufacturer (21 scrapers)
   notifications/
     transport.py       # Delivery to ntfy, behind a Notifier protocol
     reconcile.py       # Raises notifications for devices behind their latest
