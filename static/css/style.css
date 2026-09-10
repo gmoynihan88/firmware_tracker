@@ -2071,3 +2071,100 @@ select:disabled {
     font-size: 0.9375rem;
     cursor: pointer;
 }
+
+/* Device table ----------------------------------------------------------- */
+
+.device-table-wrap {
+    /* The table is the one thing allowed to scroll sideways on a narrow screen. */
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.18));
+    border-radius: 12px;
+}
+
+.device-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.device-table th,
+.device-table td {
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.device-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-raised, #14181f);
+    border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.25));
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+}
+
+.device-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.device-table th.sortable:hover { color: var(--text-primary); }
+
+/* Direction arrow, so the active sort is visible without reading the data. */
+.device-table th.sortable[data-direction="asc"]::after { content: " \2191"; }
+.device-table th.sortable[data-direction="desc"]::after { content: " \2193"; }
+
+.device-table tbody tr {
+    border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.10));
+}
+
+.device-table tbody tr:hover {
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.device-table tbody tr.has-update {
+    /* A left edge rather than a full row tint: legible without shouting. */
+    box-shadow: inset 3px 0 0 var(--amber-400, #fbbf24);
+}
+
+.cell-product a {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.cell-product a:hover { text-decoration: underline; }
+
+.cell-sub {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.cell-version {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.cell-category { color: var(--text-tertiary); }
+
+.cell-link {
+    color: var(--text-tertiary);
+    text-decoration: none;
+    font-size: 0.8125rem;
+}
+
+.cell-link:hover { color: var(--text-primary); }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}

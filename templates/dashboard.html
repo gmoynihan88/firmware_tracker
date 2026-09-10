@@ -89,70 +89,47 @@
     </div>
 </div>
 
-<div class="device-grid">
-    {% for item in devices %}
-    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}" data-status="{{ item.status }}">
-        <div class="device-header">
-            <div class="device-title">
-                <h3>{{ item.device.nickname or item.device.device_model.name }}</h3>
-                <span class="device-manufacturer">{{ item.device.device_model.manufacturer.name }}</span>
-            </div>
-            {% if item.status == 'update' %}
-            <span class="status-indicator update">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10"/>
-                </svg>
-                Update
-            </span>
-            {% elif item.status == 'unknown' %}
-            <span class="status-indicator unknown" title="No installed firmware version recorded for this device">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10"/>
-                </svg>
-                Unknown
-            </span>
-            {% else %}
-            <span class="status-indicator current">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10"/>
-                </svg>
-                Current
-            </span>
-            {% endif %}
-        </div>
-
-        <div class="device-meta">
-            <span class="device-model">{{ item.device.device_model.name }}</span>
-            <span class="device-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</span>
-        </div>
-
-        <div class="device-firmware">
-            <div class="firmware-row">
-                <span class="firmware-label">Installed</span>
-                <span class="firmware-value">{{ item.device.current_firmware_version or '—' }}</span>
-            </div>
-            {% if item.latest_firmware %}
-            <div class="firmware-row {% if item.has_update %}highlight{% endif %}">
-                <span class="firmware-label">Latest</span>
-                <span class="firmware-value">v{{ item.latest_firmware.version }}</span>
-            </div>
-            {% endif %}
-            <div class="firmware-row">
-                <span class="firmware-label">Versions</span>
-                <span class="firmware-value">{{ item.firmware_count }}</span>
-            </div>
-        </div>
-
-        <div class="device-actions">
-            <a href="/devices/{{ item.device.id }}" class="btn btn-secondary btn-block">
-                View Details
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-            </a>
-        </div>
-    </article>
-    {% endfor %}
+<div class="device-table-wrap">
+    <table class="device-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-column="0" scope="col">Vendor</th>
+                <th class="sortable" data-column="1" scope="col">Product</th>
+                <th class="sortable" data-column="2" scope="col">Category</th>
+                <th class="sortable numeric" data-column="3" scope="col">Installed</th>
+                <th class="sortable numeric" data-column="4" scope="col">Latest</th>
+                <th class="sortable" data-column="5" scope="col">Status</th>
+                <th scope="col"><span class="visually-hidden">Details</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in devices %}
+            <tr class="device-row {% if item.status == 'update' %}has-update{% endif %}"
+                data-category="{{ item.device.device_model.category.value }}"
+                data-brand="{{ item.device.device_model.manufacturer.slug }}"
+                data-status="{{ item.status }}">
+                <td class="cell-vendor">{{ item.device.device_model.manufacturer.name }}</td>
+                <td class="cell-product">
+                    <a href="/devices/{{ item.device.id }}">{{ item.device.nickname or item.device.device_model.name }}</a>
+                    {% if item.device.nickname %}<span class="cell-sub">{{ item.device.device_model.name }}</span>{% endif %}
+                </td>
+                <td class="cell-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</td>
+                <td class="cell-version">{{ item.device.current_firmware_version or '—' }}</td>
+                <td class="cell-version">{% if item.latest_firmware %}{{ item.latest_firmware.version }}{% else %}—{% endif %}</td>
+                <td class="cell-status">
+                    {% if item.status == 'update' %}
+                    <span class="status-indicator update">Update</span>
+                    {% elif item.status == 'unknown' %}
+                    <span class="status-indicator unknown" title="No installed firmware version recorded">Unknown</span>
+                    {% else %}
+                    <span class="status-indicator current">Current</span>
+                    {% endif %}
+                </td>
+                <td class="cell-actions"><a class="cell-link" href="/devices/{{ item.device.id }}">Details &rsaquo;</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% else %}
 <div class="empty-state">
@@ -204,7 +181,7 @@ function filterDevices() {
     const matches = (value, active, offered) =>
         offered.includes(value) ? active.includes(value) : true;
 
-    const cards = document.querySelectorAll('.device-card');
+    const cards = document.querySelectorAll('.device-row');
     cards.forEach(card => {
         const matchesCategory = matches(card.dataset.category, activeCategories, allCategories);
         const matchesBrand = matches(card.dataset.brand, activeBrands, allBrands);
@@ -213,5 +190,59 @@ function filterDevices() {
         card.hidden = !(matchesCategory && matchesBrand && matchesStatus);
     });
 }
+
+// --- sorting ---------------------------------------------------------------
+// Versions are compared segment by segment as numbers, so 1.11 ranks above 1.9 and
+// 9.2.10 above 9.2.9 -- both of which a plain string sort gets backwards. Anything
+// that is not version-shaped falls back to a case-insensitive text compare.
+const VERSION = /^\d+(\.\d+)*$/;
+
+function compareValues(a, b) {
+    if (VERSION.test(a) && VERSION.test(b)) {
+        const left = a.split('.').map(Number);
+        const right = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(left.length, right.length); i++) {
+            const diff = (left[i] || 0) - (right[i] || 0);
+            if (diff !== 0) return diff;
+        }
+        return 0;
+    }
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+// Rows with no value sort last in both directions. This has to sit outside the
+// comparator: descending inverts the comparison, and inverting "empty is last"
+// would float every unrecorded device to the top.
+const EMPTY = '—';
+
+function sortTable(columnIndex, header) {
+    const table = document.querySelector('.device-table');
+    const body = table.querySelector('tbody');
+    const ascending = header.dataset.direction !== 'asc';
+
+    table.querySelectorAll('th.sortable').forEach(th => {
+        th.removeAttribute('data-direction');
+        th.removeAttribute('aria-sort');
+    });
+    header.dataset.direction = ascending ? 'asc' : 'desc';
+    header.setAttribute('aria-sort', ascending ? 'ascending' : 'descending');
+
+    const rows = Array.from(body.querySelectorAll('tr'));
+    rows.sort((rowA, rowB) => {
+        const a = rowA.children[columnIndex].textContent.trim();
+        const b = rowB.children[columnIndex].textContent.trim();
+
+        if ((a === EMPTY) !== (b === EMPTY)) return a === EMPTY ? 1 : -1;
+
+        return ascending ? compareValues(a, b) : compareValues(b, a);
+    });
+
+    // Re-appending preserves each row's hidden state, so a sort does not undo a filter.
+    rows.forEach(row => body.appendChild(row));
+}
+
+document.querySelectorAll('.device-table th.sortable').forEach(header => {
+    header.addEventListener('click', () => sortTable(Number(header.dataset.column), header));
+});
 </script>
 {% endblock %}

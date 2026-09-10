@@ -1479,3 +1479,56 @@ def test_auth_stays_off_if_only_half_configured():
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="", secret_key="k")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="k")) is True
+
+
+@pytest.mark.asyncio
+async def test_dashboard_renders_a_table_with_the_expected_columns(client):
+    """One row per device, dense enough to scan 71 of them."""
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="TableCo", slug="tableco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Table Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.0.6", is_latest=True,
+        ))
+        await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="2.0.5", notify_on_update=True,
+        ))
+
+    html = (await client.get("/")).text
+
+    for column in ("Vendor", "Product", "Category", "Installed", "Latest", "Status"):
+        assert f">{column}<" in html, column
+
+    assert html.count('class="device-row') == 1
+    assert "TableCo" in html
+    assert "2.0.5" in html and "2.0.6" in html
+    # The row still carries the filter attributes.
+    assert 'data-status="update"' in html
+    assert 'data-brand="tableco"' in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_row_links_to_the_device_detail_page(client):
+    from src.devices.schemas import (
+        DeviceModelCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="LinkCo", slug="linkco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Link Pedal", category=DeviceCategory.GUITAR_PEDAL,
+        ))
+        device = await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+    assert f'href="/devices/{device.id}"' in html
