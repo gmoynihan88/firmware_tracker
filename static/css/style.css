@@ -84,6 +84,10 @@
 
 html {
     scroll-behavior: smooth;
+    /* Reserve the scrollbar's width at all times. Without this, filtering down to
+       zero rows makes the page short enough to drop its scrollbar, and every
+       centred element jumps sideways into the reclaimed width. */
+    scrollbar-gutter: stable;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
