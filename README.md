@@ -48,7 +48,9 @@ Copy `.env.example` to `.env` (or export the variables):
 |---|---|---|
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
-| `SCRAPE_INTERVAL_HOURS` | `6` | How often the scheduler checks for updates |
+| `SCRAPE_INTERVAL_HOURS` | `24` | How often the scheduler checks for updates |
+| `SCRAPE_CACHE` | `false` | Development only: cache scraped responses on disk |
+| `SCRAPE_CACHE_TTL_HOURS` | `6` | How long a cached response stays usable |
 | `NOTIFY_TRANSPORT` | `none` | Where to deliver notifications: `none` or `ntfy` |
 | `NTFY_TOPIC` | *(none)* | ntfy topic to publish to; required when transport is `ntfy` |
 | `NTFY_SERVER` | `https://ntfy.sh` | ntfy server, for self-hosting |
@@ -99,8 +101,31 @@ Also worth knowing:
   it can read your notifications and publish to them, so use a long random value
   (`firmware-tracker-$(openssl rand -hex 16)`) and keep it in `.env`. Self-host ntfy
   with auth if that is not good enough for you.
-- Scrapers send a browser `User-Agent` and rate-limit themselves via `RATE_LIMIT_DELAY`.
-  Be considerate about scrape frequency — `SCRAPE_INTERVAL_HOURS` defaults to 6.
+- Scrapers rate-limit themselves via `RATE_LIMIT_DELAY` and send a browser
+  `User-Agent`. See [Being a good neighbour](#being-a-good-neighbour-to-the-vendors).
+
+## Being a good neighbour to the vendors
+
+Several of the sites this scrapes are run by very small outfits — Sound-Force and TAL
+are effectively one-person operations — so the defaults are set to cost them as little
+as possible, and it is worth keeping them that way if you fork this.
+
+- Scrapers rate-limit themselves to one request per second via `RATE_LIMIT_DELAY`.
+- `SCRAPE_INTERVAL_HOURS` defaults to **24**. Firmware ships a few times a year;
+  checking more often multiplies the load without finding anything sooner.
+- **Set `SCRAPE_CACHE=1` while developing.** Working on a scraper means running the
+  same fetch over and over against data that has not changed, and without a cache the
+  vendor serves every one of those. Responses are stored under `.scrape_cache/` for
+  `SCRAPE_CACHE_TTL_HOURS`, keyed on the full request. It is off by default and should
+  stay off in normal use — a cached run cannot discover a new firmware version.
+- Scrapers currently send a browser `User-Agent`, because some vendors reject
+  non-browser clients outright. The trade-off is that they cannot tell who is calling
+  or ask you to stop, which is not ideal; an identifying UA with per-scraper overrides
+  is the better end state.
+
+One thing to know if this ever spreads: every instance scrapes independently, so N
+users means N times the load on those same small sites. A shared cache would be the
+neighbourly answer at that point.
 
 ## Usage
 

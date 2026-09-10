@@ -1952,3 +1952,79 @@ async def test_steinberg_cubase_tiers_stay_on_their_own_major():
     # The unversioned entry tracks the current line and still sees everything.
     every = await scraper.fetch_firmware_versions("Cubase", "https://www.steinberg.net")
     assert every.firmware_versions[0].version == "15.0.30"
+
+
+def test_response_cache_separates_requests_that_differ_only_by_body(tmp_path):
+    """Modartt picks a product with a POST body, so the URL alone is not the key.
+
+    Keying on the URL would serve one product's changelog for another -- silently,
+    and only while the cache is on, which is the worst way to find a bug.
+    """
+    from src.scrapers.cache import ResponseCache
+
+    cache = ResponseCache(tmp_path, ttl_seconds=3600)
+    cache.set("POST", "https://api.example/products", "pianoteq data", '{"software":"pianoteq"}')
+    cache.set("POST", "https://api.example/products", "organteq data", '{"software":"organteq"}')
+
+    assert cache.get("POST", "https://api.example/products", '{"software":"pianoteq"}') == "pianoteq data"
+    assert cache.get("POST", "https://api.example/products", '{"software":"organteq"}') == "organteq data"
+    # A body that was never stored is a miss, not somebody else's answer.
+    assert cache.get("POST", "https://api.example/products", '{"software":"other"}') is None
+
+
+def test_response_cache_expires_and_survives_corruption(tmp_path):
+    from src.scrapers.cache import ResponseCache
+
+    expired = ResponseCache(tmp_path, ttl_seconds=0)
+    expired.set("GET", "https://example.invalid/a", "stale")
+    assert expired.get("GET", "https://example.invalid/a") is None
+
+    # A truncated or garbage entry must read as a miss rather than raising, so a
+    # damaged cache degrades to fetching rather than breaking every scraper.
+    fresh = ResponseCache(tmp_path, ttl_seconds=3600)
+    fresh.set("GET", "https://example.invalid/b", "good")
+    (tmp_path / f"{ResponseCache.key('GET', 'https://example.invalid/b')}.json").write_text("{not json")
+    assert fresh.get("GET", "https://example.invalid/b") is None
+
+
+@pytest.mark.asyncio
+async def test_scraper_cache_is_off_by_default():
+    """Production must always fetch live -- a cached run cannot find new firmware."""
+    from src.scrapers.plugins.steinberg import SteinbergScraper
+
+    assert SteinbergScraper()._cache is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_js_keys_on_the_click_selector(tmp_path, monkeypatch):
+    """Clicking a tab changes what renders, so the same URL is a different response."""
+    from src.scrapers.base import BaseScraper
+    from src.scrapers.cache import ResponseCache
+
+    class Stub(BaseScraper):
+        manufacturer_name, manufacturer_slug, manufacturer_website = "S", "s", "https://e.invalid"
+
+        async def fetch_device_list(self):
+            ...
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url):
+            ...
+
+    scraper = Stub()
+    scraper._cache = ResponseCache(tmp_path, ttl_seconds=3600)
+
+    # Prime the cache as if the two tabs had been fetched.
+    import json as _json
+
+    for click, html in (("#tab-a", "<p>A</p>"), ("#tab-b", "<p>B</p>")):
+        variant = _json.dumps({"click": click, "wait": None}, sort_keys=True)
+        scraper._cache.set("GET-JS", "https://e.invalid/p", html, variant)
+
+    # Playwright must never be reached; a hit returns before the browser launches.
+    async def explode():
+        raise AssertionError("cache hit should not launch a browser")
+
+    monkeypatch.setattr(scraper, "_get_browser", explode)
+
+    assert await scraper.fetch_page_js("https://e.invalid/p", click_selector="#tab-a") == "<p>A</p>"
+    assert await scraper.fetch_page_js("https://e.invalid/p", click_selector="#tab-b") == "<p>B</p>"

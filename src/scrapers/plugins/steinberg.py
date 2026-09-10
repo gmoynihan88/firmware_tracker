@@ -73,15 +73,7 @@ class SteinbergScraper(BaseScraper):
         self._searches: Dict[str, list] = {}
 
     async def _get_json(self, url: str) -> Optional[dict]:
-        await self._rate_limit()
-        session = await self._get_session()
-        try:
-            async with session.get(url, headers={"Accept": "application/json"}) as response:
-                if response.status != 200:
-                    return None
-                return await response.json(content_type=None)
-        except Exception:
-            return None
+        return await self.fetch_json(url, headers={"Accept": "application/json"})
 
     async def _get_categories(self) -> Optional[Dict[int, str]]:
         if self._categories is not None:

@@ -126,15 +126,9 @@ class ModarttScraper(BaseScraper):
 
     async def _fetch_products_payload(self) -> Optional[dict]:
         """Fetch the JSON payload backing the changelog page."""
-        await self._rate_limit()
-        session = await self._get_session()
-        try:
-            async with session.post(self.PRODUCTS_API, json=self.PRODUCTS_PAYLOAD) as response:
-                if response.status != 200:
-                    return None
-                return await response.json(content_type=None)
-        except Exception:
-            return None
+        return await self.fetch_json(
+            self.PRODUCTS_API, method="POST", json_body=self.PRODUCTS_PAYLOAD
+        )
 
     def _parse_changelog(self, html: str) -> List[ScrapedFirmware]:
         """Parse the dated version list out of the changelog markup.
