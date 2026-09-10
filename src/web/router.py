@@ -8,6 +8,7 @@ from src.database import get_db
 from src.config import get_settings
 from src.devices import service as device_service
 from src.devices.schemas import MyDeviceCreate, MyDeviceUpdate
+from src.notifications.reconcile import is_behind
 from src.scrapers.registry import ScraperRegistry
 from src.scrapers import service as scraper_service
 
@@ -28,16 +29,24 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     for device in my_devices:
         latest = await device_service.get_latest_firmware(db, device.device_model_id)
         firmware_count = await device_service.get_firmware_version_count(db, device.device_model_id)
-        has_update = False
-        if latest and device.current_firmware_version:
-            has_update = latest.version != device.current_firmware_version
-        elif latest:
-            has_update = True
+
+        # Three states, not two. A device with no recorded installed version is not
+        # behind, it is unrecorded -- previously these were shown as "Update
+        # Available", which is a guess, and the same numeric comparison the
+        # notification paths use is applied here so the dashboard cannot disagree
+        # with what gets notified.
+        if not device.current_firmware_version:
+            status = "unknown"
+        elif latest and is_behind(device.current_firmware_version, latest.version):
+            status = "update"
+        else:
+            status = "current"
 
         devices_with_status.append({
             "device": device,
             "latest_firmware": latest,
-            "has_update": has_update,
+            "status": status,
+            "has_update": status == "update",
             "firmware_count": firmware_count,
         })
 

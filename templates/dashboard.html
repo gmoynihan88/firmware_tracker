@@ -82,23 +82,34 @@
             <input type="checkbox" value="update" checked onchange="filterDevices()">
             <span class="filter-chip">Update Available</span>
         </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="unknown" checked onchange="filterDevices()">
+            <span class="filter-chip">Firmware Unknown</span>
+        </label>
     </div>
 </div>
 
 <div class="device-grid">
     {% for item in devices %}
-    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}" data-status="{% if item.has_update %}update{% else %}current{% endif %}">
+    <article class="device-card {% if item.has_update %}has-update{% endif %}" data-category="{{ item.device.device_model.category.value }}" data-brand="{{ item.device.device_model.manufacturer.slug }}" data-status="{{ item.status }}">
         <div class="device-header">
             <div class="device-title">
                 <h3>{{ item.device.nickname or item.device.device_model.name }}</h3>
                 <span class="device-manufacturer">{{ item.device.device_model.manufacturer.name }}</span>
             </div>
-            {% if item.has_update %}
+            {% if item.status == 'update' %}
             <span class="status-indicator update">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                     <circle cx="12" cy="12" r="10"/>
                 </svg>
                 Update
+            </span>
+            {% elif item.status == 'unknown' %}
+            <span class="status-indicator unknown" title="No installed firmware version recorded for this device">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                </svg>
+                Unknown
             </span>
             {% else %}
             <span class="status-indicator current">

@@ -1417,6 +1417,17 @@ body {
     background: var(--amber-glow);
 }
 
+/* No installed version recorded: neither current nor behind, so it must not read
+   as either. Deliberately muted rather than alarming. */
+.status-indicator.unknown {
+    color: var(--text-tertiary);
+    background: rgba(148, 163, 184, 0.12);
+}
+
+.status-indicator.unknown svg {
+    opacity: 0.7;
+}
+
 .status-indicator.update svg {
     filter: drop-shadow(0 0 4px var(--amber-500));
     animation: pulse-glow 1.5s ease-in-out infinite;
