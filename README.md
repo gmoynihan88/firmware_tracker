@@ -2,13 +2,24 @@
 
 [![CI](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml)
 
-Music gear ships firmware updates and then never mentions it again. There is no feed,
-no notification, no changelog you can subscribe to — just a downloads page per vendor
-that you are expected to remember to visit. Miss one and you find out months later,
-usually mid-session, usually because of the bug it fixed.
+tl;dr, this is a web app that keeps inventory of sofware levels for your music gadgets.  The UI 
+lets you add and update devices that are not online such as digital effects pedals, digital mixers,
+loudspeakers, etc.  Software VSTs are simply queried on the filesystme.  
 
-This tracks 23 manufacturers so you don't have to. It scrapes their sites, notices
-when something you own falls behind, and tells you.
+I wrote this because my QSC speaker had an update available that I overlooked for months, maybe 
+a year or two, that ran the speaker as a bass amp.  HELL YEAH.  This is one of my favorite
+software updates for anything, ever, and I almost missed it.  So, I wrote an app to discover
+and notify me for all my stuff, because who has time to track that all the hard way?
+
+DISCLAIMER:  Much of the text below was created by AI, skim appropriately, thanks! 
+
+Music hardware and audio plugins get firmware and version updates that vendors rarely
+announce. There is no feed to subscribe to and no common release channel — each
+manufacturer has its own downloads page, and checking them by hand does not scale past
+a few devices.
+
+This scrapes 23 manufacturers on a schedule, compares what it finds against the gear
+you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
 
@@ -25,14 +36,12 @@ docker compose up
 Open http://localhost:8000. Nothing to configure — it starts with no notifications, no
 AI summaries and no authentication, which is fine on localhost.
 
-**On a Mac, try the plugin scanner first.** No server, no database, no commitment — it
-reads your VST3, VST, AU and CLAP folders and tells you what you actually have:
+The plugin scanner runs standalone, without the server or database. On macOS it reads
+the VST3, VST, AU and CLAP folders and reports every plugin with its version and vendor:
 
 ```bash
 python scripts/scan_installed_plugins.py
 ```
-
-Most people have no idea what is in there.
 
 <details>
 <summary>Running it without Docker</summary>
@@ -56,62 +65,62 @@ uvicorn src.main:app --reload
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
 - **Optional AI changelog summaries** via the Anthropic API
 
-## The interesting part: it admits what it doesn't know
+## Unknown versions are reported as unknown
 
-Scraping 23 vendors means 23 sites that change without warning, and the tempting
-failure is to quietly invent data rather than report a gap.
+Not every vendor publishes a version number, and a scraper that fills the gap with a
+plausible guess is worse than one that reports nothing.
 
-Universal Audio is the cautionary tale. Its scraper looked like the healthiest in the
-repo — ran in 0.01s, never failed, every product green. It was reporting the versions
-installed on my own laptop, because that is where the table came from. It could not
-have detected an update, ever.
+Universal Audio publishes no per-plugin versions: not on their site, not in their
+release notes (which list changes by month with no version numbers), and their
+installer manifest is encrypted. An earlier version of that scraper carried a
+hardcoded table whose ten entries matched the plugins installed on the developer's
+machine, because that is where they came from. It reported every product as current by
+construction and could not detect an update. Those products now report no version,
+which renders as "Firmware Unknown", and link to UA's release notes.
 
-UA publishes no versions anywhere public — not on their site, not in their release
-notes, and their installer manifest is encrypted. So now those products say **"Firmware
-Unknown"**, which is true, and link to UA's release notes so you can check by hand. A
-permanent green tick is a lie that stops you looking.
+Eventide is a similar case for hardware. The H90 downloads page shows version 2.2.0,
+which belongs to a companion app rather than the pedal; pedal firmware ships through
+Eventide's device manager and is not published anywhere.
 
-The same rule runs throughout. Eventide's H90 page shows version 2.2.0 — that belongs
-to a companion app, not the pedal, and the pedal's firmware is not published at all.
-`devices_failed` (something broke) is kept separate from `devices_without_firmware`
-(nothing to find), because conflating them either hides a real breakage or cries wolf
-every single run.
+A scrape distinguishes three outcomes rather than two: `devices_failed` is a fetch or
+parse that broke, `devices_without_firmware` is a product the vendor publishes nothing
+for, and `devices_not_checked` is the time budget running out. Collapsing the first two
+would either hide a real breakage or report one every run.
 
-## Being a good neighbour
+## Scraping load
 
-Some of these sites are one-person operations. Sound-Force and TAL are not Google.
+Several of these vendors are very small operations, so the defaults are set to keep
+request volume low.
 
-- **One request per second**, and a **daily** check rather than hourly — firmware ships
-  a few times a year
-- **Conditional requests** so unchanged pages come back as `304` with no body. Only 5 of
-  23 vendors support it, but for those it saves the whole page every run
-- **`SCRAPE_CACHE=1` while developing**, which serves repeat runs from disk. Debugging a
-  scraper means fetching the same page dozens of times; measured at **35× faster** and,
-  more to the point, 35× less traffic they have to carry
+- One request per second per manufacturer, and a daily check rather than hourly.
+- Conditional requests (`If-None-Match` / `If-Modified-Since`), so an unchanged page
+  returns `304` with no body. Five of the 23 vendors send validators; for those it
+  saves the full page on every run.
+- `SCRAPE_CACHE=1` serves repeat requests from disk during development. Working on a
+  scraper means fetching the same page dozens of times, and a cached run is 35× faster
+  as well as 35× less traffic.
 
-If you fork this, please keep those defaults. Every instance scrapes independently, so
-N users is N times the load on the same small sites.
+These are worth keeping if you fork it. Every instance scrapes independently, so the
+load scales with the number of people running it.
 
 ## Alternatives
 
-Worth knowing what else exists before you invest time here.
-
-**[FW//RADAR](https://fwradar.com)** is the closest thing, and if you only own hardware
-it is probably the better choice — hosted, polished, with an iPhone app and used-market
-prices that this has no answer to. It is closed-source, not self-hostable, and never
-looks at what is installed on your machine.
+**[FW//RADAR](https://fwradar.com)** covers the same ground as a hosted service and is
+the better option for hardware-only users: polished, with an iPhone app and used-market
+prices that this has no equivalent for. It is closed-source, not self-hostable, and does
+not read what is installed on your machine.
 
 **[daw-plugin-manager](https://github.com/thelukehendy/daw-plugin-manager)** overlaps on
-plugins. It refreshes a curated version catalogue where this scrapes each vendor
-directly: a catalogue is far less work to keep running, scraping cannot go stale because
-nobody updated a file. Pick whichever failure mode you prefer.
+plugins. It refreshes a curated version catalogue; this scrapes each vendor directly. A
+catalogue is less work to maintain but depends on someone updating it; scraping breaks
+when a site changes but cannot silently fall behind.
 
 **[pluginvault](https://github.com/GalAzu/pluginvault)** organises plugins rather than
 versioning them. **[VST-Version-Scanner](https://github.com/BasShiFteR/VST-Version-Scanner)**
 reports installed versions on Windows with nothing to compare them against.
 
-Use this if you want the data on your own machine, want plugins and hardware in one
-place, or want to add a vendor nobody else covers.
+This one is useful if you want the data self-hosted, want hardware and plugins tracked
+together, or need a vendor the others do not cover.
 
 ## Usage
 
@@ -170,8 +179,8 @@ with no setup and is fine on localhost. Turn it on before this touches a public 
 python -m src.auth.hash_password
 ```
 
-The app warns at startup while unconfigured, naming what is exposed — and it is
-everything, including `POST /api/firmware/scrape-all` and full CRUD over your gear.
+The app warns at startup while unconfigured. Without authentication every route is
+open, including `POST /api/firmware/scrape-all` and full CRUD over the device list.
 With auth on, only `/health`, `/login` and `/static` stay open: a load balancer cannot
 present credentials, and requiring a session to reach the login form is a redirect loop.
 
@@ -259,10 +268,10 @@ Return `success=False` when a fetch or parse breaks, and `success=True` with an 
 list when the page loaded and the product genuinely has none. Add the slug to
 `tests/test_basic.py::test_api_scrapers`.
 
-Two [Claude Code skills](.claude/skills/) live in this repo: one for writing a scraper,
-one for debugging a broken one. The debugging ladder is worth reading first — the
-failure is almost always a dead URL or a moved data source, not a parsing bug, and it
-is written from the ones that actually broke.
+The repo carries two [Claude Code skills](.claude/skills/): one for writing a scraper,
+one for diagnosing a broken one. The diagnostic steps are drawn from the scrapers that
+actually broke here; in nearly every case the cause was a dead URL or a relocated data
+source rather than a parsing error.
 
 ## Development
 
@@ -277,16 +286,15 @@ coverage report --fail-under=65
 
 Tests use in-memory SQLite and never touch the real database.
 
-CI gates coverage at two thresholds: **80% for application code**, and a looser 65% for
-the whole project. Scrapers are verified against the live vendor site rather than by
-coverage — Universal Audio was fabricating data at a healthy-looking 100%, so a passing
-test proves much less there than a scrape does. The looser floor also leaves room for
-new scrapers, which arrive with mostly-uncovered lines and cost about a point each.
+CI enforces two coverage thresholds: 80% for application code and 65% for the whole
+project. The second is deliberately looser. Scrapers are verified against the live
+vendor site rather than by coverage, and each new one arrives with mostly-uncovered
+lines, costing roughly a point of the total.
 
-One gotcha if you touch the coverage config: `concurrency = ["greenlet", "thread"]` is
-load-bearing. SQLAlchemy bridges async to the sync DBAPI through greenlets, and without
-it coverage stops tracing at each handler's first `await` into the database — which
-understated the API and web layers by roughly 35 points and made them look untested.
+`concurrency = ["greenlet", "thread"]` in `pyproject.toml` is required for those
+numbers to be accurate. SQLAlchemy bridges async to the sync DBAPI through greenlets,
+and without it coverage stops tracing at each handler's first `await` into the
+database, which understated the API and web layers by roughly 35 points.
 
 <details>
 <summary>Project layout</summary>
