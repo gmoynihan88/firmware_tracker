@@ -2473,3 +2473,96 @@ def test_health_filter_is_not_stacked_and_can_be_turned_off():
         _reset_root_logging()
         for f in [f for f in access.filters if isinstance(f, _DropHealthCheckAccess)]:
             access.removeFilter(f)
+
+
+def _clear_file_handlers():
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "_firmware_tracker", False):
+            root.removeHandler(h)
+            h.close()
+
+
+def test_log_file_rotates_and_keeps_the_backups(tmp_path):
+    """The point of the setting: the file is capped, not merely written."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    target = tmp_path / "logs" / "app.log"
+    _clear_file_handlers()
+    try:
+        configure_logging(
+            Settings(_env_file=None, log_file=str(target), log_max_bytes=2000, log_backup_count=3)
+        )
+        log = logging.getLogger("rotation.test")
+        for i in range(200):
+            log.info("line %03d %s", i, "x" * 60)
+
+        # The parent directory is created rather than requiring it to exist.
+        assert target.exists()
+        assert sorted(p.name for p in target.parent.iterdir()) == [
+            "app.log", "app.log.1", "app.log.2", "app.log.3",
+        ]
+        # Nothing beyond backup_count survives, and each file respects the cap.
+        for path in target.parent.iterdir():
+            assert path.stat().st_size <= 2100, path
+        assert "line 199" in target.read_text()
+    finally:
+        _clear_file_handlers()
+
+
+def test_no_log_file_means_stderr_only(tmp_path):
+    """Empty LOG_FILE is the default, and right under Docker and systemd."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    _clear_file_handlers()
+    try:
+        configure_logging(Settings(_env_file=None, log_file=""))
+        files = [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker_file", False)]
+        assert files == []
+    finally:
+        _clear_file_handlers()
+
+
+def test_changing_the_log_file_replaces_the_handler(tmp_path):
+    """A reload must not leave the old file open or write to both."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    first, second = tmp_path / "one.log", tmp_path / "two.log"
+    _clear_file_handlers()
+    try:
+        configure_logging(Settings(_env_file=None, log_file=str(first)))
+        configure_logging(Settings(_env_file=None, log_file=str(first)))
+        handlers = [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker_file", False)]
+        assert len(handlers) == 1, "same path must reuse the handler"
+
+        configure_logging(Settings(_env_file=None, log_file=str(second)))
+        handlers = [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker_file", False)]
+        assert len(handlers) == 1
+        assert handlers[0].baseFilename == str(second.resolve())
+
+        # Clearing it removes the handler rather than leaving it writing.
+        configure_logging(Settings(_env_file=None, log_file=""))
+        assert not [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker_file", False)]
+    finally:
+        _clear_file_handlers()
+
+
+def test_unwritable_log_file_does_not_stop_startup(tmp_path):
+    """A bad LOG_FILE must degrade to stderr, not prevent the app booting."""
+    from src.config import Settings
+    from src.logging_config import configure_logging
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("I am a file")
+
+    _clear_file_handlers()
+    try:
+        configure_logging(Settings(_env_file=None, log_file=str(blocker / "app.log")))
+        # stderr is still attached and no file handler was added.
+        assert [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker", False)]
+        assert not [h for h in logging.getLogger().handlers if getattr(h, "_firmware_tracker_file", False)]
+    finally:
+        _clear_file_handlers()

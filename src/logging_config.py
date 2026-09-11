@@ -11,7 +11,9 @@ timestamp and no module name, and could not be filtered or silenced.
 """
 
 import logging
+import logging.handlers
 import sys
+from pathlib import Path
 
 from src.config import Settings
 
@@ -59,6 +61,8 @@ def configure_logging(settings: Settings) -> None:
         handler._firmware_tracker = True  # marks it as ours, so a reload reuses it
         root.addHandler(handler)
 
+    _configure_file_handler(root, settings)
+
     root.setLevel(level)
     for handler in root.handlers:
         if getattr(handler, "_firmware_tracker", False):
@@ -85,6 +89,61 @@ def configure_logging(settings: Settings) -> None:
     # propagate=False on it, which looks like the obvious way to prevent duplicates,
     # instead sends its records nowhere and silently loses "Application startup
     # complete" along with every startup error.
+
+
+def _configure_file_handler(root: logging.Logger, settings: Settings) -> None:
+    """Add, replace or remove the rotating file handler to match LOG_FILE.
+
+    Rotation lives here rather than being left to the supervisor because the common
+    way to run this outside a container -- `uvicorn ... > file &` -- has no
+    supervisor, and that file grows until the disk does. Under Docker and systemd
+    LOG_FILE stays empty and both capture stderr as usual.
+    """
+    existing = next(
+        (h for h in root.handlers if getattr(h, "_firmware_tracker_file", False)), None
+    )
+    target = str(settings.log_file or "").strip()
+
+    if not target:
+        if existing:
+            root.removeHandler(existing)
+            existing.close()
+        return
+
+    # Reuse the handler when the destination and limits are unchanged, so a reload
+    # does not reopen the file or start a second rotation sequence against it.
+    if existing and (
+        existing.baseFilename == str(Path(target).expanduser().resolve())
+        and existing.maxBytes == settings.log_max_bytes
+        and existing.backupCount == settings.log_backup_count
+    ):
+        return
+
+    if existing:
+        root.removeHandler(existing)
+        existing.close()
+
+    path = Path(target).expanduser()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            path,
+            maxBytes=settings.log_max_bytes,
+            backupCount=settings.log_backup_count,
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        # An unwritable path must not stop the app booting. stderr is already
+        # attached, so the warning is seen.
+        logging.getLogger(__name__).warning(
+            "Could not open log file %s (%s); logging to stderr only", path, exc
+        )
+        return
+
+    handler.setFormatter(logging.Formatter(FORMAT, DATE_FORMAT))
+    handler._firmware_tracker = True
+    handler._firmware_tracker_file = True
+    root.addHandler(handler)
 
 
 def _level(settings: Settings) -> int:

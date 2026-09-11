@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     # roughly 1MB of scrape results. Set true when debugging the check itself.
     log_health_checks: bool = False
 
+    # Optional rotating file log, in addition to stderr. Empty means stderr only,
+    # which is right under Docker and systemd because both already capture and
+    # rotate it. Set a path when running the server directly -- `uvicorn > file &`
+    # has nothing rotating it, and that file grows until the disk does.
+    log_file: str = ""
+    log_max_bytes: int = 10_000_000
+    log_backup_count: int = 3
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./firmware_tracker.db"
 
