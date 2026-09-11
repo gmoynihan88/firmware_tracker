@@ -7,7 +7,7 @@ lets you add and update devices that are not online such as digital effects peda
 loudspeakers, etc.  Software VSTs are simply queried on the filesystem.  
 
 I wrote this because my QSC speaker had an update available that I overlooked for months, maybe 
-a year or two, that ran the speaker as a bass amp.  HELL YEAH.  This is one of my favorite
+a year or two, called bass amp mode.  HELL YEAH.  This is one of my favorite
 software updates for anything, ever, and I almost missed it.  So, I wrote an app to discover
 and notify me for all my stuff, because who has time to track that all the hard way?
 
