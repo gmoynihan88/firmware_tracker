@@ -4,7 +4,7 @@
 
 tl;dr, this is a web app that keeps inventory of sofware levels for your music gadgets.  The UI 
 lets you add and update devices that are not online such as digital effects pedals, digital mixers,
-loudspeakers, etc.  Software VSTs are simply queried on the filesystme.  
+loudspeakers, etc.  Software VSTs are simply queried on the filesystem.  
 
 I wrote this because my QSC speaker had an update available that I overlooked for months, maybe 
 a year or two, that ran the speaker as a bass amp.  HELL YEAH.  This is one of my favorite
