@@ -13,7 +13,9 @@ A self-hosted web app that scrapes manufacturer websites for firmware and softwa
 - **Scrapes 23 manufacturers** for firmware/version data (Boss, Elektron, Focusrite, Moog, Native Instruments, Strymon, Universal Audio, and more)
 - **Tracks your devices** — add hardware and plugins you own, see at a glance what's current and what has updates
 - **Scans installed VST/AU/CLAP plugins** on macOS and matches them against the database
-- **Scheduled checks** — APScheduler runs periodic scrapes in the background
+- **Scheduled checks** — APScheduler runs a scrape daily in the background
+- **Notifications** — pushes to [ntfy](https://ntfy.sh) when a tracked device falls behind, behind a transport interface
+- **Runs with one command** — `docker compose up`, Chromium included for the scrapers that need a browser
 - **AI changelog summaries** — optional Anthropic Claude integration to summarize firmware changelogs
 
 ## Quick start
@@ -117,7 +119,7 @@ standard library — no additional dependencies.
 write endpoints:
 
 - `POST /api/firmware/scrape-all` and `POST /api/firmware/scrape/{manufacturer}` — anyone
-  who can reach the server can trigger outbound scraping of 20 manufacturer sites, which
+  who can reach the server can trigger outbound scraping of 23 manufacturer sites, which
   is both slow and a good way to get your IP rate-limited
 - `POST`/`PATCH`/`DELETE` on `/api/manufacturers`, `/api/device-models`, `/api/my-devices` —
   full unauthenticated CRUD over your tracked gear
@@ -413,15 +415,20 @@ them separately.
 src/
   main.py              # FastAPI app, lifespan, router registration
   config.py            # Pydantic Settings from .env
-  database.py          # Async SQLAlchemy engine + session factory
+  database.py          # Async SQLAlchemy engine, session factory, integrity repair
+  logging_config.py    # Root handler, rotation, health-check access filter
+  templating.py        # Shared Jinja env with content-hashed asset URLs
   devices/             # Models, schemas, CRUD service, REST router
   firmware/            # Scrape trigger API endpoints
   web/                 # Jinja2 HTML page routes
+  auth/                # scrypt hashing, HMAC sessions, middleware (opt-in)
+  health/              # /health liveness and /health/ready readiness
   scrapers/
     base.py            # BaseScraper with aiohttp + Playwright helpers
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape → sync → notify
-    plugins/           # One file per manufacturer (21 scrapers)
+    cache.py           # Response store: dev cache and ETag revalidation
+    plugins/           # One file per manufacturer (23 scrapers)
   notifications/
     transport.py       # Delivery to ntfy, behind a Notifier protocol
     reconcile.py       # Raises notifications for devices behind their latest
@@ -432,6 +439,10 @@ templates/             # Jinja2 templates
 static/css/            # Stylesheets
 scripts/               # Plugin scanner, backup, utilities
 tests/                 # pytest-asyncio with in-memory SQLite
+alembic/               # Migrations; env.py prefers DATABASE_URL over alembic.ini
+Dockerfile             # python:3.12-slim + Chromium, runs as uid 10001
+docker-compose.yml     # Volumes for the database and response store, log caps
+docker-entrypoint.sh   # Runs migrations, then the command
 ```
 
 ## Development
