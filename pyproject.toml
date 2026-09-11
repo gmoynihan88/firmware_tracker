@@ -43,3 +43,13 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# SQLAlchemy's async support bridges to sync DBAPI calls through greenlets, and
+# coverage stops tracing across a greenlet switch unless told to follow it. Without
+# this every route handler appeared to stop executing at its first `await` into the
+# database -- the line issuing the query counted as covered and everything after it
+# did not, which understated the API and web layers by roughly 20 points each and
+# made them look far less tested than they were.
+concurrency = ["greenlet", "thread"]
+source = ["src"]

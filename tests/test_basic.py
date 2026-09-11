@@ -2825,3 +2825,396 @@ async def test_shutdown_scheduler_stops_it(monkeypatch, caplog):
 
     assert not fresh.running
     assert "Scheduler shutdown" in caplog.text
+
+
+# --- database integrity check ---------------------------------------------
+# _check_db_integrity decides whether init_db runs a repair that DELETEs the
+# alembic stamp and shells out to `alembic upgrade head`. Getting it wrong in one
+# direction wipes a stamp on a healthy database; in the other it leaves a broken
+# one broken. Both are worth a test.
+
+
+def _integrity(tables: list) -> bool:
+    """Run the real check against an in-memory database with these tables."""
+    import sqlalchemy
+    from src.database import _check_db_integrity
+
+    engine = sqlalchemy.create_engine("sqlite://")
+    with engine.begin() as conn:
+        for table in tables:
+            conn.execute(sqlalchemy.text(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)"))
+        return conn.run_callable(_check_db_integrity) if hasattr(conn, "run_callable") else _check_db_integrity(conn)
+
+
+def test_a_database_with_no_alembic_stamp_is_healthy():
+    """A fresh database has no stamp, and create_all handles it. Not a repair case."""
+    assert _integrity([]) is True
+    assert _integrity(["manufacturers", "device_models"]) is True
+
+
+def test_a_stamped_database_with_its_tables_is_healthy():
+    assert _integrity(["alembic_version", "manufacturers", "device_models"]) is True
+
+
+def test_a_stamp_without_tables_is_the_repair_case():
+    """This is the state the repair exists for: migrations recorded, nothing created.
+
+    It is what a container gets when alembic ran against a different database file
+    from the one the app opens -- the exact failure the DATABASE_URL change to
+    alembic/env.py prevents.
+    """
+    assert _integrity(["alembic_version"]) is False
+
+
+def test_a_partially_created_database_is_also_repaired():
+    """Half the schema is not healthy, even though one expected table is present."""
+    assert _integrity(["alembic_version", "manufacturers"]) is False
+    assert _integrity(["alembic_version", "device_models"]) is False
+
+
+def test_clearing_the_alembic_stamp_empties_only_that_table():
+    """The repair deletes rows from alembic_version, and must not drop it."""
+    import sqlalchemy
+    from src.database import _clear_alembic_stamp
+
+    engine = sqlalchemy.create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
+        conn.execute(sqlalchemy.text("INSERT INTO alembic_version VALUES ('abc123')"))
+        _clear_alembic_stamp(conn)
+
+        remaining = conn.execute(sqlalchemy.text("SELECT COUNT(*) FROM alembic_version")).scalar()
+        assert remaining == 0
+        # The table itself survives, so alembic can stamp it again.
+        tables = {r[0] for r in conn.execute(
+            sqlalchemy.text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
+        assert "alembic_version" in tables
+
+
+# --- devices REST API -------------------------------------------------------
+# Full unauthenticated CRUD over the tracked gear. Round-trips matter more than
+# individual handlers: a create that reports success but does not persist, or a
+# patch that silently drops a field, both return 200.
+
+
+@pytest.mark.asyncio
+async def test_manufacturer_crud_round_trip(client):
+    created = await client.post("/api/manufacturers", json={
+        "name": "Roundtrip Audio", "slug": "roundtrip", "website_url": "https://example.invalid",
+    })
+    assert created.status_code == 201
+    mid = created.json()["id"]
+
+    assert (await client.get(f"/api/manufacturers/{mid}")).json()["name"] == "Roundtrip Audio"
+    assert any(m["id"] == mid for m in (await client.get("/api/manufacturers")).json())
+
+    patched = await client.patch(f"/api/manufacturers/{mid}", json={"name": "Renamed Audio"})
+    assert patched.status_code == 200
+    assert patched.json()["name"] == "Renamed Audio"
+    # A patch must not clear the fields it did not mention.
+    assert patched.json()["slug"] == "roundtrip"
+
+    assert (await client.delete(f"/api/manufacturers/{mid}")).status_code == 204
+    assert (await client.get(f"/api/manufacturers/{mid}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_device_model_crud_round_trip(client):
+    mfr = (await client.post("/api/manufacturers", json={"name": "M", "slug": "m"})).json()
+
+    created = await client.post("/api/device-models", json={
+        "manufacturer_id": mfr["id"], "name": "Thing One", "category": "guitar_pedal",
+    })
+    assert created.status_code == 201
+    did = created.json()["id"]
+
+    detail = await client.get(f"/api/device-models/{did}")
+    assert detail.status_code == 200
+    # The detail view joins the manufacturer, which the list schema also carries.
+    assert detail.json()["manufacturer"]["slug"] == "m"
+
+    patched = await client.patch(f"/api/device-models/{did}", json={"name": "Thing Two"})
+    assert patched.json()["name"] == "Thing Two"
+
+    assert (await client.delete(f"/api/device-models/{did}")).status_code == 204
+    assert (await client.get(f"/api/device-models/{did}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_device_models_can_be_filtered_by_manufacturer(client):
+    first = (await client.post("/api/manufacturers", json={"name": "A", "slug": "a"})).json()
+    second = (await client.post("/api/manufacturers", json={"name": "B", "slug": "b"})).json()
+    for mfr, name in ((first, "A1"), (first, "A2"), (second, "B1")):
+        await client.post("/api/device-models", json={
+            "manufacturer_id": mfr["id"], "name": name, "category": "other",
+        })
+
+    only_a = await client.get(f"/api/device-models?manufacturer_id={first['id']}")
+    assert sorted(d["name"] for d in only_a.json()) == ["A1", "A2"]
+
+
+@pytest.mark.asyncio
+async def test_my_device_crud_round_trip(client):
+    mfr = (await client.post("/api/manufacturers", json={"name": "M", "slug": "m"})).json()
+    model = (await client.post("/api/device-models", json={
+        "manufacturer_id": mfr["id"], "name": "Tracked", "category": "synthesizer",
+    })).json()
+
+    created = await client.post("/api/my-devices", json={
+        "device_model_id": model["id"], "nickname": "Studio unit",
+        "current_firmware_version": "1.0.0",
+    })
+    assert created.status_code == 201
+    mine = created.json()["id"]
+
+    assert (await client.get(f"/api/my-devices/{mine}")).json()["nickname"] == "Studio unit"
+
+    patched = await client.patch(f"/api/my-devices/{mine}", json={"current_firmware_version": "1.1.0"})
+    assert patched.json()["current_firmware_version"] == "1.1.0"
+    assert patched.json()["nickname"] == "Studio unit"
+
+    assert (await client.delete(f"/api/my-devices/{mine}")).status_code == 204
+    assert (await client.get(f"/api/my-devices/{mine}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_missing_records_are_404_not_500(client):
+    """Every by-id route must say not found rather than raising."""
+    for path in ("/api/manufacturers/9999", "/api/device-models/9999", "/api/my-devices/9999"):
+        response = await client.get(path)
+        assert response.status_code == 404, path
+
+    for path in ("/api/manufacturers/9999", "/api/device-models/9999", "/api/my-devices/9999"):
+        assert (await client.patch(path, json={"name": "x"})).status_code == 404, path
+        assert (await client.delete(path)).status_code == 404, path
+
+
+async def _seed_notification(version: str = "2.0.0", slug: str = "notifyco"):
+    """Create a tracked device with a newer firmware version and a notification.
+
+    The slug is a parameter because manufacturers.slug is unique, and seeding twice
+    in one test is the normal case for anything counting notifications.
+    """
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory, Notification
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=f"Notify {slug}", slug=slug))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name=f"Notify Box {slug}", category=DeviceCategory.OTHER,
+        ))
+        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version=version, is_latest=True,
+        ))
+        mine = await ds.create_my_device(db, MyDeviceCreate(
+            device_model_id=model.id, current_firmware_version="1.0.0",
+        ))
+        note = Notification(
+            my_device_id=mine.id,
+            firmware_version_id=firmware.id,
+            title=f"Notify Box {slug} {version} available",
+            message=f"Update from 1.0.0 to {version}",
+            read=False,
+        )
+        db.add(note)
+        await db.commit()
+        await db.refresh(note)
+        return note.id
+
+
+@pytest.mark.asyncio
+async def test_notification_count_and_read_flow(client):
+    note_id = await _seed_notification()
+
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 1
+    assert len((await client.get("/api/notifications?unread_only=true")).json()) == 1
+
+    assert (await client.post(f"/api/notifications/{note_id}/read")).status_code == 204
+
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 0
+    # Read notifications are still listed, just not counted.
+    assert len((await client.get("/api/notifications")).json()) == 1
+    assert (await client.get("/api/notifications?unread_only=true")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_marking_a_missing_notification_read_is_404(client):
+    assert (await client.post("/api/notifications/9999/read")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_read_all_clears_the_count(client):
+    await _seed_notification("2.0.0", slug="notify-one")
+    await _seed_notification("3.0.0", slug="notify-two")
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 2
+
+    assert (await client.post("/api/notifications/read-all")).status_code == 204
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_firmware_versions_are_listed_for_a_device_model(client):
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="FW Co", slug="fwco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="FW Box", category=DeviceCategory.OTHER,
+        ))
+        for version, latest in (("1.0.0", False), ("1.1.0", True)):
+            await ds.create_firmware_version(db, FirmwareVersionCreate(
+                device_model_id=model.id, version=version, is_latest=latest,
+            ))
+        model_id = model.id
+
+    listed = await client.get(f"/api/device-models/{model_id}/firmware")
+    assert listed.status_code == 200
+    assert {f["version"] for f in listed.json()} == {"1.0.0", "1.1.0"}
+
+    assert (await client.get("/api/device-models/9999/firmware")).status_code == 404
+
+
+# --- web pages and form flows ----------------------------------------------
+# These are what a person actually touches. A form that 500s on an empty optional
+# field, or a redirect that goes nowhere, is invisible to the REST API tests.
+
+
+@pytest.mark.asyncio
+async def test_every_page_renders(client):
+    """A template that references a variable the route stopped passing returns 500."""
+    await _seed_one_device()
+
+    for path in ("/", "/catalog", "/notifications", "/devices/add"):
+        response = await client.get(path)
+        assert response.status_code == 200, f"{path} -> {response.status_code}"
+        assert response.text.strip(), f"{path} rendered empty"
+
+    # The badge is the exception and renders nothing at all when there is nothing
+    # unread, because HTMX swaps the response in and an empty one clears the badge.
+    badge = await client.get("/partials/notification-badge")
+    assert badge.status_code == 200
+    assert badge.text.strip() == ""
+
+
+@pytest.mark.asyncio
+async def test_adding_a_device_through_the_form(client):
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Form Co", slug="formco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Form Box", category=DeviceCategory.OTHER,
+        ))
+        model_id = model.id
+
+    response = await client.post("/devices/add", data={
+        "device_model_id": str(model_id),
+        "nickname": "Bench unit",
+        "current_firmware_version": "1.2.3",
+        "notes": "",
+    }, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+
+    mine = (await client.get("/api/my-devices")).json()
+    assert len(mine) == 1
+    assert mine[0]["nickname"] == "Bench unit"
+    # An empty optional field becomes NULL rather than an empty string.
+    assert mine[0]["notes"] is None
+
+
+@pytest.mark.asyncio
+async def test_adding_a_device_for_a_model_that_does_not_exist_is_404(client):
+    response = await client.post("/devices/add", data={"device_model_id": "9999"},
+                                 follow_redirects=False)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_edit_and_delete_a_device_through_the_form(client):
+    await _seed_one_device(name="Editable", slug="editco")
+    device_id = (await client.get("/api/my-devices")).json()[0]["id"]
+
+    assert (await client.get(f"/devices/{device_id}")).status_code == 200
+    assert (await client.get(f"/devices/{device_id}/edit")).status_code == 200
+
+    edited = await client.post(f"/devices/{device_id}/edit", data={
+        "nickname": "Renamed", "current_firmware_version": "9.9.9", "notes": "",
+    }, follow_redirects=False)
+    assert edited.status_code == 303
+    assert edited.headers["location"] == f"/devices/{device_id}"
+
+    detail = (await client.get(f"/api/my-devices/{device_id}")).json()
+    assert detail["nickname"] == "Renamed"
+    assert detail["current_firmware_version"] == "9.9.9"
+    # The edit form defaults notify_on_update to False when the box is unticked.
+    assert detail["notify_on_update"] is False
+
+    deleted = await client.post(f"/devices/{device_id}/delete", follow_redirects=False)
+    assert deleted.status_code == 303
+    assert deleted.headers["location"] == "/"
+    assert (await client.get(f"/api/my-devices/{device_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_web_routes_404_on_missing_devices(client):
+    for path in ("/devices/9999", "/devices/9999/edit"):
+        assert (await client.get(path)).status_code == 404, path
+    for path in ("/devices/9999/edit", "/devices/9999/delete"):
+        assert (await client.post(path, data={}, follow_redirects=False)).status_code == 404, path
+
+
+@pytest.mark.asyncio
+async def test_notification_badge_partial_tracks_the_count(client):
+    before = await client.get("/partials/notification-badge")
+    assert before.status_code == 200
+
+    note_id = await _seed_notification(slug="badgeco")
+    during = await client.get("/partials/notification-badge")
+    assert "1" in during.text
+
+    await client.post(f"/notifications/{note_id}/read", follow_redirects=False)
+    after = await client.get("/partials/notification-badge")
+    assert after.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_notification_pages_mark_read(client):
+    note_id = await _seed_notification(slug="pageco")
+
+    assert (await client.get("/notifications")).status_code == 200
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 1
+
+    marked = await client.post(f"/notifications/{note_id}/read", follow_redirects=False)
+    assert marked.status_code in (200, 303)
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 0
+
+    await _seed_notification(slug="pageco2")
+    await client.post("/notifications/read-all", follow_redirects=False)
+    assert (await client.get("/api/notifications/count")).json()["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_device_models_partial_filters_by_manufacturer(client):
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Partial Co", slug="partialco"))
+        await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Partial Box", category=DeviceCategory.OTHER,
+        ))
+        mfr_id = mfr.id
+
+    response = await client.get(f"/partials/device-models?manufacturer_id={mfr_id}")
+    assert response.status_code == 200
+    assert "Partial Box" in response.text
