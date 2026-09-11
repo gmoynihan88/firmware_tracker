@@ -2,6 +2,17 @@
 
 [![CI](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml)
 
+tl;dr, this is a web app that keeps inventory of sofware levels for your music gadgets.  The UI 
+lets you add and update devices that are not online such as digital effects pedals, digital mixers,
+loudspeakers, etc.  Software VSTs are simply queried on the filesystme.  
+
+I wrote this because my QSC speaker had an update available that I overlooked for months, maybe 
+a year or two, that ran the speaker as a bass amp.  HELL YEAH.  This is one of my favorite
+software updates for anything, ever, and I almost missed it.  So, I wrote an app to discover
+and notify me for all my stuff, because who has time to track that all the hard way?
+
+DISCLAIMER:  Much of the text below was created by AI, skim appropriately, thanks! 
+
 Music hardware and audio plugins get firmware and version updates that vendors rarely
 announce. There is no feed to subscribe to and no common release channel — each
 manufacturer has its own downloads page, and checking them by hand does not scale past
