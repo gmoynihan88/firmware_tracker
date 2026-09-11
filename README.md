@@ -270,6 +270,9 @@ is written from the ones that actually broke.
 pytest                                   # 159 tests
 pytest --cov=src                         # 68% overall, 82% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
+
+coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs
+coverage report --fail-under=65
 ```
 
 Tests use in-memory SQLite and never touch the real database.
