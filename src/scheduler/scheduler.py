@@ -9,7 +9,6 @@ from src.scrapers import service as scraper_service
 from src.scrapers.cache import ResponseCache
 from src.summarizer.service import summarize_pending_changelogs
 
-settings = get_settings()
 scheduler = AsyncIOScheduler()
 
 logger = logging.getLogger(__name__)
@@ -47,8 +46,11 @@ async def check_firmware_updates():
             # bound. A 304 touches its entry, so anything still being scraped stays
             # young; what ages out is pages nothing asks for any more.
             _prune_response_cache()
-        except Exception as e:
-            logger.error(f"Error during firmware check: {e}")
+        except Exception:
+            # This runs unattended every 24 hours and nobody is watching when it
+            # breaks, so the traceback is the whole diagnostic. str(e) alone is
+            # often a bare message with no indication of where it came from.
+            logger.exception("Error during firmware check")
 
 
 def _prune_response_cache() -> None:
@@ -74,12 +76,19 @@ async def generate_summaries():
         try:
             count = await summarize_pending_changelogs(db)
             logger.info(f"Summarized {count} changelogs")
-        except Exception as e:
-            logger.error(f"Error during summarization: {e}")
+        except Exception:
+            logger.exception("Error during summarization")
 
 
 def start_scheduler():
-    """Start the background scheduler."""
+    """Start the background scheduler.
+
+    Settings are read here rather than at import, so the interval reflects what is
+    configured when the app actually starts. A module-level read is captured the
+    first time anything imports this, which is not necessarily the same thing.
+    """
+    settings = get_settings()
+
     # Check for firmware updates every N hours
     scheduler.add_job(
         check_firmware_updates,
@@ -103,6 +112,12 @@ def start_scheduler():
 
 
 def shutdown_scheduler():
-    """Shutdown the scheduler."""
+    """Shutdown the scheduler.
+
+    AsyncIOScheduler dispatches its shutdown through the event loop, so this returns
+    before the scheduler has actually stopped. That is fine here -- the lifespan is
+    still running the loop -- but it means `scheduler.running` is briefly still true
+    afterwards, which is surprising if you check.
+    """
     scheduler.shutdown(wait=False)
     logger.info("Scheduler shutdown")
