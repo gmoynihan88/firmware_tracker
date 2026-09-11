@@ -443,11 +443,36 @@ pytest
 # Run tests with coverage
 pytest --cov=src tests/
 
+# The same two gates CI enforces
+coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # application code
+coverage report --fail-under=65                                   # whole project
+
 # Run a single test
 pytest tests/test_basic.py::test_dashboard
 ```
 
 Tests use an in-memory SQLite database and never touch the production DB.
+
+### Coverage
+
+Two gates, because coverage means different things either side of the line.
+
+**Application code sits at 82%** and must stay above 80. That is the half where a
+missing test is a real gap.
+
+**Scrapers are not judged this way.** They are verified against the live vendor site,
+because a passing test proves much less there than a scrape does — the Universal Audio
+scraper was reporting fabricated versions while looking perfectly healthy. The
+whole-project floor of 65% only exists to stop the plugin tests being deleted
+wholesale, and is set with room for several new scrapers: each arrives with
+mostly-uncovered lines and drags the total down about a point, and adding scrapers is
+the point of the project.
+
+One thing to know if you change the coverage config: `concurrency = ["greenlet",
+"thread"]` in `pyproject.toml` is load-bearing. SQLAlchemy bridges async to the sync
+DBAPI through greenlets, and without it coverage stops tracing at each handler's first
+`await` into the database — which understated the API and web layers by around 35
+points and made them look barely tested.
 
 ## License
 

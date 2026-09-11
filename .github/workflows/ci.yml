@@ -30,3 +30,46 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+  coverage:
+    # One version rather than the matrix. Line counts can differ slightly between
+    # interpreters, and a threshold that passes on 3.13 and fails on 3.11 would make
+    # the gate look flaky rather than meaningful.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # concurrency = ["greenlet", "thread"] in pyproject is what makes these numbers
+      # real. SQLAlchemy bridges async to the sync DBAPI through greenlets, and
+      # without it coverage stops tracing at each handler's first `await` into the
+      # database -- which understated the API and web layers by around 35 points.
+      - name: Run tests with coverage
+        run: pytest -q --cov=src --cov-report=term
+
+      # Two gates, because coverage means different things either side of the line.
+      #
+      # Application code is the half where a missing test is a real gap, and it sits
+      # at 82%. The floor is set just below that: high enough to catch a regression,
+      # not so high that it has to be renegotiated on every PR.
+      - name: Coverage gate -- application code
+        run: coverage report --omit='src/scrapers/plugins/*' --fail-under=80
+
+      # Scrapers are verified against the live vendor site, not by coverage. The
+      # Universal Audio scraper was reporting fabricated versions at a healthy-looking
+      # 100%, so a passing test there proves much less than a scrape does. This floor
+      # only exists to stop the plugin tests being deleted wholesale, and is set with
+      # room for several new scrapers -- each one arrives with mostly-uncovered lines
+      # and drags the total down about a point, and adding scrapers is the point of
+      # the project.
+      - name: Coverage gate -- whole project
+        run: coverage report --fail-under=65
