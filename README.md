@@ -74,6 +74,10 @@ Copy `.env.example` to `.env` (or export the variables):
 | `DATABASE_URL` | `sqlite+aiosqlite:///./firmware_tracker.db` | Database connection string |
 | `ANTHROPIC_API_KEY` | *(optional)* | Enables AI changelog summarization |
 | `LOG_LEVEL` | `INFO` | `DEBUG` adds every fetch; `WARNING` keeps only failures |
+| `LOG_HEALTH_CHECKS` | `false` | Log access lines for `/health` (noisy; a container polls it every 30s) |
+| `LOG_FILE` | *(empty)* | Also write to this file, rotating. Empty means stderr only |
+| `LOG_MAX_BYTES` | `10000000` | Rotate `LOG_FILE` at this size |
+| `LOG_BACKUP_COUNT` | `3` | How many rotated files to keep |
 | `SCRAPE_INTERVAL_HOURS` | `24` | How often the scheduler checks for updates |
 | `SCRAPE_CACHE` | `false` | Development only: cache scraped responses on disk |
 | `SCRAPE_CACHE_TTL_HOURS` | `6` | How long a cached response stays usable |
@@ -130,6 +134,34 @@ Also worth knowing:
   with auth if that is not good enough for you.
 - Scrapers rate-limit themselves via `RATE_LIMIT_DELAY` and send a browser
   `User-Agent`. See [Being a good neighbour](#being-a-good-neighbour-to-the-vendors).
+
+## Logs
+
+The app writes to **stderr**. Where that ends up, and what caps it, depends on how
+you run it:
+
+- **Docker** — `docker-compose.yml` caps the json-file driver at 10MB across 3 files.
+  Without that Docker keeps every line forever, bounded only by the disk.
+- **systemd** — journald rotates already; nothing to do.
+- **`uvicorn ... > file &`** — nothing rotates that file, and it grows until the disk
+  does. Set `LOG_FILE` and the app rotates for you:
+
+  ```bash
+  LOG_FILE=~/.local/state/firmware-tracker/app.log uvicorn src.main:app
+  ```
+
+  10MB across 3 files by default, tunable with `LOG_MAX_BYTES` and
+  `LOG_BACKUP_COUNT`. stderr keeps working alongside it, and an unwritable path
+  warns and falls back to stderr rather than stopping the app.
+
+Leave `LOG_FILE` empty under Docker and systemd — both already capture and rotate
+stderr, and a second copy inside the container is just disk you have to clean up.
+
+Access lines for `/health` are dropped by default, because the container health
+check polls it every 30 seconds. That is 2,880 requests a day and roughly 95MB of
+access log a year, against about 1MB of actual scrape results — so left in, rotation
+would mostly be rotating the health check. Set `LOG_HEALTH_CHECKS=true` when
+debugging the check itself.
 
 ## Being a good neighbour to the vendors
 
