@@ -131,6 +131,42 @@ empty success on a page that never loaded hides a dead URL.
 When you cannot distinguish them from the result alone, test whether the page actually
 rendered — presence of the expected data structure is a better signal than text length.
 
+### If a product reports nothing, say why
+
+`success=True` with an empty list is honest but silent, and 95 products across the
+catalogue are in that state. Set `firmware_availability` on the `ScrapedDevice` so the
+absence is accounted for:
+
+```python
+ScrapedDevice(
+    name=name,
+    category="audio_interface",
+    firmware_page_url=url,
+    firmware_availability="not_published",   # or "no_firmware", or omit entirely
+)
+```
+
+| Value | Use when | Example |
+|---|---|---|
+| `"not_published"` | The vendor publishes no version anywhere public | Focusrite, UADX plugins, Eventide pedals |
+| `"no_firmware"` | The product takes no firmware updates at all | TC Electronic Hall of Fame 2 |
+| omitted (`None`) | You have not established which | everything else |
+
+**Omitting it is a real answer, and usually the right one.** Only set a value your
+docstring can justify. TC Electronic marks Hall of Fame 2 and leaves Ditto X4,
+Plethora X5 and the PolyTune 3s unmarked — they are probably the same story, and
+probably is not what the field is for. A wrong value here is worse than no value,
+because it stops anyone looking.
+
+The point is the scrape summary. `devices_without_firmware` carries all 95 on every
+run, which makes it wallpaper; `devices_unexplained` carries only the ones nothing
+accounts for, and it is logged as a warning. A product that goes silent tomorrow shows
+up in a list of a dozen rather than a list of ninety-five — but only if the expected
+silences are marked.
+
+A version always wins over the flag, so a vendor that starts publishing needs nothing
+cleared.
+
 ## Helpers on BaseScraper
 
 - `fetch_page(url)` — aiohttp. Some vendors block it; check before relying on it.
@@ -147,7 +183,9 @@ rendered — presence of the expected data structure is a better signal than tex
    `test_tal_pairs_each_version_with_its_own_date` is a good model.
 3. Run every product through the scraper live before opening a PR (command in the
    `debug-scraper` skill, step 6).
-4. Update the manufacturer table in `README.md`.
+4. Set `firmware_availability` on any product that reports no version, or decide
+   deliberately to leave it unset.
+5. Update the manufacturer table in `README.md`.
 
 ## Things this repo has already been bitten by
 
