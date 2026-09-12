@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Tuple
@@ -109,6 +110,48 @@ def parse_version(version: str) -> tuple:
     return tuple(int(p) for p in parts) if parts else (0,)
 
 
+def _clean_url(url: Optional[str]) -> Optional[str]:
+    """Keep a download URL only if it is a usable absolute URL.
+
+    An earlier TAL scraper joined relative paths badly and stored thirteen links like
+    `https://tal-software.com../../downloads/plugins/install_TAL-DAC.zip`, which do not
+    resolve. Rejecting them here means a bad join cannot be written again, and a
+    rescrape clears the ones already stored.
+    """
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    # A netloc is a hostname, so dot-segments in it are a failed join rather than a
+    # path that merely needs normalising.
+    if ".." in parsed.netloc:
+        return None
+    return url
+
+
+def _refresh_firmware_row(row, scraped: ScrapedFirmware) -> None:
+    """Update a stored version in place from a fresh scrape.
+
+    Only fills or corrects; never erases. A scraper that stops reporting a date should
+    not delete one already recorded, because the stored value may have come from a
+    source the vendor has since removed. created_at is untouched -- it is the
+    first-seen signal, and the only date at all for roughly half the catalogue.
+    """
+    if scraped.release_date is not None and row.release_date != scraped.release_date:
+        row.release_date = scraped.release_date
+
+    url = _clean_url(scraped.download_url)
+    if url is not None and row.download_url != url:
+        row.download_url = url
+    elif row.download_url and _clean_url(row.download_url) is None:
+        # Stored value is a malformed join from an older scraper; drop it.
+        row.download_url = None
+
+    if scraped.changelog and row.changelog_raw != scraped.changelog:
+        row.changelog_raw = scraped.changelog
+
+
 async def sync_firmware_for_device(
     db: AsyncSession,
     device_model_id: int,
@@ -117,9 +160,16 @@ async def sync_firmware_for_device(
     """
     Sync firmware versions for a device model.
     Returns (new_count, latest_version_if_new).
+
+    Versions already present are refreshed rather than skipped. Without that, a value
+    written by an earlier version of a scraper is permanent: Sound-Force's SFC-60 1.11
+    carried a release date three months wrong, and fixing the parser did not correct
+    it because the row already existed. That matters more as the database accumulates
+    history, since the wrong value is the one that survives.
     """
     existing = await device_service.get_firmware_versions(db, device_model_id)
     existing_versions = {fw.version for fw in existing}
+    existing_by_version = {fw.version: fw for fw in existing}
 
     # Find current latest version
     current_latest = None
@@ -139,12 +189,14 @@ async def sync_firmware_for_device(
                     device_model_id=device_model_id,
                     version=fw.version,
                     release_date=fw.release_date,
-                    download_url=fw.download_url,
+                    download_url=_clean_url(fw.download_url),
                     changelog_raw=fw.changelog,
                     is_latest=False,
                 ),
             )
             new_versions.append(fw.version)
+        else:
+            _refresh_firmware_row(existing_by_version[fw.version], fw)
 
     # Determine the true latest version across all versions
     all_versions = list(existing_versions) + new_versions
