@@ -2170,16 +2170,42 @@ async def test_universal_audio_reports_no_version_rather_than_a_guess():
 
 @pytest.mark.asyncio
 async def test_universal_audio_points_devices_at_the_release_notes():
-    """There is no firmware page, so Details should open the nearest useful thing."""
+    """Each kind of product links to the notes that actually cover it.
+
+    The plugins have no firmware page, so Details opens the nearest useful thing.
+    The pedals do have one, and pointing them at the plugins' notes would send
+    someone to an article that never mentions their pedal.
+
+    Stubbed rather than live: the pedal list now comes from the shop, and a test that
+    reaches the network fails when the network does.
+    """
+    import json
+
     from src.scrapers.plugins.universal_audio import UniversalAudioScraper
 
-    result = await UniversalAudioScraper().fetch_device_list()
+    scraper = UniversalAudioScraper()
 
-    assert len(result.devices) == 10
-    for device in result.devices:
+    async def fake_fetch(url, **kwargs):
+        return json.dumps({"products": [
+            {"title": "Golden Reverberator", "tags": ["category guitar:UAFX Pedals"]},
+            {"title": "OX Amp Top Box", "tags": ["category guitar:Guitar Amp Load Box"]},
+        ]})
+
+    scraper.fetch_page = fake_fetch
+    result = await scraper.fetch_device_list()
+    by_name = {d.name: d for d in result.devices}
+
+    assert len(result.devices) == 12  # 10 plugins + 2 discovered pedals
+
+    plugins = [d for d in result.devices if d.category == "vst_plugin"]
+    assert len(plugins) == 10
+    for device in plugins:
         assert device.firmware_page_url == UniversalAudioScraper.RELEASE_NOTES_URL
         # The product page is still kept, just not as the firmware link.
         assert "uaudio.com/uad-plugins/" in device.product_url
+
+    assert by_name["Golden Reverberator"].firmware_page_url == UniversalAudioScraper.UAFX_NOTES_URL
+    assert by_name["OX Amp Top Box"].firmware_page_url == UniversalAudioScraper.OX_NOTES_URL
 
 
 def test_alembic_prefers_database_url_over_the_ini(tmp_path, monkeypatch):
@@ -4697,3 +4723,127 @@ def test_arturia_fails_loudly_when_an_endpoint_is_unreachable():
 
     assert result.success is False
     assert "API" in (result.error or "")
+
+
+# --- universal audio: uafx and ox ------------------------------------------
+# UA is two vendors in one file. The pedals publish dated release notes; the UADX
+# plugins publish no version anywhere. Treating the whole vendor as unpublishable
+# is what kept 22 dated products out of the catalogue.
+
+
+def _ua_uafx_article() -> str:
+    """Version in an h2, date in the h4 under it, changes in the list after."""
+    return """
+    <h2>UAFX Version 2.0.2</h2>
+    <h4>December 22, 2025</h4>
+    <p><strong>Improved</strong></p>
+    <ul><li>Fixed Bypass, PC, and CC interactions</li></ul>
+    <h2>UAFX Version 1.1.14</h2>
+    <h4>November 21, 2024</h4>
+    <ul><li>(Knuckles, ANTI) Latency is reduced by 1.3 ms</li></ul>
+    """
+
+
+def _ua_ox_article() -> str:
+    """Version and date in one heading, and an install guide shaped almost the same.
+
+    "How To Install OX Firmware v1.2" is an instruction that names a version and
+    carries no date. A version-only pattern records it as a release, and it would
+    reappear every time UA edited the article.
+    """
+    return """
+    <h2>How To Install OX Firmware v1.2</h2>
+    <h3>Create your USB drive firmware updater</h3>
+    <h1>OX Firmware Version History</h1>
+    <h4>OX Firmware v1.2 &mdash; November 12, 2019</h4>
+    <p>Adds support for new speaker cabinets.</p>
+    <h4>OX Firmware v1.1 &mdash; August 8, 2018</h4>
+    <p>Improved rig switching.</p>
+    """
+
+
+def test_ua_pairs_each_uafx_version_with_its_own_date():
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    versions = UniversalAudioScraper()._parse_uafx(_ua_uafx_article())
+
+    assert [(fw.version, fw.release_date.strftime("%Y-%m-%d")) for fw in versions] == [
+        ("2.0.2", "2025-12-22"),
+        ("1.1.14", "2024-11-21"),
+    ]
+    assert "Bypass" in versions[0].changelog
+
+
+def test_ua_skips_the_ox_install_guide_that_names_a_version():
+    """The date in the heading is what separates a release from an instruction."""
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    versions = UniversalAudioScraper()._parse_ox(_ua_ox_article())
+
+    assert [(fw.version, fw.release_date.strftime("%Y-%m-%d")) for fw in versions] == [
+        ("1.2", "2019-11-12"),
+        ("1.1", "2018-08-08"),
+    ]
+    assert len(versions) == 2, "took the How To Install heading as a release"
+
+
+def test_ua_separates_uafx_pedals_from_the_ox_in_one_collection():
+    """Both sit in the guitar-pedals collection and read different release notes."""
+    import asyncio
+    import json
+
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    products = {"products": [
+        {"title": "Golden Reverberator", "tags": ["category guitar:UAFX Pedals"]},
+        {"title": "OX Amp Top Box", "tags": ["category guitar:Guitar Amp Load Box"]},
+        {"title": "Some Cable", "tags": ["category:Accessory"]},
+    ]}
+
+    scraper = UniversalAudioScraper()
+
+    async def fake_fetch(url, **kwargs):
+        if "products.json" in url:
+            return json.dumps(products)
+        body = _ua_uafx_article() if UniversalAudioScraper.UAFX_ARTICLE in url else _ua_ox_article()
+        return json.dumps({"article": {"body": body}})
+
+    scraper.fetch_page = fake_fetch
+
+    devices = asyncio.run(scraper.fetch_device_list())
+    names = [d.name for d in devices.devices]
+    assert "Golden Reverberator" in names
+    assert "OX Amp Top Box" in names
+    assert "Some Cable" not in names, "an accessory is not a device"
+
+    pedal = asyncio.run(scraper.fetch_firmware_versions("Golden Reverberator", ""))
+    ox = asyncio.run(scraper.fetch_firmware_versions("OX Amp Top Box", ""))
+    assert [fw.version for fw in pedal.firmware_versions] == ["2.0.2", "1.1.14"]
+    assert [fw.version for fw in ox.firmware_versions] == ["1.2", "1.1"]
+
+
+def test_ua_plugins_still_report_nothing():
+    """The ten UADX plugins publish no version, and that has not changed.
+
+    They must keep reporting success with an empty list rather than being swept into
+    the pedals' release notes, which would give every plugin the pedal firmware.
+    """
+    import asyncio
+    import json
+
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    scraper = UniversalAudioScraper()
+
+    async def fake_fetch(url, **kwargs):
+        if "products.json" in url:
+            return json.dumps({"products": [
+                {"title": "Golden Reverberator", "tags": ["category guitar:UAFX Pedals"]},
+            ]})
+        return json.dumps({"article": {"body": _ua_uafx_article()}})
+
+    scraper.fetch_page = fake_fetch
+    result = asyncio.run(scraper.fetch_firmware_versions("Distressor", ""))
+
+    assert result.success is True
+    assert result.firmware_versions == []
