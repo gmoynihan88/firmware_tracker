@@ -168,6 +168,15 @@ Delivery is a side effect: if ntfy is unreachable the notification is still reco
 the failure logged. The test suite forces the transport off, so `pytest` on a configured
 machine cannot push fixture alerts to your phone.
 
+**See what the scrapes have been doing**, which is what makes a quiet stretch in a
+device's history readable — a version's first-seen date cannot tell "the vendor
+published nothing for eight months" from "the scraper was broken for eight months":
+
+```bash
+curl "http://localhost:8000/api/firmware/runs?limit=20"
+curl "http://localhost:8000/api/firmware/runs?scraper_type=yamaha"
+```
+
 **Back up the database** with `bash scripts/backup_db.sh` (`list` and `restore` too).
 
 ## Security

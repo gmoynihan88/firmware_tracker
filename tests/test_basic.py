@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 import sqlite3
 import time
 from pathlib import Path
@@ -3848,3 +3849,119 @@ def test_yamaha_updater_page_with_nothing_to_read_returns_empty():
     from src.scrapers.plugins.yamaha import YamahaScraper
 
     assert YamahaScraper()._parse_updater_page("<html><body><p>no downloads</p></body></html>") == []
+
+
+# --- scrape_runs ------------------------------------------------------------
+# The point of the table is that a quiet stretch in a device's history can be
+# explained. A version's first-seen date cannot tell "the vendor published nothing
+# for eight months" from "our scraper was broken for eight months".
+
+
+@pytest.mark.asyncio
+async def test_a_successful_scrape_is_recorded():
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+    from src.scrapers import service as ss
+
+    async with test_session_maker() as db:
+        await ss.record_scrape_run(
+            db, "acme", datetime(2026, 9, 12, 10, 0), 12.34,
+            {
+                "success": True,
+                "devices_synced": {"created": 2, "updated": 3, "total": 5},
+                "new_firmware_versions": 7,
+                "notifications_created": 1,
+                "devices_without_firmware": ["Quiet Box"],
+                "devices_failed": [],
+                "devices_not_checked": [],
+                "identical_pages": [],
+            },
+        )
+        run = (await db.execute(select(ScrapeRun))).scalars().one()
+
+    assert run.scraper_type == "acme"
+    assert run.success is True
+    assert run.devices_total == 5
+    assert run.new_versions == 7
+    assert run.devices_without_firmware == 1
+    assert run.duration_seconds == 12.34
+    assert run.failed_devices is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_scrape_records_which_devices_failed():
+    """Counts answer "was it broken"; the names answer "what went quiet"."""
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+    from src.scrapers import service as ss
+
+    async with test_session_maker() as db:
+        await ss.record_scrape_run(
+            db, "acme", datetime(2026, 9, 12, 10, 0), 3.0,
+            {
+                "success": True,
+                "devices_synced": {"total": 4},
+                "devices_failed": ["MODX6", "MODX7"],
+                "identical_pages": [["https://e.invalid/a", "https://e.invalid/b"]],
+            },
+        )
+        run = (await db.execute(select(ScrapeRun))).scalars().one()
+
+    assert run.devices_failed == 2
+    assert json.loads(run.failed_devices) == ["MODX6", "MODX7"]
+    # A URL shape that stopped selecting is recorded too, since it looks like an
+    # absence in the firmware history rather than a fault.
+    assert run.identical_page_groups == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_scraper_still_produces_a_run():
+    """A scrape that never started is itself a fact about that day."""
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+    from src.scrapers import service as ss
+
+    async with test_session_maker() as db:
+        result = await ss.scrape_manufacturer(db, "not-a-real-scraper")
+        run = (await db.execute(select(ScrapeRun))).scalars().one()
+
+    assert result["success"] is False
+    assert run.success is False
+    assert "not-a-real-scraper" in run.error
+
+
+@pytest.mark.asyncio
+async def test_recording_a_run_never_breaks_the_scrape(monkeypatch):
+    """The row is diagnostic; losing it must not lose the result it describes."""
+    from src.scrapers import service as ss
+
+    async with test_session_maker() as db:
+        async def explode():
+            raise RuntimeError("database went away")
+
+        monkeypatch.setattr(db, "commit", explode)
+        # Must not raise.
+        await ss.record_scrape_run(db, "acme", datetime(2026, 9, 12), 1.0, {"success": True})
+
+
+@pytest.mark.asyncio
+async def test_scrape_runs_can_be_read_back(client):
+    from src.scrapers import service as ss
+
+    async with test_session_maker() as db:
+        await ss.record_scrape_run(
+            db, "acme", datetime(2026, 9, 12, 10, 0), 2.0,
+            {"success": True, "devices_synced": {"total": 3}, "new_firmware_versions": 4},
+        )
+        await ss.record_scrape_run(
+            db, "other", datetime(2026, 9, 12, 11, 0), 1.0,
+            {"success": False, "error": "boom", "devices_failed": ["Thing"]},
+        )
+
+    everything = (await client.get("/api/firmware/runs")).json()
+    assert {r["scraper_type"] for r in everything} == {"acme", "other"}
+
+    only_acme = (await client.get("/api/firmware/runs?scraper_type=acme")).json()
+    assert len(only_acme) == 1
+    assert only_acme[0]["new_versions"] == 4
+    assert only_acme[0]["failed_devices"] == []
