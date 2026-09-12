@@ -3,10 +3,22 @@ from datetime import datetime
 from typing import Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.roland_group import SystemProgramMixin
 
 
-class BossScraper(BaseScraper):
-    """Scraper for Boss/Roland guitar pedals and effects."""
+class BossScraper(SystemProgramMixin, BaseScraper):
+    """Boss pedals, read the same way as Roland because it is the same site.
+
+    Boss is a Roland brand and its Updates & Drivers pages are identical in shape, so
+    the parsing lives in SystemProgramMixin and both use it.
+
+    The previous parser searched the listing for a date in two formats and found none,
+    because that page has no dates at all -- 3,656 characters of text and not one.
+    The dates are on the detail page behind the System Program link, along with the
+    rest of the history. It also had to guess which version on the page was the
+    firmware, competing with an IR Loader, four USB drivers and a bundled copy of
+    Chromium Embedded Framework.
+    """
 
     manufacturer_name = "Boss"
     manufacturer_slug = "boss"
@@ -28,8 +40,8 @@ class BossScraper(BaseScraper):
         ("SY-300", "guitar_pedal", "https://www.boss.info/us/support/by_product/sy-300/updates_drivers/"),
         ("SY-1000", "guitar_pedal", "https://www.boss.info/us/support/by_product/sy-1000/updates_drivers/"),
         ("EV-1-WL", "guitar_pedal", "https://www.boss.info/us/support/by_product/ev-1-wl/updates_drivers/"),
-        ("Katana-100 MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-100_mkii/updates_drivers/"),
-        ("Katana-Artist MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-artist_mkii/updates_drivers/"),
+        ("Katana-100 MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-100_mk2/updates_drivers/"),
+        ("Katana-Artist MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-artist_mk2/updates_drivers/"),
     ]
 
     async def fetch_device_list(self) -> ScraperResult:
@@ -48,116 +60,7 @@ class BossScraper(BaseScraper):
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from a Boss support page."""
-        html = await self.fetch_page(firmware_page_url)
-        if not html:
-            return ScraperResult(
-                success=False, error=f"Failed to fetch {firmware_page_url}"
-            )
-
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
-
-        # Boss pages use h5 elements for item titles within li elements
-        # Look for firmware items by examining h5 headings
-        h5_elements = soup.find_all("h5")
-
-        # Keywords that indicate this is NOT firmware (apps, editors, etc.)
-        exclude_keywords = [
-            "tone studio", "editor", "driver", "librarian",
-            "source code", "midi implementation", "owner's manual",
-            "parameter guide", "sound list", "preset",
-            "for windows", "for mac", "for ios", "for android"
-        ]
-
-        # Pattern for System Program firmware version
-        firmware_pattern = r"system\s+program\s*\(\s*[Vv]er\.?\s*(\d+\.\d+(?:\.\d+)?)\s*\)"
-
-        for h5 in h5_elements:
-            text = h5.get_text()
-            text_lower = text.lower()
-
-            # Skip if this looks like an app/software, not firmware
-            if any(kw in text_lower for kw in exclude_keywords):
-                continue
-
-            # Look specifically for System Program version pattern
-            firmware_match = re.search(firmware_pattern, text, re.IGNORECASE)
-
-            if firmware_match:
-                version = firmware_match.group(1)
-
-                # Get parent li element for additional info
-                parent_li = h5.find_parent("li")
-                section = parent_li if parent_li else h5.parent
-
-                # Find download link in the parent section
-                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|bin)", re.I)) if section else None
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://www.boss.info{download_url}"
-
-                # Get text from section for date parsing
-                section_text = section.get_text() if section else text
-
-                # Boss uses month year format like "JAN 2025" or "FEB 2022"
-                date_pattern = r"(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{4})"
-                date_match = re.search(date_pattern, section_text, re.I)
-                release_date = None
-                if date_match:
-                    month_str = date_match.group(1).upper()
-                    year = int(date_match.group(2))
-                    months = {
-                        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4,
-                        "MAY": 5, "JUN": 6, "JUL": 7, "AUG": 8,
-                        "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
-                    }
-                    month = months.get(month_str, 1)
-                    release_date = datetime(year, month, 1)
-
-                # Also try "December 2023" format
-                if not release_date:
-                    long_date_pattern = r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})"
-                    long_date_match = re.search(long_date_pattern, section_text, re.I)
-                    if long_date_match:
-                        try:
-                            release_date = datetime.strptime(
-                                f"{long_date_match.group(1)} {long_date_match.group(2)}",
-                                "%B %Y"
-                            )
-                        except ValueError:
-                            pass
-
-                # Get changelog/notes
-                changelog = None
-                if section:
-                    notes_section = section.find(["ul", "div", "p"], class_=re.compile(r"note|change|detail|description", re.I))
-                    if notes_section:
-                        changelog = notes_section.get_text(strip=True)
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=changelog,
-                    )
-                )
-
-        # Deduplicate by version
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-        firmware_versions = unique
-
-        # Fallback if no h5 sections found - search for System Program pattern in all text
-        if not firmware_versions:
-            version_matches = re.findall(firmware_pattern, all_text, re.IGNORECASE)
-            for version in set(version_matches):
-                firmware_versions.append(ScrapedFirmware(version=version))
-
-        return ScraperResult(success=True, firmware_versions=firmware_versions)
+        versions, error = await self._fetch_system_program(firmware_page_url)
+        if error:
+            return ScraperResult(success=False, error=error)
+        return ScraperResult(success=True, firmware_versions=versions)
