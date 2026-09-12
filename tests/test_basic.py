@@ -3393,3 +3393,139 @@ def test_qsc_malformed_date_degrades_to_none():
     from src.scrapers.plugins.qsc import QSCScraper
 
     assert QSCScraper()._k2_release_date("<p>Version 2.1 \u2013 13/45/2025</p>") is None
+
+
+# --- Elektron ---------------------------------------------------------------
+
+ELEKTRON_PAGE = """
+<div class="group-content">
+  <div><h3>Digitakt OS 1.53</h3></div>
+  <div><h3>Sept 9, 2026</h3></div>
+  <div class="rich-text"><p>Adds Outbox 8 configuration support.</p>
+    <p><a href="../wp-content/uploads/2026/09/Digitakt_OS1.53_dist.zip">DOWNLOAD OS</a></p>
+  </div>
+</div>
+<div class="group-content">
+  <div><h3>Elektron Transfer 1.10.4</h3></div>
+  <div><h3>Jun 23, 2026</h3></div>
+  <div class="rich-text"><p>Transfer is the go to tool for samples.</p></div>
+</div>
+"""
+
+
+def test_elektron_reads_the_os_and_ignores_companion_software():
+    """The same page lists the instrument OS and Elektron Transfer.
+
+    Transfer is a desktop app with its own numbering. Requiring "OS" in the heading
+    is what separates them, the way Eventide's H90 page needs its companion apps kept
+    apart from the pedal.
+    """
+    from src.scrapers.plugins.elektron import ElektronScraper
+
+    versions = ElektronScraper()._parse_updates(
+        ELEKTRON_PAGE, "https://www.elektron.se/support-downloads/digitakt"
+    )
+
+    assert [f.version for f in versions] == ["1.53"]
+    assert "1.10.4" not in [f.version for f in versions]
+
+
+def test_elektron_accepts_a_four_letter_month():
+    """Pages use both "Sep 9, 2026" and "Sept 9, 2026".
+
+    strptime's %b accepts the first and rejects the second, so a pattern matching
+    both while parsing with %b dropped the date on every MKII page while looking
+    like it handled them.
+    """
+    from src.scrapers.plugins.elektron import ElektronScraper
+
+    versions = ElektronScraper()._parse_updates(ELEKTRON_PAGE, "https://e.invalid/x")
+    assert versions[0].release_date.strftime("%Y-%m-%d") == "2026-09-09"
+
+    short = ELEKTRON_PAGE.replace("Sept 9, 2026", "Sep 9, 2026")
+    assert ElektronScraper()._parse_updates(short, "https://e.invalid/x")[0].release_date
+
+
+def test_elektron_resolves_the_relative_download_url():
+    """Elektron writes "../wp-content/...", which needs joining to the page.
+
+    Storing it unjoined produces the same broken shape an older TAL scraper left in
+    the database: dot-segments in the hostname, resolving nowhere.
+    """
+    from src.scrapers.plugins.elektron import ElektronScraper
+    from src.scrapers.service import _clean_url
+
+    versions = ElektronScraper()._parse_updates(
+        ELEKTRON_PAGE, "https://www.elektron.se/support-downloads/digitakt"
+    )
+    url = versions[0].download_url
+
+    assert url == "https://www.elektron.se/wp-content/uploads/2026/09/Digitakt_OS1.53_dist.zip"
+    assert _clean_url(url) == url
+
+
+# --- Roland -----------------------------------------------------------------
+
+ROLAND_LISTING = """
+<h5><a href="/global/support/by_product/mc-101/updates_drivers/abc/">MC-101 System Program (Ver.1.82)</a></h5>
+<h5><a href="/d1/">MC-101 Driver Ver.1.0.3 for macOS Sonoma 14.x or later</a></h5>
+<h5><a href="/d2/">MC-101 Driver Ver.1.0.2 for Windows 10/11</a></h5>
+"""
+
+ROLAND_DETAIL = """
+<div class="details">
+  <b>HOW TO TELL THE VERSION</b>
+  Before you start, check the system program version of your MC-101.
+  <b>UPDATE HISTORY</b>
+  [ Ver.1.82 ] JUN 2023 Bug Fixes. Arpeggiator fix.
+  [ Ver.1.81 ] NOV 2022 Bug Fixes. SDZ loading fix.
+</div>
+"""
+
+
+def test_roland_picks_the_system_program_not_a_driver():
+    """The listing puts USB drivers beside the firmware, both written "Ver.".
+
+    A pattern taking the first version on the page can land on Ver.1.0.3, which is a
+    macOS driver rather than anything the instrument runs.
+    """
+    from src.scrapers.plugins.roland import RolandScraper
+
+    version, url = RolandScraper()._system_program_link(ROLAND_LISTING)
+
+    assert version == "1.82"
+    assert url.endswith("/mc-101/updates_drivers/abc/")
+
+
+def test_roland_accepts_the_bare_system_program_form():
+    """AIRA Compacts write it without parentheses.
+
+    Requiring them silently returned nothing for J-6 and T-8, which do publish
+    firmware -- a stricter pattern reading as "this product has none".
+    """
+    from src.scrapers.plugins.roland import RolandScraper
+
+    bare = '<a href="/x/">J-6 System Program Ver.1.02</a>'
+    assert RolandScraper()._system_program_link(bare)[0] == "1.02"
+
+    spaced = '<a href="/x/">JUPITER-X System Program ( Ver.3.03 )</a>'
+    assert RolandScraper()._system_program_link(spaced)[0] == "3.03"
+
+
+def test_roland_reads_the_whole_update_history():
+    """The detail page carries every release, not just the current one.
+
+    Roland dates to the month, stored as the first of it.
+    """
+    from src.scrapers.plugins.roland import RolandScraper
+
+    versions = RolandScraper()._parse_history(ROLAND_DETAIL)
+
+    assert [f.version for f in versions] == ["1.82", "1.81"]
+    assert versions[0].release_date.strftime("%Y-%m-%d") == "2023-06-01"
+    assert versions[1].release_date.strftime("%Y-%m-%d") == "2022-11-01"
+    # Each entry keeps its own notes rather than the whole page.
+    assert "Arpeggiator" in versions[0].changelog
+    assert "Arpeggiator" not in versions[1].changelog
+    # The "how to tell the version" prose above the history is not a release.
+    assert len(versions) == 2
