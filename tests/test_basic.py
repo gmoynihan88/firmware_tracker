@@ -3319,3 +3319,77 @@ def test_refresh_never_erases_a_date_the_scraper_stopped_reporting():
     assert row.release_date == datetime(2022, 6, 13)
     assert row.download_url == "https://example.com/a.zip"
     assert row.changelog_raw == "original notes"
+
+
+QSC_K2_PAGE = """
+    <p>Firmware version for all models: version 2.1.43</p>
+    <p>Version 2.1 \u2013 8/11/2025</p>
+    <p>K.2 Series Owner's Manual</p>
+    <p>Revised 06/07/2017</p>
+"""
+
+
+def test_qsc_reads_the_k2_release_date():
+    """The date is printed beside the version: "Version 2.1 - 8/11/2025".
+
+    US month/day, so this is 11 August rather than 8 November. The value matches
+    what the page's own listing shows.
+    """
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    date = QSCScraper()._k2_release_date(QSC_K2_PAGE)
+
+    assert date.strftime("%Y-%m-%d") == "2025-08-11"
+
+
+def test_qsc_does_not_take_a_document_revision_date():
+    """The same page carries "Revised 06/07/2017" against a manual.
+
+    An earlier implementation searched for the first date anywhere in the text, which
+    on a page ordered the other way round would have dated 2025 firmware to 2017.
+    """
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    manual_first = """
+        <p>K.2 Series Owner's Manual</p>
+        <p>Revised 06/07/2017</p>
+        <p>Firmware version for all models: version 2.1.43</p>
+        <p>Version 2.1 \u2013 8/11/2025</p>
+    """
+    date = QSCScraper()._k2_release_date(manual_first)
+
+    assert date.strftime("%Y-%m-%d") == "2025-08-11"
+
+    # Nothing version-anchored means no date, rather than the nearest one available.
+    assert QSCScraper()._k2_release_date("<p>Revised 06/07/2017</p>") is None
+
+
+@pytest.mark.asyncio
+async def test_qsc_touchmix_reports_no_date():
+    """TouchMix pages date their installation instructions, not their firmware.
+
+    "Windows Download and Installation / Revised 06/07/2017" sits beside firmware
+    3.0.0955, and treating that as a release date would put a 2022 build in 2017.
+    """
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    scraper = QSCScraper()
+
+    async def page(*args, **kwargs):
+        return """
+            <p>Windows Download and Installation</p><p>Revised 06/07/2017</p>
+            <p>Recommended TouchMix-8/-16 Firmware: 3.0.0955</p>
+        """
+
+    scraper.fetch_page_js = page
+    result = await scraper.fetch_firmware_versions("TouchMix-16", "https://example.invalid")
+
+    assert result.success is True
+    assert result.firmware_versions[0].version == "3.0.0955"
+    assert result.firmware_versions[0].release_date is None
+
+
+def test_qsc_malformed_date_degrades_to_none():
+    from src.scrapers.plugins.qsc import QSCScraper
+
+    assert QSCScraper()._k2_release_date("<p>Version 2.1 \u2013 13/45/2025</p>") is None

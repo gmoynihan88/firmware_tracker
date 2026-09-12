@@ -29,6 +29,14 @@ class QSCScraper(BaseScraper):
         r"Firmware\s+version\s+for\s+all\s+models:\s*version\s*(\d+(?:\.\d+)+)", re.I
     )
 
+    # "Version 2.1 – 8/11/2025" on the K.2 page. Anchored to the version it follows
+    # rather than taking the first date on the page, because the page also carries
+    # dates that belong to documents. Read as US month/day: QSC is a US company, and
+    # the value it produces for 8/11/2025 matches what the page's own listing shows.
+    K2_RELEASE_DATE = re.compile(
+        r"Version\s+\d+(?:\.\d+)*\s*[\u2013\u2014-]\s*(\d{1,2}/\d{1,2}/\d{4})"
+    )
+
     # "Recommended TouchMix-8/-16 Firmware: 3.0.0955"
     TOUCHMIX_VERSION = re.compile(
         r"Recommended\s+(?P<models>TouchMix[-\w/\s]*?)\s+Firmware:\s*(?P<version>\d+(?:\.\d+)+)",
@@ -61,47 +69,6 @@ class QSCScraper(BaseScraper):
             for name, category, url in self.KNOWN_PRODUCTS
         ]
         return ScraperResult(success=True, devices=devices)
-
-    def _parse_k2_firmware_page(self, html: str) -> list[ScrapedFirmware]:
-        """Parse K.2 series firmware page."""
-        soup = self.parse_html(html)
-        text = soup.get_text()
-        firmware_versions = []
-
-        # Look for "Firmware version for all models: version 2.1.43" pattern
-        firmware_match = re.search(r"[Ff]irmware\s+version.*?version\s+(\d+\.\d+\.\d+)", text, re.I)
-        if firmware_match:
-            version = firmware_match.group(1)
-
-            # Look for release date (format: M/D/YYYY or MM/DD/YYYY)
-            date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
-            release_date = None
-            if date_match:
-                try:
-                    release_date = datetime.strptime(date_match.group(1), "%m/%d/%Y")
-                except ValueError:
-                    pass
-
-            # Find download links
-            download_link = soup.find("a", href=re.compile(r"\.(dmg|exe|zip)", re.I))
-            download_url = download_link["href"] if download_link else None
-
-            # Get changelog/improvements
-            changelog = None
-            improvements_match = re.search(r"(?:improvements|updates|changes)[:\s]+(.{50,300})", text, re.I | re.S)
-            if improvements_match:
-                changelog = improvements_match.group(1).strip()[:500]
-
-            firmware_versions.append(
-                ScrapedFirmware(
-                    version=version,
-                    release_date=release_date,
-                    download_url=download_url,
-                    changelog=changelog,
-                )
-            )
-
-        return firmware_versions
 
     def _touchmix_version_for(self, device_name: str, text: str) -> Optional[str]:
         """Match a TouchMix model to its recommended firmware line.
@@ -139,11 +106,17 @@ class QSCScraper(BaseScraper):
 
         text = re.sub(r"\s+", " ", self.parse_html(html).get_text(" "))
 
+        release_date = None
+
         if device_name.startswith("TouchMix"):
             version = self._touchmix_version_for(device_name, text)
+            # No date is read for TouchMix. The only dates on that page are "Revised
+            # 06/07/2017" stamps on the installation instructions, so using them would
+            # date firmware 3.0.0955 to 2017.
         else:
             match = self.K2_VERSION.search(text)
             version = match.group(1) if match else None
+            release_date = self._k2_release_date(text)
 
         if not version:
             return ScraperResult(
@@ -154,6 +127,27 @@ class QSCScraper(BaseScraper):
         return ScraperResult(
             success=True,
             firmware_versions=[
-                ScrapedFirmware(version=version, download_url=firmware_page_url)
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    download_url=firmware_page_url,
+                )
             ],
         )
+
+    def _k2_release_date(self, text: str) -> Optional[datetime]:
+        """Read the K.2 release date, which the page prints beside the version.
+
+        This existed already, in a `_parse_k2_firmware_page` that nothing called --
+        so the date reached the database once, before the live path was rewritten
+        without it, and could not be produced again. The stored value survived only
+        because a rescrape does not overwrite a date with nothing. A fresh deployment
+        would have lost it.
+        """
+        match = self.K2_RELEASE_DATE.search(text)
+        if not match:
+            return None
+        try:
+            return datetime.strptime(match.group(1), "%m/%d/%Y")
+        except ValueError:
+            return None
