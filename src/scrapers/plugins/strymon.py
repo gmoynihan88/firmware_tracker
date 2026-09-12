@@ -1,12 +1,28 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class StrymonScraper(BaseScraper):
-    """Scraper for Strymon guitar pedals and effects."""
+    """Strymon pedals, read from the firmware notes on each support page.
+
+    The previous parser looked for `firmware v1.49` and Strymon writes
+    `BigSky Firmware Rev. 1.49 (Released March 2019):` -- the "Rev." between the two
+    halves meant the pattern matched almost nothing. Fourteen of fifteen products
+    stored no version at all, the fifteenth stored 1.42 for a Timeline that has been
+    on 1.88 since 2020, and the scrape reported no failures throughout.
+
+    The pages are fine and always were: BigSky returns 29,980 characters of text, and
+    a support URL for a product name invented to test it 404s properly. This was only
+    ever a parsing problem, which is unusual here -- normally it is a dead URL.
+
+    Each page carries the full history with month-precision dates, stored as the first
+    of the month. Archived releases are listed too and are kept: "no longer available
+    for download" is a statement about the file, not about whether the release
+    happened.
+    """
 
     manufacturer_name = "Strymon"
     manufacturer_slug = "strymon"
@@ -47,73 +63,68 @@ class StrymonScraper(BaseScraper):
         ]
         return ScraperResult(success=True, devices=devices)
 
+    # Three spellings across the range, and the third is why NightSky looked like it
+    # had no firmware at all:
+    #   "BigSky Firmware Rev. 1.49 (Released March 2019):"
+    #   "Firmware Rev. 1.23"                     -- no product name, no date
+    #   "NightSky Firmware REV v1.07 (Released March 2021)"  -- a v before the digits
+    #   "Sunset Firmware REV v 1.23 (Release August 2018)"    -- "Release", not "Released"
+    #
+    # "Firmware Rev" is still required. Sunset's page says "must have firmware version
+    # 1.20 or later", which is a MIDI compatibility note rather than a release, and a
+    # pattern accepting "firmware version" would report it as one.
+    FIRMWARE = re.compile(
+        r"Firmware\s+Rev(?:ision)?\.?\s*v?\s*(\d+(?:\.\d+)+)"
+        r"(?:\s*\(\s*Released?\s+([A-Za-z]+)\s+(\d{4})\s*\))?",
+        re.I,
+    )
+    MONTHS = {m.lower(): i for i, m in enumerate(
+        ["January", "February", "March", "April", "May", "June", "July",
+         "August", "September", "October", "November", "December"], start=1)}
+
+    def _parse_firmware(self, html: str) -> List[ScrapedFirmware]:
+        """Read the firmware revisions, newest first.
+
+        Scanning the page text is safe here only because the pattern requires the
+        words "Firmware Rev". The same pages carry Strymon's Nixie editor ("Nixie
+        1.0", "Version: 0.9.4.3") and OS requirements ("Mac OS X - 10.6.8"), none of
+        which a looser version pattern would tell apart.
+        """
+        text = re.sub(r"\s+", " ", self.parse_html(html).get_text(" "))
+
+        versions: List[ScrapedFirmware] = []
+        seen = set()
+
+        for match in self.FIRMWARE.finditer(text):
+            version, month, year = match.groups()
+            if version in seen:
+                continue
+            seen.add(version)
+
+            release_date = None
+            if month and year:
+                try:
+                    release_date = datetime(int(year), self.MONTHS[month.lower()], 1)
+                except (ValueError, KeyError):
+                    release_date = None
+
+            versions.append(ScrapedFirmware(version=version, release_date=release_date))
+
+        return versions
+
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from a Strymon support page."""
         html = await self.fetch_page(firmware_page_url)
         if not html:
             return ScraperResult(
                 success=False, error=f"Failed to fetch {firmware_page_url}"
             )
 
-        soup = self.parse_html(html)
-        firmware_versions = []
+        versions = self._parse_firmware(html)
+        if not versions:
+            # Some pedals are analogue or have never had an update. The page loaded,
+            # so this is an absence rather than a failure.
+            return ScraperResult(success=True, firmware_versions=[])
 
-        # Look for firmware download links and version info
-        # Strymon typically lists firmware in a downloads section
-        download_sections = soup.find_all(["div", "section"], class_=re.compile(r"download|firmware", re.I))
-
-        for section in download_sections:
-            # Look for version numbers in text
-            text = section.get_text()
-            version_match = re.search(r"v?(\d+\.\d+(?:\.\d+)?)", text, re.I)
-            if version_match:
-                version = version_match.group(1)
-
-                # Try to find download link
-                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|pkg)", re.I))
-                download_url = download_link["href"] if download_link else None
-
-                # Try to find release date
-                date_match = re.search(
-                    r"(\w+\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})", text
-                )
-                release_date = None
-                if date_match:
-                    try:
-                        release_date = datetime.strptime(
-                            date_match.group(1).replace(",", ""), "%B %d %Y"
-                        )
-                    except ValueError:
-                        pass
-
-                # Get changelog text from the section
-                changelog = text.strip()
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=changelog,
-                    )
-                )
-
-        # If no structured sections found, try to find any version info
-        if not firmware_versions:
-            all_text = soup.get_text()
-            version_matches = re.findall(r"firmware\s+v?(\d+\.\d+(?:\.\d+)?)", all_text, re.I)
-            for version in set(version_matches):
-                firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Mark latest
-        if firmware_versions:
-            firmware_versions[0] = ScrapedFirmware(
-                version=firmware_versions[0].version,
-                release_date=firmware_versions[0].release_date,
-                download_url=firmware_versions[0].download_url,
-                changelog=firmware_versions[0].changelog,
-            )
-
-        return ScraperResult(success=True, firmware_versions=firmware_versions)
+        return ScraperResult(success=True, firmware_versions=versions)
