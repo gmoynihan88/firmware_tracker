@@ -64,7 +64,17 @@ class FirmwareVersion(Base):
     changelog_raw = Column(Text)
     changelog_summary = Column(Text)
     is_latest = Column(Boolean, default=False)
+
+    # First seen by this tracker. For roughly half the catalogue it is the only date
+    # there is, because the vendor publishes none -- so it is never rewritten.
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Last confirmed still present on the vendor's page. A version the vendor has
+    # withdrawn simply stops being returned, and without this its row looks identical
+    # to one confirmed this morning. The gap between last_seen_at and now is also
+    # what separates "still current" from "we stopped looking", which matters once
+    # the database has been running long enough for that to be a real question.
+    last_seen_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     device_model = relationship("DeviceModel", back_populates="firmware_versions")
     notifications = relationship("Notification", back_populates="firmware_version", cascade="all, delete-orphan")

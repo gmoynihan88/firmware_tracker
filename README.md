@@ -168,6 +168,24 @@ Delivery is a side effect: if ntfy is unreachable the notification is still reco
 the failure logged. The test suite forces the transport off, so `pytest` on a configured
 machine cannot push fixture alerts to your phone.
 
+**Find versions a vendor has withdrawn.** A version that disappears from a vendor's
+page simply stops being returned, so without a last-seen stamp its row looks identical
+to one confirmed this morning. Comparing it against the last successful scrape for
+that vendor separates "withdrawn" from "we stopped looking":
+
+```sql
+WITH last_run AS (
+  SELECT scraper_type, MAX(started_at) AS ran_at
+  FROM scrape_runs WHERE success = 1 GROUP BY scraper_type
+)
+SELECT m.name, dm.name, fv.version, date(fv.last_seen_at)
+FROM firmware_versions fv
+JOIN device_models dm ON dm.id = fv.device_model_id
+JOIN manufacturers m ON m.id = dm.manufacturer_id
+JOIN last_run lr ON lr.scraper_type = m.slug
+WHERE fv.last_seen_at < lr.ran_at;
+```
+
 **See what the scrapes have been doing**, which is what makes a quiet stretch in a
 device's history readable — a version's first-seen date cannot tell "the vendor
 published nothing for eight months" from "the scraper was broken for eight months":
