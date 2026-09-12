@@ -4076,3 +4076,117 @@ def test_backup_script_round_trips_through_a_sql_dump(tmp_path):
 
     # Back to the snapshot exactly: the row added afterwards is gone, not merged.
     assert rows == [(1, "one"), (2, "two")]
+
+
+# --- catalog page ----------------------------------------------------------
+# The catalog carries 397 devices and 23 vendors, and every one of these is a
+# thing the page got wrong before the route started computing it.
+
+
+@pytest.mark.asyncio
+async def test_vendor_cards_use_the_vendor_s_own_spelling(client):
+    """The template used to title-case the registry slug.
+
+    That renders "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments" -- four
+    of twenty-three vendors misspelled on the page a user browses. Each scraper
+    already carries the real name, so the route passes it.
+    """
+    html = (await client.get("/catalog")).text
+
+    assert ">IK Multimedia<" in html
+    assert ">iZotope<" in html
+    assert ">Line 6<" in html
+    assert ">Native Instruments<" in html
+    assert "Ikmultimedia" not in html
+    assert "Nativeinstruments" not in html
+
+
+@pytest.mark.asyncio
+async def test_vendor_card_falls_back_to_last_scraped_at(client):
+    """scrape_runs only goes back to the day that table was added.
+
+    Twenty of twenty-three vendors have no row in it, and reading the card as
+    "never scraped" for those is a worse claim than the gap it describes --
+    manufacturers.last_scraped_at has been maintained since the beginning.
+    """
+    from datetime import datetime
+    from sqlalchemy import update
+
+    from src.devices.models import Manufacturer
+    from src.devices.schemas import ManufacturerCreate
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        await ds.create_manufacturer(db, ManufacturerCreate(name="Boss", slug="boss"))
+        await db.execute(
+            update(Manufacturer)
+            .where(Manufacturer.slug == "boss")
+            .values(last_scraped_at=datetime(2026, 3, 4))
+        )
+        await db.commit()
+
+    html = (await client.get("/catalog")).text
+
+    assert "scraped 4 Mar" in html
+
+
+@pytest.mark.asyncio
+async def test_catalog_marks_devices_the_user_already_tracks(client):
+    """Offering to Track something already tracked adds a second copy of it."""
+    import re
+
+    await _seed_one_device(name="Filter Box", slug="filterco")
+    html = (await client.get("/catalog")).text
+
+    row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Filter Box One.*?</tr>", html, re.S)
+    assert row, "the seeded device is missing from the table"
+    assert "tracked" in row.group(0)
+    assert ">Track<" not in row.group(0)
+
+
+@pytest.mark.asyncio
+async def test_catalog_shows_the_latest_version_per_device(client):
+    """One query for the whole table rather than one per row."""
+    import re
+
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+    )
+    from src.devices.models import DeviceCategory
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Verso", slug="verso")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Verso One", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.0.0", is_latest=False,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.4.1", is_latest=True,
+        ))
+
+    html = (await client.get("/catalog")).text
+    row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Verso One.*?</tr>", html, re.S)
+
+    assert row
+    assert "2.4.1" in row.group(0)
+    assert "1.0.0" not in row.group(0)
+
+
+@pytest.mark.asyncio
+async def test_notification_timestamps_share_one_column(client):
+    """The content block needs flex:1 or it shrinks to its own text.
+
+    Without it every card's title starts at a different x and the timestamps form
+    a ragged edge down the page, because space-between has no free space to
+    distribute inside a shrink-to-fit box.
+    """
+    css = (await client.get("/static/css/style.css")).text
+    block = css.split(".notification-content {", 1)[1].split("}", 1)[0]
+
+    assert "flex: 1" in block
+    assert "min-width: 0" in block

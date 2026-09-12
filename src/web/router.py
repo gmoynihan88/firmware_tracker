@@ -3,7 +3,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
+from sqlalchemy import func, select
+
 from src.database import get_db
+from src.devices.models import DeviceModel, FirmwareVersion, Manufacturer, MyDevice, ScrapeRun
 from src.config import get_settings
 from src.devices import service as device_service
 from src.devices.schemas import MyDeviceCreate, MyDeviceUpdate
@@ -226,7 +229,75 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
     manufacturers = await device_service.get_manufacturers(db)
     device_models = await device_service.get_device_models(db)
     unread_count = await device_service.get_unread_count(db)
-    available_scrapers = ScraperRegistry.list_available()
+
+    # The registry lists slugs, and the template used to title-case them, which
+    # rendered "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments". Each
+    # scraper carries the vendor's own spelling, so use that.
+    device_counts = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(Manufacturer.slug, func.count(DeviceModel.id))
+                .join(DeviceModel, DeviceModel.manufacturer_id == Manufacturer.id)
+                .group_by(Manufacturer.slug)
+            )
+        ).all()
+    }
+
+    # Most recent successful run per scraper, so a vendor card can say when it last
+    # worked rather than only offering to run again. scrape_runs only goes back to
+    # the day that table was added, so manufacturers.last_scraped_at -- maintained
+    # since the beginning -- is the fallback. Without it every vendor scraped before
+    # then reads "never scraped", which is worse than the gap it describes.
+    last_runs = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(ScrapeRun.scraper_type, func.max(ScrapeRun.started_at))
+                .where(ScrapeRun.success.is_(True))
+                .group_by(ScrapeRun.scraper_type)
+            )
+        ).all()
+    }
+
+    vendor_rows = (
+        await db.execute(
+            select(Manufacturer.slug, Manufacturer.website_url, Manufacturer.last_scraped_at)
+        )
+    ).all()
+    websites = {row[0]: row[1] for row in vendor_rows}
+    legacy_scraped = {row[0]: row[2] for row in vendor_rows}
+
+    available_scrapers = [
+        {
+            "slug": slug,
+            "name": ScraperRegistry.get(slug).manufacturer_name,
+            "device_count": device_counts.get(slug, 0),
+            "last_run": last_runs.get(slug) or legacy_scraped.get(slug),
+            "website": websites.get(slug) or ScraperRegistry.get(slug).manufacturer_website,
+        }
+        for slug in sorted(
+            ScraperRegistry.list_available(),
+            key=lambda s: ScraperRegistry.get(s).manufacturer_name.lower(),
+        )
+    ]
+
+    # Which models the user already tracks, so the table can say so instead of
+    # offering to add a second copy of something they have.
+    tracked_model_ids = {
+        row[0] for row in (await db.execute(select(MyDevice.device_model_id))).all()
+    }
+
+    # Latest known version per model, in one query rather than one per row.
+    latest_versions = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(FirmwareVersion.device_model_id, FirmwareVersion.version)
+                .where(FirmwareVersion.is_latest.is_(True))
+            )
+        ).all()
+    }
 
     return templates.TemplateResponse(
         request,
@@ -235,6 +306,8 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
             "manufacturers": manufacturers,
             "device_models": device_models,
             "available_scrapers": available_scrapers,
+            "tracked_model_ids": tracked_model_ids,
+            "latest_versions": latest_versions,
             "unread_count": unread_count,
         },
     )
