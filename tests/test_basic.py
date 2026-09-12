@@ -4033,3 +4033,46 @@ async def test_a_version_the_vendor_drops_stops_being_stamped():
     assert set(after) == {"1.0", "2.0"}
     assert after["1.0"] == original["1.0"]
     assert after["2.0"] >= original["2.0"]
+
+
+def test_backup_script_round_trips_through_a_sql_dump(tmp_path):
+    """The dump has to reproduce the database, not merely parse.
+
+    It also has to restore over an existing file. Replaying a dump into a database
+    that still has rows merges into it and fails on the first duplicate key, which
+    leaves a half-restored mess where a backup was supposed to be.
+    """
+    import shutil
+    import sqlite3 as sq
+    import subprocess
+
+    script = Path(__file__).parent.parent / "scripts" / "backup_db.sh"
+    shutil.copy(script, tmp_path / "backup_db.sh")
+    (tmp_path / "scripts").mkdir(exist_ok=True)
+
+    db = tmp_path / "firmware_tracker.db"
+    with sq.connect(db) as conn:
+        conn.execute("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.executemany("INSERT INTO widgets VALUES (?, ?)", [(1, "one"), (2, "two")])
+
+    def run(*args):
+        return subprocess.run(["bash", str(script), *args], cwd=tmp_path,
+                              capture_output=True, text=True)
+
+    assert run().returncode == 0
+    dumps = list((tmp_path / "backups").glob("*.sql"))
+    assert len(dumps) == 1, "a backup should produce a .sql alongside the .db"
+    assert "INSERT INTO widgets" in dumps[0].read_text()
+
+    # Change the database, then restore the dump over the top of it.
+    with sq.connect(db) as conn:
+        conn.execute("INSERT INTO widgets VALUES (3, 'three')")
+
+    result = run("restore", str(dumps[0]))
+    assert result.returncode == 0, result.stderr
+
+    with sq.connect(db) as conn:
+        rows = conn.execute("SELECT id, name FROM widgets ORDER BY id").fetchall()
+
+    # Back to the snapshot exactly: the row added afterwards is gone, not merged.
+    assert rows == [(1, "one"), (2, "two")]

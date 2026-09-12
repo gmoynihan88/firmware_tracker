@@ -196,6 +196,15 @@ curl "http://localhost:8000/api/firmware/runs?scraper_type=yamaha"
 ```
 
 **Back up the database** with `bash scripts/backup_db.sh` (`list` and `restore` too).
+Each run writes two files: a `.db` that restores fastest and is byte-exact, and a
+`.sql` text dump that diffs, compresses and can be read without sqlite. SQLite
+rewrites pages on almost any change, so two binary snapshots a day apart share very
+little — one scrape of a single manufacturer moved 3,238 bytes in the `.db` and five
+lines in the dump.
+
+`backups/` is gitignored, and should stay that way here: this database holds your
+device list, and git history is permanent. If you want the dumps versioned, put them
+in a private repo.
 
 ## Security
 
