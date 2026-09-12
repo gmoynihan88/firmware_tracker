@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 23 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 24 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -58,8 +58,8 @@ uvicorn src.main:app --reload
 
 ## What it does
 
-- **Scrapes 23 manufacturers** — Boss, Elektron, Eventide, Focusrite, iZotope, Moog,
-  Native Instruments, Steinberg, Strymon, Universal Audio and more
+- **Scrapes 24 manufacturers** — Arturia, Boss, Elektron, Eventide, Focusrite, iZotope,
+  Moog, Native Instruments, Steinberg, Strymon, Universal Audio and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -94,7 +94,7 @@ request volume low.
 
 - One request per second per manufacturer, and a daily check rather than hourly.
 - Conditional requests (`If-None-Match` / `If-Modified-Since`), so an unchanged page
-  returns `304` with no body. Five of the 23 vendors send validators; for those it
+  returns `304` with no body. Five of the 24 vendors send validators; for those it
   saves the full page on every run.
 - `SCRAPE_CACHE=1` serves repeat requests from disk during development. Working on a
   scraper means fetching the same page dozens of times, and a cached run is 35× faster
@@ -124,7 +124,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 397 devices across 23 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 580 devices across 24 vendors, so it
 filters: type to narrow by product or vendor, untick a vendor, or hide what you already
 track. Devices already tracked say so instead of offering to add a second copy.
 
@@ -279,22 +279,24 @@ likely to touch:
 
 | Hardware | Plugins |
 |---|---|
-| Boss | GForce Software |
-| Crumar | IK Multimedia |
-| Elektron | iZotope |
-| Eventide\* | Modartt (Pianoteq) |
-| Focusrite | Moog |
-| Line 6 | Native Instruments |
-| Peterson | Steinberg |
-| QSC | TAL Software |
-| Roland | Universal Audio |
+| Arturia\* | GForce Software |
+| Boss | IK Multimedia |
+| Crumar | iZotope |
+| Elektron | Modartt (Pianoteq) |
+| Eventide\* | Moog |
+| Focusrite | Native Instruments |
+| Line 6 | Steinberg |
+| Peterson | TAL Software |
+| QSC | Universal Audio |
+| Roland | |
 | Sound-Force | |
 | Strymon | |
 | TC Electronic | |
 | Tascam | |
 | Yamaha | |
 
-\*Eventide is the only one on both sides: 54 plugins and 29 pedals.
+\*Arturia and Eventide are on both sides: Arturia 116 instruments and effects
+alongside 67 hardware products, Eventide 54 plugins and 29 pedals.
 
 ## Adding a scraper
 
@@ -327,7 +329,7 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 215 tests
+pytest                                   # 221 tests
 pytest --cov=src                         # 77% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
@@ -367,7 +369,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (23 scrapers)
+    plugins/           # One file per manufacturer (24 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
@@ -385,7 +387,7 @@ docker-compose.yml     # Volumes, log caps
   trade-off is that a vendor cannot tell who is calling or ask you to stop.
 - The web app itself runs anywhere on Python 3.11+. Linux is CI-verified across 3.11,
   3.12 and 3.13; macOS is the development platform; Windows is untested.
-- **Release dates are missing for about a third of current versions** — 211 of 302 have
+- **Release dates are missing for about a fifth of current versions** — 394 of 485 have
   one. That is what the vendor publishes, not what the scraper managed to read: some
   list a version with no date anywhere on the page. The catalogue shows an em-dash
   rather than substituting the date the version was first seen, which would read as a
