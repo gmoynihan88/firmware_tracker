@@ -5,9 +5,26 @@ description: Diagnose and fix a manufacturer scraper that returns no firmware ve
 
 # Debugging a scraper
 
-Seven scrapers in this repo have been repaired with the ladder below. The failure is
-almost always a **dead URL or a moved data source**, not a parsing bug — so resist
-rewriting the parser until step 2 says the data is actually reachable.
+Two rounds of repairs across this repo's scrapers produced the ladder below — the
+first for scrapers returning nothing, the second for scrapers returning versions
+without dates. The failure is almost always a **dead URL or a moved data source**,
+not a parsing bug, so resist rewriting the parser until step 2 says the data is
+actually reachable.
+
+## Start here
+
+| Symptom | Go to |
+|---|---|
+| Don't know which scraper is wrong | Step 0 — they report success |
+| `devices_failed` has entries | Step 1 — dead URL or JS shell |
+| Every product returns nothing | Step 1, then 1b |
+| Scraper is slow *and* its last products fail | Step 1b — budget, not pages |
+| Renders in a browser, empty for the scraper | Step 2 — find the real source |
+| Versions found, but they are the wrong thing | Step 4 — editors, drivers, manuals |
+| Versions right, dates missing or wrong | Step 4, then the dates section |
+| One version repeated across the catalogue | Step 0's audit, then Step 6 |
+| Data comes from an API and still looks wrong | Step 2b — API metadata lies too |
+| Scrape creates new rows instead of updating | Step 4b — name normalisation |
 
 ## Step 0 — Which scraper is lying?
 
@@ -242,6 +259,56 @@ Two things worth knowing before concluding data does not exist:
   WordPress pages had none.
 - **Zendesk does not.** Focusrite's and TC Electronic's support articles returned 403
   or a few hundred characters of shell every time, through every approach tried.
+
+## Step 2b — An API is cleaner, not truer
+
+Finding the JSON is the win. Believing its own summary of itself is the next mistake,
+and it is easier to make than the HTML equivalent because the field is *named* for
+what you want.
+
+Arturia's `/api/content/resources` returns every downloadable it publishes, with a
+`latest` boolean. The flag is per platform, not per product:
+
+```
+KeyLab 88   latest=true   v1.2.0.6   platform=""
+KeyLab 88   latest=true   v1.1.0.4   platform="mac"
+KeyLab 88   latest=true   v1.1.0.4   platform="windows"
+```
+
+Three records flagged latest, and two are two releases behind. A scraper reading
+`latest` reports 1.1.0.4 forever, with an API to point at as justification. Derive
+the newest yourself — `ScraperService` picks by version tuple, so returning every
+version and letting it choose is both simpler and right.
+
+**What an API is genuinely better at is telling one kind of thing from another.** The
+hardest HTML problem in this repo is that editors, drivers and manuals carry versions
+and sit on the product's page. Arturia's records have a `type`: 270 `firmware`, 4,103
+`soft`, 1,557 `manual`. The MiniFreak instrument is 4.0.1 and the MiniFreak V editor
+is 4.0.2.6369, and no wording has to be anchored on to separate them. When an endpoint
+offers a discriminator, it replaces the most fragile part of a scraper.
+
+### One product can appear twice
+
+Not the [name-normalisation problem](#step-4b--normalise-product-names-before-matching),
+which is the vendor's spelling against yours. This is the vendor's catalogue against
+itself: two entries, the same name, the same device.
+
+Arturia lists AudioFuse twice, generations 0 and 2 — same firmware, same versions,
+except the current entry carries only the latest release and the retired one carries
+the history. Keyed by id you get two devices, one with no history and one nobody
+looks at. Keyed by name, with their resources merged, you get one device with all
+four versions.
+
+Check for it before designing the key: group the catalogue by display name and look
+at anything appearing more than once.
+
+### One release can have two dates
+
+Platform builds finish on different days: 51 of Arturia's 2,055 software versions are
+dated a day apart on mac and windows. Take the earliest — the release is when it first
+shipped, not when the last build came out of CI. Either choice is defensible; an
+unconsidered one means the date changes depending on which record the parser happened
+to see last.
 
 ## Step 3 — Next.js pages: join the RSC chunks before parsing
 

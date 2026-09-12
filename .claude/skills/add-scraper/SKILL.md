@@ -38,6 +38,27 @@ Focusrite and GForce had changed their URL shape — `/products/X` to `/product/
 title case to lowercase slugs — and every hardcoded URL 404'd. A discovered list
 cannot rot the same way, and it picks up products added since.
 
+**The best case is no `KNOWN_PRODUCTS` at all.** Arturia's two endpoints return the
+product catalogue and every published download, so `fetch_device_list` and
+`fetch_firmware_versions` both read from the same two responses: 183 products and
+1,631 versions in 2.9 seconds, with no list in the source to go stale. Look for a
+catalogue endpoint beside the one carrying versions — the downloads page had to get
+its product filter from somewhere.
+
+## Decide scope with the vendor's own taxonomy
+
+A big catalogue is not automatically worth importing whole. Arturia publishes 782
+products; 184 have a firmware line. The rest are 410 preset packs, 50 bundles and 427
+in-app purchases, and `product_type` names all of them, so the filter is the vendor's
+own classification rather than a guess about names.
+
+The test is whether a row can ever report a version. Focusrite contributes 28 device
+rows that will never say anything, because its firmware ships inside Focusrite
+Control — 7% of the catalogue permanently reading "Firmware Unknown". Rows like that
+make a catalogue worse, and the check is cheap to run before writing the scraper:
+count how many of the products you plan to add appear in whatever source carries
+versions.
+
 ## Skeleton
 
 ```python
@@ -145,6 +166,18 @@ rendered — presence of the expected data structure is a better signal than tex
   the old device total means the names stopped matching.
 - **Pair a version with its own date**, from the same changelog entry. Taking the first
   version and first date out of a shared block silently mismatches them.
+- **Trust an API's data, not its self-description.** Arturia's resources endpoint has
+  a `latest` flag that is per platform: KeyLab 88 has three records flagged latest,
+  two of them two releases old. Derive the newest from the versions themselves —
+  `ScraperService` already picks by version tuple, so return everything and let it
+  choose. What an API *is* better at is telling one kind of thing from another: a
+  `type` field separating firmware from editors and manuals replaces the most fragile
+  part of an HTML scraper.
+- **Check whether the vendor lists one product twice.** Arturia has two AudioFuse
+  entries, different generations of the same interface, where the current one carries
+  only the latest release and the retired one carries the history. Keyed by id that is
+  two devices, one of them useless. Group the catalogue by display name and look at
+  anything appearing more than once before choosing the key.
 - **Most versions on a support page are not the product's.** Editor apps, USB drivers,
   transfer tools and manual revisions all carry version numbers and all sit on the
   page you are scraping. Roland lists `Driver Ver.1.0.3 for macOS Sonoma` beside
