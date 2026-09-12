@@ -117,7 +117,19 @@
                 </td>
                 <td class="cell-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</td>
                 <td class="cell-version">{{ item.device.current_firmware_version or '—' }}</td>
-                <td class="cell-version">{% if item.latest_firmware %}{{ item.latest_firmware.version }}{% else %}—{% endif %}</td>
+                {# Same rule as the catalogue: a version wins, and the flag only
+                   explains its absence. "—" is left meaning "nobody has checked". #}
+                <td class="cell-version">
+                    {%- if item.latest_firmware -%}
+                    {{ item.latest_firmware.version }}
+                    {%- elif item.device.device_model.firmware_availability and item.device.device_model.firmware_availability.value == 'not_published' -%}
+                    <span class="muted" title="The vendor publishes no version for this product">not published</span>
+                    {%- elif item.device.device_model.firmware_availability and item.device.device_model.firmware_availability.value == 'no_firmware' -%}
+                    <span class="muted" title="This product takes no firmware updates">no firmware</span>
+                    {%- else -%}
+                    —
+                    {%- endif -%}
+                </td>
                 <td class="cell-date" title="When a scrape first recorded this version">
                     {% if item.latest_firmware and item.latest_firmware.created_at %}{{ item.latest_firmware.created_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
                 </td>

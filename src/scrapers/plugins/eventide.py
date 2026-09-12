@@ -154,6 +154,13 @@ class EventideScraper(BaseScraper):
                     category=self.CATEGORY_MAP[category],
                     firmware_page_url=url,
                     product_url=url,
+                    # Pedals, rack and broadcast hardware update through Eventide
+                    # Device Manager, which fetches firmware at run time and publishes
+                    # no version on the site. The plug-ins and software do publish, so
+                    # this is set per category rather than for the whole vendor.
+                    firmware_availability=(
+                        None if category in self.FETCHED_CATEGORIES else "not_published"
+                    ),
                 )
                 for name, category, url in products
             ],

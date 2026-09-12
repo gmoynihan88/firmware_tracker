@@ -93,6 +93,17 @@ parse that broke, `devices_without_firmware` is a product the vendor publishes n
 for, and `devices_not_checked` is the time budget running out. Collapsing the first two
 would either hide a real breakage or report one every run.
 
+**Products that will never report a version say so.** 95 of them publish nothing, and
+for 62 a scraper has established why — the catalogue shows `not published` where the
+vendor publishes no version anywhere, and `no firmware` where the product takes no
+updates at all. The other 33 stay an em-dash, because nobody has checked and guessing
+is the thing this avoids.
+
+That split is what makes the absence list usable. `devices_without_firmware` carries
+95 entries on every sweep, so a product that goes silent tomorrow joins a crowd nobody
+reads; `devices_unexplained` holds only the ones with no recorded reason, and it is the
+list that should be shrinking.
+
 ## Scraping load
 
 Several of these vendors are very small operations, so the defaults are set to keep
@@ -335,7 +346,7 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 225 tests
+pytest                                   # 229 tests
 pytest --cov=src                         # 78% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 

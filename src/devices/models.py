@@ -15,6 +15,29 @@ class DeviceCategory(str, enum.Enum):
     OTHER = "other"
 
 
+class FirmwareAvailability(str, enum.Enum):
+    """Why a product has no version, when a scraper has established why.
+
+    Only meaningful for a product with no firmware rows. A product that reports a
+    version ignores this entirely, so nothing has to be cleared when a vendor starts
+    publishing -- the version simply wins.
+
+    The default is absence rather than a member: `NULL` means nobody has checked, and
+    it is the honest state for most of these. Claiming a verified absence you have not
+    verified is the mistake this whole project is arranged against, so a value is set
+    only where a scraper's docstring can say how it was established.
+    """
+
+    # The vendor publishes no version anywhere public. Named for publication rather
+    # than delivery: UA's UAFX pedals are installed by UA Connect and publish sixteen
+    # dated versions, so "ships through the vendor's app" predicts nothing.
+    NOT_PUBLISHED = "not_published"
+
+    # The product takes no firmware updates at all -- TC Electronic's TonePrint pedals,
+    # Peterson's analogue tuners. Different from the above: there is nothing to publish.
+    NO_FIRMWARE = "no_firmware"
+
+
 class Manufacturer(Base):
     __tablename__ = "manufacturers"
 
@@ -42,6 +65,11 @@ class DeviceModel(Base):
     category = Column(Enum(DeviceCategory), default=DeviceCategory.OTHER)
     firmware_page_url = Column(String(500))
     product_url = Column(String(500))
+
+    # Why this product reports no version, where a scraper has established why.
+    # NULL means unexamined, which is most of them. See FirmwareAvailability.
+    firmware_availability = Column(Enum(FirmwareAvailability), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

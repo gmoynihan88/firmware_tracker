@@ -4847,3 +4847,172 @@ def test_ua_plugins_still_report_nothing():
 
     assert result.success is True
     assert result.firmware_versions == []
+
+
+# --- firmware availability -------------------------------------------------
+# Three unrelated situations used to render identically as "Firmware Unknown": a
+# vendor that publishes nothing, a product that takes no firmware, and a scraper
+# that had quietly broken. The third is the one worth seeing.
+
+
+async def _seed_unversioned(name, slug, availability=None):
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=name, slug=slug))
+        return await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name=f"{name} Box",
+            category=DeviceCategory.AUDIO_INTERFACE,
+            firmware_availability=availability,
+        ))
+
+
+@pytest.mark.asyncio
+async def test_catalog_says_why_there_is_no_version(client):
+    """Each reason reads as itself rather than all three as an em-dash."""
+    import re
+
+    from src.devices.models import FirmwareAvailability
+
+    await _seed_unversioned("Silent", "silentco", FirmwareAvailability.NOT_PUBLISHED)
+    await _seed_unversioned("Analogue", "analogueco", FirmwareAvailability.NO_FIRMWARE)
+    await _seed_unversioned("Unchecked", "uncheckedco", None)
+
+    html = (await client.get("/catalog")).text
+
+    def cell(product):
+        row = re.search(rf"<tr[^>]*>(?:(?!</tr>).)*{product}.*?</tr>", html, re.S)
+        assert row, f"{product} missing from the table"
+        return row.group(0)
+
+    assert "not published" in cell("Silent Box")
+    assert "no firmware" in cell("Analogue Box")
+    # Unexamined stays an em-dash: the field records findings, not guesses.
+    assert "not published" not in cell("Unchecked Box")
+    assert "no firmware" not in cell("Unchecked Box")
+
+
+@pytest.mark.asyncio
+async def test_a_version_always_beats_the_flag(client):
+    """A vendor that starts publishing needs nothing cleared.
+
+    The flag explains an absence. If a version arrives while the flag is still set,
+    showing "not published" next to a real version would be the worst of both.
+    """
+    import re
+
+    from src.devices import service as ds
+    from src.devices.models import FirmwareAvailability
+    from src.devices.schemas import FirmwareVersionCreate
+
+    model = await _seed_unversioned("Relenting", "relentco", FirmwareAvailability.NOT_PUBLISHED)
+    async with test_session_maker() as db:
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.0.0", is_latest=True,
+        ))
+
+    html = (await client.get("/catalog")).text
+    row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Relenting Box.*?</tr>", html, re.S).group(0)
+
+    assert "1.0.0" in row
+    assert "not published" not in row
+
+
+@pytest.mark.asyncio
+async def test_sync_can_clear_an_availability_it_set_before():
+    """Revisable in both directions, unlike the URLs beside it.
+
+    A scraper that decides a vendor does publish after all has to be able to take the
+    flag off, or the first run's reading outlives the finding that corrected it.
+    """
+    from src.devices import service as ds
+    from src.devices.models import DeviceModel, FirmwareAvailability
+    from src.devices.schemas import ManufacturerCreate
+    from src.scrapers.base import ScrapedDevice
+    from src.scrapers.service import sync_devices
+    from sqlalchemy import select as sa_select
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Revise", slug="reviseco"))
+        mfr_id = mfr.id
+
+        await sync_devices(db, mfr_id, [ScrapedDevice(
+            name="Box", category="audio_interface", firmware_availability="not_published",
+        )])
+        stored = (await db.execute(
+            sa_select(DeviceModel).where(DeviceModel.manufacturer_id == mfr_id)
+        )).scalars().first()
+        assert stored.firmware_availability == FirmwareAvailability.NOT_PUBLISHED
+
+        await sync_devices(db, mfr_id, [ScrapedDevice(
+            name="Box", category="audio_interface", firmware_availability=None,
+        )])
+        await db.refresh(stored)
+        assert stored.firmware_availability is None
+
+
+@pytest.mark.asyncio
+async def test_scrape_separates_explained_absences_from_unexplained():
+    """The point of the field. devices_without_firmware carries 95 products on every
+    sweep, so a product that went silent this morning joins a crowd nobody reads.
+    """
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+    from src.scrapers import service as ss
+
+    def slugify(value):
+        return value.lower().replace(" ", "-")
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Split", slug="splitco"))
+        for name, availability in (("Known Silent", "not_published"), ("Suddenly Silent", None)):
+            await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.OTHER,
+                firmware_page_url=f"https://split.example.com/{slugify(name)}",
+                firmware_availability=availability,
+            ))
+
+    from src.scrapers.base import ScrapedDevice, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+
+    from src.scrapers.base import BaseScraper
+
+    # Subclassed rather than duck-typed: the service also calls identical_pages and
+    # close, and a hand-rolled stub silently returns an error summary when it misses
+    # one of them.
+    class Stub(BaseScraper):
+        manufacturer_name = "Split"
+        manufacturer_slug = "splitco"
+        manufacturer_website = "https://split.example.com"
+
+        async def fetch_device_list(self):
+            return ScraperResult(success=True, devices=[
+                # A firmware_page_url is required: the service only fetches devices
+                # that have one, so a device without it is never even attempted.
+                ScrapedDevice(name="Known Silent", category="other",
+                              firmware_page_url="https://split.example.com/known",
+                              firmware_availability="not_published"),
+                ScrapedDevice(name="Suddenly Silent", category="other",
+                              firmware_page_url="https://split.example.com/sudden"),
+            ])
+
+        async def fetch_firmware_versions(self, name, url):
+            return ScraperResult(success=True, firmware_versions=[])
+
+    # The registry holds class-level state shared across tests in this process, so the
+    # stub is put back the way it was found.
+    original = ScraperRegistry.create
+    ScraperRegistry.create = staticmethod(
+        lambda slug: Stub() if slug == "splitco" else original(slug)
+    )
+    try:
+        async with test_session_maker() as db:
+            summary = await ss.scrape_manufacturer(db, "splitco")
+    finally:
+        ScraperRegistry.create = original
+
+    assert sorted(summary["devices_without_firmware"]) == ["Known Silent", "Suddenly Silent"]
+    assert summary["devices_unexplained"] == ["Suddenly Silent"]

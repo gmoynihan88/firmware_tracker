@@ -132,7 +132,19 @@
                     <td class="device-name">{{ model.name }}</td>
                     <td class="muted">{{ model.category.value | replace('_', ' ') | title }}</td>
                     {% set latest = latest_versions.get(model.id) %}
-                    <td class="numeric">{{ latest.version if latest else '—' }}</td>
+                    {# A version always wins. The flag describes why there is none, so
+                       a vendor that starts publishing needs nothing cleared. #}
+                    <td class="numeric">
+                        {%- if latest -%}
+                        {{ latest.version }}
+                        {%- elif model.firmware_availability and model.firmware_availability.value == 'not_published' -%}
+                        <span class="muted" title="The vendor publishes no version for this product">not published</span>
+                        {%- elif model.firmware_availability and model.firmware_availability.value == 'no_firmware' -%}
+                        <span class="muted" title="This product takes no firmware updates">no firmware</span>
+                        {%- else -%}
+                        —
+                        {%- endif -%}
+                    </td>
                     {# The vendor's own date, never the date we first saw the version. #}
                     <td class="cell-date">
                         {%- if latest and latest.release_date -%}

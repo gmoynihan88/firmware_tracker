@@ -261,6 +261,9 @@ class UniversalAudioScraper(BaseScraper):
                 # points at the release notes rather than the shop page.
                 firmware_page_url=self.RELEASE_NOTES_URL,
                 product_url=url,
+                # The plugins only. The pedals below publish sixteen dated versions,
+                # which is the distinction this whole file turns on.
+                firmware_availability="not_published",
             )
             for name, category, url in self.KNOWN_PRODUCTS
         ]
