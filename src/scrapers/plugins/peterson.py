@@ -1,142 +1,149 @@
+import json
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class PetersonScraper(BaseScraper):
-    """Scraper for Peterson strobe tuners."""
+    """Peterson strobe tuners, read from the firmware history on their support page.
+
+    The previous version pointed at product pages on the shop, which carry prices and
+    no firmware at all. What it stored as versions were **manual revisions** picked up
+    from elsewhere on the site -- "StroboStomp HD English v1.1", "StroboStomp LE
+    English v1.1" -- which is why four of six products reported 1.1. That is the
+    "User Guide V4" false positive, and it survived because the numbers look exactly
+    like firmware.
+
+    The real source is one page. `/support/` has a Firmware History section whose
+    entries each carry a `data-update` attribute holding JSON:
+
+        {"product": "StroboPLUS HD", "versionString": "1.1.12",
+         "dateCreated": "May, 04 2017 15:01:00",
+         "features": [{"feature": "Various bug fixes...", "public": 1},
+                      {"feature": "not for public consumption", "public": 0}]}
+
+    So one fetch covers the whole range with exact dates and changelogs, and no
+    pattern has to guess which numbers on a page are releases.
+
+    Peterson writes StroboPLUS where the database has StroboPlus, so products are
+    matched case-insensitively. Getting that wrong creates a second row and orphans
+    the one a user's devices are attached to.
+    """
 
     manufacturer_name = "Peterson"
     manufacturer_slug = "peterson"
     manufacturer_website = "https://www.petersontuners.com"
 
-    # Known Peterson products with firmware
+    SUPPORT_URL = "https://www.petersontuners.com/support/"
+
+    # The first six were already tracked. The rest appear in the firmware history and
+    # were not, so they were being missed entirely. StroboRack and Body Beat Sync stay
+    # even though the history does not list them: they are real products, and dropping
+    # them would orphan their rows.
     KNOWN_PRODUCTS = [
-        ("StroboStomp Mini", "guitar_pedal", "https://www.petersontuners.com/products/strobostompmini/"),
-        ("StroboStomp HD", "guitar_pedal", "https://www.petersontuners.com/products/strobostomphd/"),
-        ("StroboPlus HD", "guitar_pedal", "https://www.petersontuners.com/products/stroboplushd/"),
-        ("StroboClip HD", "guitar_pedal", "https://www.petersontuners.com/products/strobocliphd/"),
-        ("StroboRack", "guitar_pedal", "https://www.petersontuners.com/products/stroborack/"),
-        ("Body Beat Sync", "guitar_pedal", "https://www.petersontuners.com/products/bodybeatsync/"),
+        ("StroboStomp Mini", "guitar_pedal", SUPPORT_URL),
+        ("StroboStomp HD", "guitar_pedal", SUPPORT_URL),
+        ("StroboPlus HD", "guitar_pedal", SUPPORT_URL),
+        ("StroboClip HD", "guitar_pedal", SUPPORT_URL),
+        ("StroboRack", "guitar_pedal", SUPPORT_URL),
+        ("Body Beat Sync", "guitar_pedal", SUPPORT_URL),
+        ("StroboStomp LE", "guitar_pedal", SUPPORT_URL),
+        ("StroboClip HDC", "guitar_pedal", SUPPORT_URL),
+        ("StroboPLUS HDC", "guitar_pedal", SUPPORT_URL),
+        ("StroboVUE", "other", SUPPORT_URL),
+        ("Stomp Classic", "guitar_pedal", SUPPORT_URL),
     ]
 
-    SUPPORT_URL = "https://www.petersontuners.com/support/downloads/"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The whole range comes from one page, so it is fetched once per run.
+        self._history: Optional[Dict[str, List[ScrapedFirmware]]] = None
 
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Peterson products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url,
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category=category,
+                    firmware_page_url=url,
+                    product_url=url,
+                )
+                for name, category, url in self.KNOWN_PRODUCTS
+            ],
+        )
+
+    def _parse_history(self, html: str) -> Dict[str, List[ScrapedFirmware]]:
+        """Read every firmware entry, keyed by lowercased product name."""
+        soup = self.parse_html(html)
+        history: Dict[str, List[ScrapedFirmware]] = {}
+
+        for entry in soup.select("div.firmwareEntry"):
+            raw = entry.get("data-update")
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                continue
+
+            product = (data.get("product") or "").strip()
+            version = (data.get("versionString") or "").strip()
+            if not product or not version:
+                continue
+
+            release_date = None
+            created = data.get("dateCreated")
+            if created:
+                try:
+                    release_date = datetime.strptime(created, "%B, %d %Y %H:%M:%S")
+                except ValueError:
+                    release_date = None
+
+            # Entries carry unreleased notes alongside the published ones, flagged
+            # public 0. Those are Peterson's internal record, not a changelog.
+            notes = [
+                f.get("feature", "").strip()
+                for f in data.get("features") or []
+                if f.get("public") and f.get("feature")
+            ]
+
+            history.setdefault(product.lower(), []).append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    changelog=" ".join(notes)[:500] or None,
+                )
             )
-            for name, category, url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+
+        return history
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from Peterson product/support pages."""
-        # Try the product page first
-        html = await self.fetch_page(firmware_page_url)
+        if self._history is None:
+            html = await self.fetch_page(self.SUPPORT_URL)
+            if not html:
+                return ScraperResult(
+                    success=False, error=f"Failed to fetch {self.SUPPORT_URL}"
+                )
+            self._history = self._parse_history(html)
 
-        # Also try the main downloads page
-        downloads_html = await self.fetch_page(self.SUPPORT_URL)
+        versions = self._history.get(device_name.lower())
+        if not versions:
+            # Peterson sells tuners that take no firmware at all, and the history
+            # simply does not list them. The page loaded, so this is an absence.
+            return ScraperResult(success=True, firmware_versions=[])
 
-        if not html and not downloads_html:
-            return ScraperResult(
-                success=False, error=f"Failed to fetch firmware info"
-            )
-
-        firmware_versions = []
-
-        for page_html in [html, downloads_html]:
-            if not page_html:
-                continue
-
-            soup = self.parse_html(page_html)
-            all_text = soup.get_text()
-
-            # Peterson versions look like "v1.0.0" or "Version 1.0" or "Firmware 1.0.0"
-            version_pattern = r"(?:[Vv](?:ersion)?|[Ff]irmware)\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
-
-            # Look for download sections
-            sections = soup.find_all(
-                ["div", "section", "article", "li", "td", "tr"],
-                class_=re.compile(r"download|firmware|update|software|support", re.I)
-            )
-
-            # Also look for links mentioning the device name
-            device_name_pattern = device_name.lower().replace(" ", "").replace("-", "")
-            relevant_sections = soup.find_all(
-                string=re.compile(re.escape(device_name), re.I)
-            )
-
-            for section in sections:
-                text = section.get_text()
-
-                # Check if this section is relevant to our device
-                if device_name.lower() not in text.lower() and device_name_pattern not in text.lower().replace(" ", "").replace("-", ""):
-                    continue
-
-                version_match = re.search(version_pattern, text)
-
-                if version_match:
-                    version = version_match.group(1)
-
-                    # Find download link
-                    download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|bin|hex)", re.I))
-                    download_url = download_link["href"] if download_link else None
-                    if download_url and not download_url.startswith("http"):
-                        download_url = f"https://www.petersontuners.com{download_url}"
-
-                    # Look for date
-                    date_pattern = r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\w+\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})"
-                    date_match = re.search(date_pattern, text)
-                    release_date = None
-                    if date_match:
-                        date_str = date_match.group(1)
-                        for fmt in ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%B %d %Y"]:
-                            try:
-                                release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                                break
-                            except ValueError:
-                                continue
-
-                    firmware_versions.append(
-                        ScrapedFirmware(
-                            version=version,
-                            release_date=release_date,
-                            download_url=download_url,
-                        )
-                    )
-
-            # Check elements that mention the device
-            for elem in relevant_sections:
-                if elem and elem.parent:
-                    parent = elem.parent
-                    # Go up a few levels to find containing section
-                    for _ in range(3):
-                        if parent.parent:
-                            parent = parent.parent
-
-                    text = parent.get_text()
-                    version_match = re.search(version_pattern, text)
-                    if version_match:
-                        version = version_match.group(1)
-                        if not any(fw.version == version for fw in firmware_versions):
-                            firmware_versions.append(ScrapedFirmware(version=version))
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        return ScraperResult(
+            success=True,
+            firmware_versions=sorted(
+                versions, key=lambda fw: self._version_key(fw.version), reverse=True
+            ),
+        )
