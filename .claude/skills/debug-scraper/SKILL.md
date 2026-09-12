@@ -538,6 +538,32 @@ vendor. Yamaha's "Last updated: July 10, 2024" is byte-identical on the THR Remo
 page and all three reface updater pages, because it is the end of the licence
 agreement. A date that does not move between products is not about any product.
 
+### A CMS timestamp is not a release date
+
+The same trap wearing credentials. Eventide's site is WordPress and exposes a
+`download` post type through the REST API, where every installer is a post with a
+`date` field. A real API, a real ISO timestamp, named exactly like the thing being
+looked for.
+
+Count the distinct values before using it:
+
+```
+2025-12-11   80 installers
+2021-08-16   31 installers
+2024-03-06    4 installers
+...          12 distinct days across 132 installers
+```
+
+Two Blackhole installers thirty seconds apart, and the guid still pointing at
+`web-demo.aws.eventideaudio.com`. These are bulk imports from site migrations.
+Believing them stamps eighty products with one invented release date, and every one
+would look plausible in isolation.
+
+The clustering test is the whole check and costs one request: **group the candidate
+dates and count how many fall on the same day.** Genuine release dates spread out;
+migration artefacts stack up. It is the same question as "does this date move between
+products", asked of an API instead of a page.
+
 ### "This vendor publishes no dates" is a claim, not a finding
 
 It ages exactly as badly as a version number, and it is usually recorded as settled

@@ -27,6 +27,28 @@ class EventideScraper(BaseScraper):
     agree. So pedals, rack and broadcast hardware are listed as devices and report no
     version, which renders as "Firmware Unknown".
 
+    **No release dates exist, and these are the places checked.** Recorded because the
+    absence looks like an oversight and invites the search to be repeated:
+
+      - Product pages. Release notes are headings with no dates beside them -- zero
+        date-shaped strings anywhere in the rendered text of any product page.
+      - Stored changelogs. Of 729 Eventide versions held with changelog text and no
+        date, one contained a date-shaped string.
+      - Installer files. The download links are HTML gates rather than files, so there
+        is no Last-Modified to read.
+      - Press releases. Thirty of them, none naming a version.
+      - The WordPress REST API, which is the one worth warning about. The site exposes
+        a `download` post type, and each installer is a post with a `date`. It looks
+        exactly like a release date and is not: of 132 installer posts, 80 share
+        2025-12-11 and 31 share 2021-08-16, twelve distinct days in total, with the
+        two Blackhole installers thirty seconds apart. Those are bulk imports -- the
+        guid still points at `web-demo.aws.eventideaudio.com` -- and using them would
+        stamp eighty products with one invented release date.
+
+    So `created_at`, the date a scrape first saw a version, is the only date Eventide
+    versions carry. The dashboard shows it in its own "Discovered" column, which is
+    what it is.
+
     **Only the pages that carry a version are fetched.** The index is server-side
     filtered -- the unfiltered page contains no download cards at all -- so there is
     no single listing to read, and a product page costs about 350KB. Eventide sends
