@@ -353,8 +353,8 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 240 tests
-pytest --cov=src                         # 78% overall, 83% outside the scrapers
+pytest                                   # 246 tests
+pytest --cov=src                         # 79% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
 coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs

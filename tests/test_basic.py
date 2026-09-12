@@ -5296,3 +5296,156 @@ async def test_scrape_routes_not_checked_away_from_unexplained():
     assert summary["devices_without_firmware"] == ["Checked"]
     assert summary["devices_unexplained"] == ["Checked"]
     assert "Skipped" not in summary["devices_unexplained"]
+
+
+def _korg_index(*products) -> str:
+    links = "\n".join(
+        f'<a href="/us/support/download/product/0/{i}/">{name}</a>'
+        for i, name in enumerate(products, start=100)
+    )
+    return f"""
+    <h3>Synthesizers / Keyboards</h3>
+      <h4>on sale</h4>
+      {links}
+    """
+
+
+def _korg_scraper_with(pages, full_sweep=False):
+    """A Korg scraper serving fixture pages, with batching switched off.
+
+    BATCHES is set to 1 so a fixture of two products is not split across days --
+    these tests are about what fetch_device_list keeps, not which fifth it picks.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper = KorgScraper(full_sweep=full_sweep)
+    scraper.BATCHES = 1
+    fetched = []
+
+    async def fake_fetch(url, **kwargs):
+        fetched.append(url)
+        return pages.get(url)
+
+    scraper.fetch_page = fake_fetch
+    return scraper, fetched
+
+
+@pytest.mark.asyncio
+async def test_korg_lists_only_products_that_publish_firmware():
+    """The Focusrite lesson as code: a row that can never report a version is worse
+    than no row. About half of Korg's current products carry an updater, so listing
+    every candidate would add ~87 permanent blanks.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    pages = {
+        KorgScraper.INDEX_URL: _korg_index("Has Firmware", "No Firmware"),
+        "https://www.korg.com/us/support/download/product/0/100/": _korg_product_page(),
+        "https://www.korg.com/us/support/download/product/0/101/":
+            '<div class="com_contents"><h3>Manuals</h3>'
+            '<div class="td dlFileTitle"><h3>No Firmware/Owner\'s Manual</h3><h3></h3>'
+            '<small>2024.01.01 / PDF : 1MB</small></div></div>',
+    }
+    scraper, _fetched = _korg_scraper_with(pages)
+
+    result = await scraper.fetch_device_list()
+
+    assert result.success is True
+    assert [d.name for d in result.devices] == ["Has Firmware"]
+
+
+@pytest.mark.asyncio
+async def test_korg_device_list_is_fetched_once_per_run():
+    """fetch_firmware_versions reads what the device pass already collected.
+
+    Without the cache the firmware pass would refetch every product page, doubling
+    a cost this scraper is already batching to control.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    pages = {
+        KorgScraper.INDEX_URL: _korg_index("Has Firmware"),
+        "https://www.korg.com/us/support/download/product/0/100/": _korg_product_page(),
+    }
+    scraper, fetched = _korg_scraper_with(pages)
+
+    await scraper.fetch_device_list()
+    assert len(fetched) == 2  # the index, then the one product
+
+    await scraper.fetch_device_list()
+    result = await scraper.fetch_firmware_versions("Has Firmware", "")
+
+    assert len(fetched) == 2, "refetched pages it already had"
+    assert [fw.version for fw in result.firmware_versions] == ["2.10"]
+
+
+@pytest.mark.asyncio
+async def test_korg_fails_loudly_when_the_index_is_unreachable():
+    """An empty device list would read as a vendor that stopped publishing."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper, _ = _korg_scraper_with({KorgScraper.INDEX_URL: None})
+    result = await scraper.fetch_device_list()
+
+    assert result.success is False
+    assert KorgScraper.INDEX_URL in result.error
+
+
+@pytest.mark.asyncio
+async def test_korg_fails_when_the_index_shape_changes():
+    """A page that loads but yields no candidates means the headings moved.
+
+    Reporting success with nothing would quietly empty the catalogue's view of Korg
+    on the day the markup changes.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper, _ = _korg_scraper_with(
+        {KorgScraper.INDEX_URL: "<h3>Synthesizers / Keyboards</h3><p>nothing here</p>"}
+    )
+    result = await scraper.fetch_device_list()
+
+    assert result.success is False
+    assert "no current products" in result.error
+
+
+@pytest.mark.asyncio
+async def test_korg_skips_a_product_page_that_fails_to_load():
+    """One dead page must not take the whole run with it."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    pages = {
+        KorgScraper.INDEX_URL: _korg_index("Good", "Dead"),
+        "https://www.korg.com/us/support/download/product/0/100/": _korg_product_page(),
+        "https://www.korg.com/us/support/download/product/0/101/": None,
+    }
+    scraper, _ = _korg_scraper_with(pages)
+
+    result = await scraper.fetch_device_list()
+
+    assert result.success is True
+    assert [d.name for d in result.devices] == ["Good"]
+
+
+@pytest.mark.asyncio
+async def test_korg_firmware_lookup_loads_the_catalogue_if_asked_first():
+    """A caller that skips fetch_device_list still gets an answer, or the error.
+
+    The service always calls the device list first, but scripts and the debugging
+    commands in the skill call fetch_firmware_versions directly. Swallowing an index
+    failure here would turn a broken vendor into a silent empty result.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    pages = {
+        KorgScraper.INDEX_URL: _korg_index("Has Firmware"),
+        "https://www.korg.com/us/support/download/product/0/100/": _korg_product_page(),
+    }
+    scraper, _ = _korg_scraper_with(pages)
+    result = await scraper.fetch_firmware_versions("Has Firmware", "")
+    assert [fw.version for fw in result.firmware_versions] == ["2.10"]
+
+    broken, _ = _korg_scraper_with({KorgScraper.INDEX_URL: None})
+    failed = await broken.fetch_firmware_versions("Anything", "")
+    assert failed.success is False
+    assert KorgScraper.INDEX_URL in failed.error
