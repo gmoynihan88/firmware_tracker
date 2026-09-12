@@ -27,14 +27,29 @@
         {% for scraper in available_scrapers %}
         <div class="scraper-card">
             <div class="scraper-info">
-                <h3>{{ scraper | title }}</h3>
+                <h3>{{ scraper.name }}</h3>
+                <p class="scraper-meta">
+                    {{ scraper.device_count }} device{{ '' if scraper.device_count == 1 else 's' }}
+                    {%- if scraper.last_run %} &middot; scraped {{ scraper.last_run.strftime('%-d %b') }}
+                    {%- else %} &middot; never scraped{% endif %}
+                </p>
+                {% if scraper.website %}
+                <a href="{{ scraper.website }}" target="_blank" rel="noopener" class="external-link">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                    Website
+                </a>
+                {% endif %}
             </div>
             <div class="scraper-actions">
                 <button
                     class="btn btn-primary btn-small"
-                    hx-post="/catalog/scrape/{{ scraper }}"
-                    hx-target="#scrape-result-{{ scraper }}"
-                    hx-indicator="#loading-{{ scraper }}"
+                    hx-post="/catalog/scrape/{{ scraper.slug }}"
+                    hx-target="#scrape-result-{{ scraper.slug }}"
+                    hx-indicator="#loading-{{ scraper.slug }}"
                     hx-swap="innerHTML"
                 >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -44,52 +59,16 @@
                     </svg>
                     Import
                 </button>
-                <span id="loading-{{ scraper }}" class="htmx-indicator">
+                <span id="loading-{{ scraper.slug }}" class="htmx-indicator">
                     <span class="spinner"></span>
                     Importing...
                 </span>
             </div>
-            <div id="scrape-result-{{ scraper }}" class="scrape-result"></div>
+            <div id="scrape-result-{{ scraper.slug }}" class="scrape-result"></div>
         </div>
         {% endfor %}
     </div>
 </section>
-
-{% if manufacturers %}
-<section class="catalog-section">
-    <div class="section-header">
-        <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-            Manufacturers
-        </h2>
-    </div>
-    <div class="manufacturer-grid">
-        {% for manufacturer in manufacturers %}
-        <div class="manufacturer-card">
-            <h3>{{ manufacturer.name }}</h3>
-            {% if manufacturer.last_scraped_at %}
-            <p class="last-scraped">Last scraped: {{ manufacturer.last_scraped_at.strftime('%b %d, %Y %H:%M') }}</p>
-            {% else %}
-            <p class="last-scraped">Never scraped</p>
-            {% endif %}
-            {% if manufacturer.website_url %}
-            <a href="{{ manufacturer.website_url }}" target="_blank" rel="noopener" class="external-link">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                </svg>
-                Website
-            </a>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
 
 {% if device_models %}
 <section class="catalog-section">
@@ -103,25 +82,78 @@
         </h2>
         <span class="count-badge">{{ device_models | length }}</span>
     </div>
-    <div class="catalog-grid">
-        {% for model in device_models %}
-        <article class="catalog-card">
-            <div class="catalog-card-header">
-                <h3>{{ model.name }}</h3>
-                <span class="category-tag">{{ model.category.value | replace('_', ' ') | title }}</span>
-            </div>
-            <p class="manufacturer-name">{{ model.manufacturer.name }}</p>
-            <div class="catalog-card-actions">
-                <a href="/devices/add?model_id={{ model.id }}" class="btn btn-secondary btn-small">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                    Track This
-                </a>
-            </div>
-        </article>
-        {% endfor %}
+    <div class="filter-bar">
+        <span class="filter-label">Search:</span>
+        <input type="search" id="catalog-search" class="catalog-search"
+               placeholder="Product or vendor" oninput="filterCatalog()"
+               autocomplete="off" aria-label="Filter devices by name">
+        <label class="filter-checkbox">
+            <input type="checkbox" id="hide-tracked" onchange="filterCatalog()">
+            <span class="filter-chip"><span class="chip-box"></span>Hide tracked</span>
+        </label>
+        <span class="filter-label" id="catalog-count"></span>
+    </div>
+
+    <div class="filter-bar">
+        <span class="filter-label">Vendor:</span>
+        <div class="filter-actions">
+            <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', true)">All</button>
+            <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', false)">None</button>
+        </div>
+        <div class="filter-checkboxes" id="catalog-vendor-filters">
+            {% for manufacturer in manufacturers %}
+            <label class="filter-checkbox">
+                <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterCatalog()">
+                <span class="filter-chip"><span class="chip-box"></span>{{ manufacturer.name }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="device-table-wrap">
+        <table class="device-table">
+            <thead>
+                <tr>
+                    <th class="sortable" data-column="0" scope="col">Vendor</th>
+                    <th class="sortable" data-column="1" scope="col">Product</th>
+                    <th class="sortable" data-column="2" scope="col">Type</th>
+                    <th class="sortable numeric" data-column="3" scope="col">Latest</th>
+                    <th class="sortable" data-column="4" scope="col">Released</th>
+                    <th scope="col"><span class="visually-hidden">Track</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for model in device_models %}
+                <tr class="catalog-row"
+                    data-brand="{{ model.manufacturer.slug }}"
+                    data-tracked="{{ 'yes' if model.id in tracked_model_ids else 'no' }}"
+                    data-search="{{ (model.name ~ ' ' ~ model.manufacturer.name) | lower }}">
+                    <td>{{ model.manufacturer.name }}</td>
+                    <td class="device-name">{{ model.name }}</td>
+                    <td class="muted">{{ model.category.value | replace('_', ' ') | title }}</td>
+                    {% set latest = latest_versions.get(model.id) %}
+                    <td class="numeric">{{ latest.version if latest else '—' }}</td>
+                    {# The vendor's own date, never the date we first saw the version. #}
+                    <td class="cell-date">
+                        {%- if latest and latest.release_date -%}
+                        {{ latest.release_date.strftime('%Y-%m-%d') }}
+                        {%- elif latest -%}
+                        <span title="{{ model.manufacturer.name }} publishes no release date for this version">—</span>
+                        {%- else -%}
+                        —
+                        {%- endif -%}
+                    </td>
+                    <td class="row-action">
+                        {% if model.id in tracked_model_ids %}
+                        <span class="tracked-flag">&#10003; tracked</span>
+                        {% else %}
+                        <a href="/devices/add?model_id={{ model.id }}" class="btn btn-secondary btn-small">Track</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </section>
 {% else %}
@@ -136,4 +168,92 @@
     <p>Import devices from a manufacturer above to get started.</p>
 </div>
 {% endif %}
+
+<script>
+function toggleAllCatalog(containerId, checked) {
+    document.querySelectorAll('#' + containerId + ' input').forEach(cb => cb.checked = checked);
+    filterCatalog();
+}
+
+function filterCatalog() {
+    const term = (document.getElementById('catalog-search')?.value || '').trim().toLowerCase();
+    const hideTracked = document.getElementById('hide-tracked')?.checked;
+
+    const vendorBoxes = document.querySelectorAll('#catalog-vendor-filters input');
+    const activeVendors = Array.from(vendorBoxes).filter(cb => cb.checked).map(cb => cb.value);
+    const allVendors = Array.from(vendorBoxes).map(cb => cb.value);
+
+    // Fail open, the same rule the dashboard uses: a row whose vendor no checkbox
+    // offers stays visible. If the template and the route ever disagree, hiding
+    // everything blanks the page the moment a filter is touched, and showing too
+    // much is the better failure.
+    const vendorMatches = value =>
+        allVendors.includes(value) ? activeVendors.includes(value) : true;
+
+    let shown = 0;
+    const rows = document.querySelectorAll('.catalog-row');
+    rows.forEach(row => {
+        const visible =
+            vendorMatches(row.dataset.brand) &&
+            (!term || row.dataset.search.includes(term)) &&
+            !(hideTracked && row.dataset.tracked === 'yes');
+        row.hidden = !visible;
+        if (visible) shown++;
+    });
+
+    const count = document.getElementById('catalog-count');
+    if (count) {
+        count.textContent = shown === rows.length
+            ? rows.length + ' devices'
+            : shown + ' of ' + rows.length + ' devices';
+    }
+}
+
+// --- sorting ---------------------------------------------------------------
+// Versions are compared segment by segment as numbers, so 1.11 ranks above 1.9.
+// Rows with no version sort last in both directions, which has to sit outside the
+// direction flip or every unreleased device floats to the top when descending.
+const CATALOG_VERSION = /^\d+(\.\d+)*$/;
+const CATALOG_EMPTY = '\u2014';
+
+function catalogCompare(a, b) {
+    if (CATALOG_VERSION.test(a) && CATALOG_VERSION.test(b)) {
+        const left = a.split('.').map(Number), right = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(left.length, right.length); i++) {
+            const diff = (left[i] || 0) - (right[i] || 0);
+            if (diff !== 0) return diff;
+        }
+        return 0;
+    }
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+function sortCatalog(columnIndex, header) {
+    const table = document.querySelector('.device-table');
+    const body = table.querySelector('tbody');
+    const ascending = header.dataset.direction !== 'asc';
+
+    table.querySelectorAll('th.sortable').forEach(th => delete th.dataset.direction);
+    header.dataset.direction = ascending ? 'asc' : 'desc';
+
+    const rows = Array.from(body.querySelectorAll('tr'));
+    rows.sort((rowA, rowB) => {
+        const a = rowA.children[columnIndex].textContent.trim();
+        const b = rowB.children[columnIndex].textContent.trim();
+        if (a === CATALOG_EMPTY && b === CATALOG_EMPTY) return 0;
+        if (a === CATALOG_EMPTY) return 1;
+        if (b === CATALOG_EMPTY) return -1;
+        return ascending ? catalogCompare(a, b) : -catalogCompare(a, b);
+    });
+
+    // Re-appending preserves each row's hidden state, so sorting does not undo a filter.
+    rows.forEach(row => body.appendChild(row));
+}
+
+document.querySelectorAll('.device-table th.sortable').forEach(header => {
+    header.addEventListener('click', () => sortCatalog(Number(header.dataset.column), header));
+});
+
+filterCatalog();
+</script>
 {% endblock %}

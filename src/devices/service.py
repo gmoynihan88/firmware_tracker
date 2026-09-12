@@ -1,6 +1,6 @@
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, Sequence
 
@@ -61,10 +61,29 @@ async def update_manufacturer(
     return manufacturer
 
 
+# Deletes go through the ORM rather than a bulk `delete()` statement.
+#
+# Every relationship in models.py already declares `cascade="all, delete-orphan"`,
+# but a Core `delete(X).where(...)` never consults the ORM, so none of it ran.
+# Deleting one device model left its firmware versions behind pointing at an id
+# that no longer existed -- rows nothing can reach and nothing counts, which is
+# how two of them sat in the development database until a catalog column made
+# the arithmetic visible. SQLite does not enforce foreign keys by default either,
+# so there was nothing underneath to catch it.
+#
+# `session.delete()` on a loaded object walks the declared cascades:
+#   manufacturer -> device models -> firmware versions -> notifications
+#                                 -> my devices        -> notifications
+# It costs a SELECT per delete, on an operation that happens by hand.
+
+
 async def delete_manufacturer(db: AsyncSession, manufacturer_id: int) -> bool:
-    result = await db.execute(delete(Manufacturer).where(Manufacturer.id == manufacturer_id))
+    manufacturer = await db.get(Manufacturer, manufacturer_id)
+    if manufacturer is None:
+        return False
+    await db.delete(manufacturer)
     await db.commit()
-    return result.rowcount > 0
+    return True
 
 
 # DeviceModel CRUD
@@ -111,9 +130,12 @@ async def update_device_model(
 
 
 async def delete_device_model(db: AsyncSession, device_model_id: int) -> bool:
-    result = await db.execute(delete(DeviceModel).where(DeviceModel.id == device_model_id))
+    device_model = await db.get(DeviceModel, device_model_id)
+    if device_model is None:
+        return False
+    await db.delete(device_model)
     await db.commit()
-    return result.rowcount > 0
+    return True
 
 
 # FirmwareVersion CRUD
@@ -242,9 +264,12 @@ async def update_my_device(
 
 
 async def delete_my_device(db: AsyncSession, my_device_id: int) -> bool:
-    result = await db.execute(delete(MyDevice).where(MyDevice.id == my_device_id))
+    my_device = await db.get(MyDevice, my_device_id)
+    if my_device is None:
+        return False
+    await db.delete(my_device)
     await db.commit()
-    return result.rowcount > 0
+    return True
 
 
 # Notification CRUD

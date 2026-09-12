@@ -1796,12 +1796,25 @@ code.version {
     animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Without flex:1 the content block shrinks to its own text, so every card's title
+   starts at a different x and the timestamps never line up. min-width:0 lets a long
+   message wrap instead of forcing the row wider. */
+.notification-content {
+    flex: 1;
+    min-width: 0;
+}
+
 .notification-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: baseline;
     gap: var(--space-md);
     margin-bottom: var(--space-xs);
+}
+
+.notification-date {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .notification-header h3 {
@@ -2215,6 +2228,16 @@ select:disabled {
 
 .cell-category { color: var(--text-tertiary); }
 
+/* Used by both tables' date columns, which had no rule of their own. Tabular
+   figures so the day and month digits line up down the column rather than
+   drifting; a third of the catalog's dates are an em-dash, and ragged numerals
+   beside them made the column look like noise. */
+.cell-date {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
 .cell-link {
     color: var(--text-tertiary);
     text-decoration: none;
@@ -2230,4 +2253,56 @@ select:disabled {
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CATALOG
+   The catalogue used to render all 397 devices as two-per-row cards:
+   38,177 pixels, forty-two screens, and no way to search it. It reuses
+   the dashboard's table now, so the two pages behave the same way.
+   ═══════════════════════════════════════════════════════════════ */
+
+.catalog-search {
+    flex: 1 1 16rem;
+    max-width: 22rem;
+    padding: 0.35rem 0.7rem;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: var(--surface-800, #14181f);
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.18));
+    border-radius: 8px;
+}
+
+.catalog-search:focus {
+    outline: 2px solid var(--accent, #f5a524);
+    outline-offset: 1px;
+}
+
+/* The vendor a device belongs to, and its category, are context rather than the
+   thing being scanned for -- the product name is. */
+.device-table .muted {
+    color: var(--text-secondary, #94a3b8);
+}
+
+.device-table .device-name {
+    font-weight: 600;
+}
+
+.device-table .row-action {
+    text-align: right;
+}
+
+.tracked-flag {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #94a3b8);
+    white-space: nowrap;
+}
+
+/* Device count and last scrape on each vendor card, so the card says something
+   about the vendor rather than only offering to run it again. */
+.scraper-meta {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #94a3b8);
 }

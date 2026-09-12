@@ -16,6 +16,9 @@ from src.main import app
 
 # Use an in-memory SQLite database for tests so the production DB is never touched
 test_engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+# The app enforces foreign keys; an engine that does not is not testing the app.
+from src.database import enforce_foreign_keys as _enforce_fks
+_enforce_fks(test_engine.sync_engine)
 test_session_maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -4076,3 +4079,314 @@ def test_backup_script_round_trips_through_a_sql_dump(tmp_path):
 
     # Back to the snapshot exactly: the row added afterwards is gone, not merged.
     assert rows == [(1, "one"), (2, "two")]
+
+
+# --- catalog page ----------------------------------------------------------
+# The catalog carries 397 devices and 23 vendors, and every one of these is a
+# thing the page got wrong before the route started computing it.
+
+
+@pytest.mark.asyncio
+async def test_vendor_cards_use_the_vendor_s_own_spelling(client):
+    """The template used to title-case the registry slug.
+
+    That renders "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments" -- four
+    of twenty-three vendors misspelled on the page a user browses. Each scraper
+    already carries the real name, so the route passes it.
+    """
+    html = (await client.get("/catalog")).text
+
+    assert ">IK Multimedia<" in html
+    assert ">iZotope<" in html
+    assert ">Line 6<" in html
+    assert ">Native Instruments<" in html
+    assert "Ikmultimedia" not in html
+    assert "Nativeinstruments" not in html
+
+
+@pytest.mark.asyncio
+async def test_vendor_card_falls_back_to_last_scraped_at(client):
+    """scrape_runs only goes back to the day that table was added.
+
+    Twenty of twenty-three vendors have no row in it, and reading the card as
+    "never scraped" for those is a worse claim than the gap it describes --
+    manufacturers.last_scraped_at has been maintained since the beginning.
+    """
+    from datetime import datetime
+    from sqlalchemy import update
+
+    from src.devices.models import Manufacturer
+    from src.devices.schemas import ManufacturerCreate
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        await ds.create_manufacturer(db, ManufacturerCreate(name="Boss", slug="boss"))
+        await db.execute(
+            update(Manufacturer)
+            .where(Manufacturer.slug == "boss")
+            .values(last_scraped_at=datetime(2026, 3, 4))
+        )
+        await db.commit()
+
+    html = (await client.get("/catalog")).text
+
+    assert "scraped 4 Mar" in html
+
+
+@pytest.mark.asyncio
+async def test_catalog_marks_devices_the_user_already_tracks(client):
+    """Offering to Track something already tracked adds a second copy of it."""
+    import re
+
+    await _seed_one_device(name="Filter Box", slug="filterco")
+    html = (await client.get("/catalog")).text
+
+    row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Filter Box One.*?</tr>", html, re.S)
+    assert row, "the seeded device is missing from the table"
+    assert "tracked" in row.group(0)
+    assert ">Track<" not in row.group(0)
+
+
+@pytest.mark.asyncio
+async def test_catalog_shows_the_latest_version_per_device(client):
+    """One query for the whole table rather than one per row."""
+    import re
+
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+    )
+    from src.devices.models import DeviceCategory
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Verso", slug="verso")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Verso One", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.0.0", is_latest=False,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.4.1", is_latest=True,
+        ))
+
+    html = (await client.get("/catalog")).text
+    row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Verso One.*?</tr>", html, re.S)
+
+    assert row
+    assert "2.4.1" in row.group(0)
+    assert "1.0.0" not in row.group(0)
+
+
+@pytest.mark.asyncio
+async def test_notification_timestamps_share_one_column(client):
+    """The content block needs flex:1 or it shrinks to its own text.
+
+    Without it every card's title starts at a different x and the timestamps form
+    a ragged edge down the page, because space-between has no free space to
+    distribute inside a shrink-to-fit box.
+    """
+    css = (await client.get("/static/css/style.css")).text
+    block = css.split(".notification-content {", 1)[1].split("}", 1)[0]
+
+    assert "flex: 1" in block
+    assert "min-width: 0" in block
+
+
+@pytest.mark.asyncio
+async def test_catalog_shows_the_vendor_s_release_date(client):
+    """The Released column carries the vendor's date and nothing else.
+
+    Two thirds of the current versions have one. For the rest the vendor publishes
+    none, and `created_at` -- when this tracker first saw the version -- is a
+    different fact. Borrowing it under a "Released" heading would turn "we started
+    looking in September" into "the vendor shipped this in September", which is the
+    invention the scrapers are written to avoid. The dashboard shows first-seen in
+    its own Discovered column.
+    """
+    import re
+    from datetime import datetime
+
+    from sqlalchemy import update
+
+    from src.devices.models import DeviceCategory, FirmwareVersion
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+    )
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Datever", slug="datever")
+        )
+        dated = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Dated Box", category=DeviceCategory.OTHER,
+        ))
+        undated = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Undated Box", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=dated.id, version="3.1.0",
+            release_date=datetime(2024, 11, 19), is_latest=True,
+        ))
+        fw = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=undated.id, version="4.0.0", is_latest=True,
+        ))
+        # Give it a first-seen date that would be visible if the column fell back.
+        await db.execute(
+            update(FirmwareVersion)
+            .where(FirmwareVersion.id == fw.id)
+            .values(created_at=datetime(2026, 1, 2))
+        )
+        await db.commit()
+
+    html = (await client.get("/catalog")).text
+
+    headers = re.findall(r"<th[^>]*>(?:<span[^>]*>)?([A-Za-z]+)", html)
+    assert headers[:5] == ["Vendor", "Product", "Type", "Latest", "Released"]
+
+    dated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Dated Box.*?</tr>", html, re.S)
+    assert dated_row and "2024-11-19" in dated_row.group(0)
+
+    undated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Undated Box.*?</tr>", html, re.S)
+    assert undated_row
+    assert "2026-01-02" not in undated_row.group(0), "fell back to the first-seen date"
+    assert "&#8212;" in undated_row.group(0) or "—" in undated_row.group(0)
+
+
+# --- deletes leave nothing behind ------------------------------------------
+# Every relationship in models.py declares cascade="all, delete-orphan", and for
+# a long time none of it ran: the service deleted with a Core `delete().where()`
+# statement, which never consults the ORM. SQLite does not enforce foreign keys
+# by default either, so the stranded rows were written without complaint and
+# stayed reachable by nothing. Two of them sat in the development database until
+# a new catalog column counted 201 dated versions and rendered 200.
+
+
+async def _seed_a_family():
+    """A manufacturer with one model, two firmware versions, a device and a notification."""
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+        MyDeviceCreate, NotificationCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Cascade Co", slug="cascadeco")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Cascade One", category=DeviceCategory.OTHER,
+        ))
+        old = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.0.0", is_latest=False,
+        ))
+        new = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.0.0", is_latest=True,
+        ))
+        mine = await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+        await ds.create_notification(db, NotificationCreate(
+            my_device_id=mine.id, firmware_version_id=new.id, title="New firmware",
+        ))
+        return mfr.id, model.id, mine.id, (old.id, new.id)
+
+
+async def _row_counts():
+    from sqlalchemy import func, select as sa_select
+
+    from src.devices.models import (
+        DeviceModel, FirmwareVersion, Manufacturer, MyDevice, Notification,
+    )
+
+    async with test_session_maker() as db:
+        counts = {}
+        for label, model in (
+            ("manufacturers", Manufacturer), ("models", DeviceModel),
+            ("firmware", FirmwareVersion), ("my_devices", MyDevice),
+            ("notifications", Notification),
+        ):
+            counts[label] = (
+                await db.execute(sa_select(func.count()).select_from(model))
+            ).scalar_one()
+        return counts
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_device_model_takes_its_firmware_with_it():
+    """The orphans this fixes: firmware rows pointing at an id that no longer exists."""
+    from src.devices import service as ds
+
+    _mfr_id, model_id, _mine_id, _fw = await _seed_a_family()
+    assert (await _row_counts())["firmware"] == 2
+
+    async with test_session_maker() as db:
+        assert await ds.delete_device_model(db, model_id) is True
+
+    counts = await _row_counts()
+    assert counts["models"] == 0
+    assert counts["firmware"] == 0, "firmware rows outlived their device model"
+    assert counts["my_devices"] == 0
+    assert counts["notifications"] == 0
+    assert counts["manufacturers"] == 1, "the manufacturer should survive"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_manufacturer_cascades_the_whole_way_down():
+    """manufacturer -> models -> firmware -> notifications, and -> my devices."""
+    from src.devices import service as ds
+
+    mfr_id, _model_id, _mine_id, _fw = await _seed_a_family()
+
+    async with test_session_maker() as db:
+        assert await ds.delete_manufacturer(db, mfr_id) is True
+
+    assert await _row_counts() == {
+        "manufacturers": 0, "models": 0, "firmware": 0,
+        "my_devices": 0, "notifications": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_tracked_device_takes_its_notifications():
+    """Notifications point at a my_device, and untracking is the common delete."""
+    from src.devices import service as ds
+
+    _mfr_id, _model_id, mine_id, _fw = await _seed_a_family()
+
+    async with test_session_maker() as db:
+        assert await ds.delete_my_device(db, mine_id) is True
+
+    counts = await _row_counts()
+    assert counts["my_devices"] == 0
+    assert counts["notifications"] == 0, "notifications outlived the device"
+    # The catalogue itself is untouched: untracking a device is not deleting it.
+    assert counts["models"] == 1
+    assert counts["firmware"] == 2
+
+
+@pytest.mark.asyncio
+async def test_deleting_something_that_is_not_there_reports_false():
+    """The bulk-delete version returned rowcount > 0; the ORM version has to say so itself."""
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        assert await ds.delete_manufacturer(db, 9999) is False
+        assert await ds.delete_device_model(db, 9999) is False
+        assert await ds.delete_my_device(db, 9999) is False
+
+
+@pytest.mark.asyncio
+async def test_sqlite_is_told_to_enforce_foreign_keys():
+    """Off by default, and off means a stranded row is written without complaint.
+
+    Asserted against a connection rather than the source, because the pragma is
+    per-connection: setting it once on the engine that ran a migration proves
+    nothing about the one serving requests.
+    """
+    from sqlalchemy import text as sa_text
+
+    async with test_engine.connect() as conn:
+        assert (await conn.execute(sa_text("PRAGMA foreign_keys"))).scalar_one() == 1
