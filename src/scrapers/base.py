@@ -2,9 +2,11 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 import asyncio
+import hashlib
 import json
+import re
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -59,6 +61,9 @@ class BaseScraper(ABC):
     def __init__(self):
         self.settings = get_settings()
         self._last_request_time: Optional[float] = None
+        # url -> fingerprint of what it returned. Read after a scrape to catch a URL
+        # shape that has stopped selecting anything; see identical_pages().
+        self._page_fingerprints: Dict[str, str] = {}
         self._session: Optional[aiohttp.ClientSession] = None
         self._playwright = None
         self._browser: Optional["Browser"] = None
@@ -96,6 +101,52 @@ class BaseScraper(ABC):
             )
         return self._session
 
+    def _fingerprint(self, url: str, body: Optional[str]) -> None:
+        """Remember what a URL returned, so identical answers can be spotted later.
+
+        Hashes the visible text with scripts and styles removed, not the raw HTML.
+        Elektron's pages are identical in every way that matters and differ by a
+        single injected value -- `window.__wc_fb_page_generated = 1789238504` -- which
+        changes per request and is the same length every time. Hashing the body makes
+        eleven copies of one page look like eleven different pages, which is precisely
+        the case this exists to catch.
+        """
+        if not body:
+            return
+        try:
+            soup = self.parse_html(body)
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
+            text = re.sub(r"\s+", " ", soup.get_text(" ")).strip()
+        except Exception:
+            # A fingerprint is diagnostic, so failing to take one must not affect
+            # the fetch that produced it.
+            return
+        self._page_fingerprints[url] = hashlib.sha256(
+            text.encode("utf-8", "replace")
+        ).hexdigest()
+
+    def identical_pages(self) -> List[List[str]]:
+        """Groups of different URLs that returned exactly the same thing.
+
+        Every dead-URL case in this project has this shape. Yamaha's eleven product
+        pages and a slug invented to test them all returned the same landing page.
+        Elektron's `?connection=<product>` URLs returned one byte-identical page for
+        every product, and the versions reported for eleven instruments came off a
+        news blurb on it. Boss's two Katana URLs matched a control. Line 6 served
+        three category pages at exactly 1,778 characters each.
+
+        Several products legitimately share one URL -- QSC's K.2 range, every Peterson
+        product, all of Steinberg -- and that is a single URL rather than several, so
+        it does not appear here. What appears is a URL shape that has stopped
+        selecting anything, which otherwise reads as "these products publish no
+        firmware".
+        """
+        by_fingerprint: Dict[str, List[str]] = {}
+        for url, fingerprint in self._page_fingerprints.items():
+            by_fingerprint.setdefault(fingerprint, []).append(url)
+        return [sorted(urls) for urls in by_fingerprint.values() if len(urls) > 1]
+
     async def _rate_limit(self):
         """Enforce rate limiting between requests."""
         if self._last_request_time is not None:
@@ -109,6 +160,9 @@ class BaseScraper(ABC):
         if self._serve_from_cache and self._cache:
             cached = self._cache.get("GET", url)
             if cached is not None:
+                # Fingerprinted here too, or a cached debugging run reports no
+                # duplicates and the check silently stops working while enabled.
+                self._fingerprint(url, cached)
                 return cached
 
         stored = self._cache.entry("GET", url) if self._cache else None
@@ -127,9 +181,11 @@ class BaseScraper(ABC):
                 if response.status == 304 and stored and stored.get("body"):
                     logger.debug("304 unchanged, reusing stored body for %s", url)
                     self._cache.touch("GET", url)
+                    self._fingerprint(url, stored["body"])
                     return stored["body"]
                 if response.status == 200:
                     body = await response.text()
+                    self._fingerprint(url, body)
                     if self._cache:
                         self._cache.set(
                             "GET",
@@ -240,6 +296,7 @@ class BaseScraper(ABC):
         if self._serve_from_cache and self._cache:
             cached = self._cache.get("GET-JS", url, variant)
             if cached is not None:
+                self._fingerprint(url, cached)
                 # Returning before _get_browser also skips launching Chromium, which
                 # is most of what makes a cached debug run fast.
                 return cached
@@ -269,6 +326,7 @@ class BaseScraper(ABC):
                 else:
                     await page.wait_for_timeout(1000)
                 html = await page.content()
+                self._fingerprint(url, html)
                 if self._cache and html:
                     self._cache.set("GET-JS", url, html, variant)
                 return html

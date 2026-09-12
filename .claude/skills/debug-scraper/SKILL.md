@@ -37,6 +37,25 @@ Three checks, no network:
 commit from before a known fix before believing a clean report -- run against the
 commit preceding QSC's removal, it prints exactly that one orphaned method.
 
+### The fourth check runs during a scrape
+
+A dead URL cannot be found without fetching, so that one lives in `BaseScraper`.
+Every page fetched is fingerprinted, and `scrape_manufacturer` warns when several
+*different* URLs returned the same thing:
+
+    Yamaha: 11 different URLs returned identical content, so the URL shape may no
+    longer select a product -- .../modx6_firm.html, .../modx7_firm.html, ...
+
+It reads the visible text with scripts stripped, not the raw body. Elektron's pages
+are identical in every way that matters and differ by one injected value,
+`window.__wc_fb_page_generated = 1789238504`, which changes per request and is the
+same length every time -- hashing the body makes eleven copies of one page look like
+eleven distinct ones, which is the exact case the check exists for. That was found by
+validating the check against the pre-fix URL shape and watching it report nothing.
+
+Products sharing a single URL -- QSC's K.2 range, all of Peterson, all of Steinberg --
+are one URL rather than several and do not appear.
+
 ## First: what does the scrape actually report?
 
 ```bash

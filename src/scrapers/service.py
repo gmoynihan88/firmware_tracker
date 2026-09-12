@@ -378,6 +378,17 @@ async def scrape_manufacturer(
             db, manufacturer_id, ManufacturerUpdate(last_scraped_at=datetime.utcnow())
         )
 
+        # A URL shape that has stopped selecting anything returns the same page for
+        # every product, and the scrape reads as "none of these publish firmware".
+        # This is the only check here that needs the fetches to have happened.
+        duplicate_pages = scraper.identical_pages()
+        for group in duplicate_pages:
+            logger.warning(
+                "%s: %d different URLs returned identical content, so the URL shape "
+                "may no longer select a product -- %s",
+                scraper.manufacturer_name, len(group), ", ".join(group[:4]),
+            )
+
         # One line per manufacturer, which is what makes a scheduled run reviewable
         # afterwards: the global totals say something went wrong, this says where.
         logger.info(
@@ -406,6 +417,7 @@ async def scrape_manufacturer(
             "devices_without_firmware": devices_without_firmware,
             "devices_failed": devices_failed,
             "devices_not_checked": devices_not_checked,
+            "identical_pages": duplicate_pages,
         }
 
     except Exception as e:
