@@ -16,6 +16,9 @@ from src.main import app
 
 # Use an in-memory SQLite database for tests so the production DB is never touched
 test_engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+# The app enforces foreign keys; an engine that does not is not testing the app.
+from src.database import enforce_foreign_keys as _enforce_fks
+_enforce_fks(test_engine.sync_engine)
 test_session_maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -4251,3 +4254,139 @@ async def test_catalog_shows_the_vendor_s_release_date(client):
     assert undated_row
     assert "2026-01-02" not in undated_row.group(0), "fell back to the first-seen date"
     assert "&#8212;" in undated_row.group(0) or "—" in undated_row.group(0)
+
+
+# --- deletes leave nothing behind ------------------------------------------
+# Every relationship in models.py declares cascade="all, delete-orphan", and for
+# a long time none of it ran: the service deleted with a Core `delete().where()`
+# statement, which never consults the ORM. SQLite does not enforce foreign keys
+# by default either, so the stranded rows were written without complaint and
+# stayed reachable by nothing. Two of them sat in the development database until
+# a new catalog column counted 201 dated versions and rendered 200.
+
+
+async def _seed_a_family():
+    """A manufacturer with one model, two firmware versions, a device and a notification."""
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+        MyDeviceCreate, NotificationCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Cascade Co", slug="cascadeco")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Cascade One", category=DeviceCategory.OTHER,
+        ))
+        old = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="1.0.0", is_latest=False,
+        ))
+        new = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="2.0.0", is_latest=True,
+        ))
+        mine = await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+        await ds.create_notification(db, NotificationCreate(
+            my_device_id=mine.id, firmware_version_id=new.id, title="New firmware",
+        ))
+        return mfr.id, model.id, mine.id, (old.id, new.id)
+
+
+async def _row_counts():
+    from sqlalchemy import func, select as sa_select
+
+    from src.devices.models import (
+        DeviceModel, FirmwareVersion, Manufacturer, MyDevice, Notification,
+    )
+
+    async with test_session_maker() as db:
+        counts = {}
+        for label, model in (
+            ("manufacturers", Manufacturer), ("models", DeviceModel),
+            ("firmware", FirmwareVersion), ("my_devices", MyDevice),
+            ("notifications", Notification),
+        ):
+            counts[label] = (
+                await db.execute(sa_select(func.count()).select_from(model))
+            ).scalar_one()
+        return counts
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_device_model_takes_its_firmware_with_it():
+    """The orphans this fixes: firmware rows pointing at an id that no longer exists."""
+    from src.devices import service as ds
+
+    _mfr_id, model_id, _mine_id, _fw = await _seed_a_family()
+    assert (await _row_counts())["firmware"] == 2
+
+    async with test_session_maker() as db:
+        assert await ds.delete_device_model(db, model_id) is True
+
+    counts = await _row_counts()
+    assert counts["models"] == 0
+    assert counts["firmware"] == 0, "firmware rows outlived their device model"
+    assert counts["my_devices"] == 0
+    assert counts["notifications"] == 0
+    assert counts["manufacturers"] == 1, "the manufacturer should survive"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_manufacturer_cascades_the_whole_way_down():
+    """manufacturer -> models -> firmware -> notifications, and -> my devices."""
+    from src.devices import service as ds
+
+    mfr_id, _model_id, _mine_id, _fw = await _seed_a_family()
+
+    async with test_session_maker() as db:
+        assert await ds.delete_manufacturer(db, mfr_id) is True
+
+    assert await _row_counts() == {
+        "manufacturers": 0, "models": 0, "firmware": 0,
+        "my_devices": 0, "notifications": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_tracked_device_takes_its_notifications():
+    """Notifications point at a my_device, and untracking is the common delete."""
+    from src.devices import service as ds
+
+    _mfr_id, _model_id, mine_id, _fw = await _seed_a_family()
+
+    async with test_session_maker() as db:
+        assert await ds.delete_my_device(db, mine_id) is True
+
+    counts = await _row_counts()
+    assert counts["my_devices"] == 0
+    assert counts["notifications"] == 0, "notifications outlived the device"
+    # The catalogue itself is untouched: untracking a device is not deleting it.
+    assert counts["models"] == 1
+    assert counts["firmware"] == 2
+
+
+@pytest.mark.asyncio
+async def test_deleting_something_that_is_not_there_reports_false():
+    """The bulk-delete version returned rowcount > 0; the ORM version has to say so itself."""
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        assert await ds.delete_manufacturer(db, 9999) is False
+        assert await ds.delete_device_model(db, 9999) is False
+        assert await ds.delete_my_device(db, 9999) is False
+
+
+@pytest.mark.asyncio
+async def test_sqlite_is_told_to_enforce_foreign_keys():
+    """Off by default, and off means a stranded row is written without complaint.
+
+    Asserted against a connection rather than the source, because the pragma is
+    per-connection: setting it once on the engine that ran a migration proves
+    nothing about the one serving requests.
+    """
+    from sqlalchemy import text as sa_text
+
+    async with test_engine.connect() as conn:
+        assert (await conn.execute(sa_text("PRAGMA foreign_keys"))).scalar_one() == 1
