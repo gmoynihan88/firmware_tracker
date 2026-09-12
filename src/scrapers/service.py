@@ -399,10 +399,14 @@ async def scrape_manufacturer(
 
         for index, model in enumerate(device_models):
             if time.monotonic() > deadline:
-                devices_not_checked = [m.name for m in device_models[index:]]
+                # Extended rather than assigned: a scraper that spreads its catalogue
+                # over several runs has already put its deliberate skips here, and
+                # replacing the list would erase them.
+                remaining = [m.name for m in device_models[index:]]
+                devices_not_checked.extend(remaining)
                 logger.warning(
                     "Budget exhausted for %s after %d of %d devices; %d not checked",
-                    scraper_type, index, len(device_models), len(devices_not_checked),
+                    scraper_type, index, len(device_models), len(remaining),
                 )
                 break
 
@@ -418,7 +422,12 @@ async def scrape_manufacturer(
                     logger.warning("Timeout fetching firmware for %s, skipping", model.name)
                     devices_failed.append(model.name)
                     continue
-                if fw_result.success and fw_result.firmware_versions:
+                if fw_result.not_checked:
+                    # Deliberately skipped, not silent. Reporting it as "no firmware"
+                    # would put four fifths of Korg into devices_unexplained on every
+                    # run and drown the list that exists to stay short.
+                    devices_not_checked.append(model.name)
+                elif fw_result.success and fw_result.firmware_versions:
                     new_count, latest = await sync_firmware_for_device(
                         db, model.id, fw_result.firmware_versions
                     )

@@ -97,6 +97,7 @@ async def test_api_scrapers(client):
     assert "boss" in data["scrapers"]
     assert "soundforce" in data["scrapers"]
     assert "arturia" in data["scrapers"]
+    assert "korg" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
@@ -5016,3 +5017,282 @@ async def test_scrape_separates_explained_absences_from_unexplained():
 
     assert sorted(summary["devices_without_firmware"]) == ["Known Silent", "Suddenly Silent"]
     assert summary["devices_unexplained"] == ["Suddenly Silent"]
+
+
+# --- korg -------------------------------------------------------------------
+# One product page carries manuals, a companion app, the firmware and a driver, all
+# with versions or dates. The section label is what separates them.
+
+
+def _korg_product_page() -> str:
+    """A Downloads page, shaped like the real one.
+
+    The Manuals entry is the trap that needs both filters: Grandstage X really does
+    list "Korg System Updater Owner's Manual (English)", which matches the updater
+    wording and is a PDF about the updater.
+    """
+    return """
+    <div class="downloadInside">
+      <div class="com_contents">
+        <h3>Manuals</h3>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>minilogue xd/Owner&rsquo;s Manual (English)</h3><h3></h3>
+          <small>2025.07.17 / PDF : 2.7MB</small>
+        </div></a>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>Grandstage X/Korg System Updater Owner&rsquo;s Manual (English)</h3><h3></h3>
+          <small>2024.02.01 / PDF : 1.1MB</small>
+        </div></a>
+      </div>
+      <div class="com_contents">
+        <h3>Software</h3>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>minilogue xd/Sound Librarian</h3><h3>1.0.5</h3>
+          <small>2019.11.08 / ZIP : 17.5MB</small>
+        </div></a>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>minilogue xd/System Updater</h3><h3>2.10</h3>
+          <small>2020.03.10 / ZIP : 1.0MB</small>
+        </div></a>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>minilogue xd/System Updater</h3><h3>2.10</h3>
+          <small>2020.03.10 / DMG : 1.3MB</small>
+        </div></a>
+      </div>
+      <div class="com_contents">
+        <h3>Drivers</h3>
+        <a class="tr"><div class="td dlFileTitle">
+          <h3>minilogue xd/KORG USB-MIDI Driver (for Windows)</h3><h3>1.15 r63e</h3>
+          <small>2026.01.20 / EXE : 6.4MB</small>
+        </div></a>
+      </div>
+    </div>
+    """
+
+
+def _korg_version_in_name_page() -> str:
+    """Two products that put the version in the entry name instead of its own heading."""
+    return """
+    <div class="com_contents">
+      <h3>Software</h3>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>kaossilator 2/Operating System Update 1.08</h3>
+        <small>2013.06.04 / ZIP : 3.0MB</small>
+      </div></a>
+    </div>
+    """
+
+
+def test_korg_takes_the_updater_not_the_librarian_or_the_driver():
+    from src.scrapers.plugins.korg import KorgScraper
+
+    versions = KorgScraper()._parse_product(_korg_product_page())
+    found = {fw.version for fw in versions}
+
+    assert found == {"2.10"}
+    assert "1.0.5" not in found, "took the Sound Librarian"
+    assert "1.15 r63e" not in found, "took the USB-MIDI driver"
+
+
+def test_korg_ignores_a_manual_about_the_updater():
+    """Matching the wording is not enough: it is in the Manuals section."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    versions = KorgScraper()._parse_product(_korg_product_page())
+
+    assert all("Manual" not in (fw.version or "") for fw in versions)
+    assert len(versions) == 1
+
+
+def test_korg_reads_the_entrys_own_date():
+    """"2020.03.10 / ZIP : 1.0MB" -- the size is not a version, the date is a date."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    versions = KorgScraper()._parse_product(_korg_product_page())
+
+    assert versions[0].release_date.strftime("%Y-%m-%d") == "2020-03-10"
+
+
+def test_korg_falls_back_to_a_version_in_the_name():
+    """Korg writes the updater three ways and two put the version in the name."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    versions = KorgScraper()._parse_product(_korg_version_in_name_page())
+
+    assert [fw.version for fw in versions] == ["1.08"]
+    assert versions[0].release_date.strftime("%Y-%m-%d") == "2013-06-04"
+
+
+def test_korg_index_skips_discontinued_and_untracked_categories():
+    """The index is a flat run of headings, so the walk has to track its own state."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    index = """
+    <h3>Synthesizers / Keyboards</h3>
+      <h4>on sale</h4>
+        <a href="/us/support/download/product/0/811/">minilogue xd</a>
+      <h4>Discontinued products</h4>
+        <a href="/us/support/download/product/0/123/">MS2000</a>
+    <h3>Tuners / Metronomes</h3>
+      <h4>on sale</h4>
+        <a href="/us/support/download/product/0/456/">TM-60</a>
+    """
+
+    found = KorgScraper()._index_candidates(index)
+
+    assert [name for name, _url, _cat in found] == ["minilogue xd"]
+    assert found[0][1].startswith("https://www.korg.com/")
+    assert found[0][2] == "synthesizer"
+
+
+# --- korg batching ----------------------------------------------------------
+# The only scraper that does not check everything every run: 164 products at 4.84s
+# a page is 794s against a 900s hard timeout, and the first live run was killed by
+# it. A fifth per day, every product seen within five days.
+
+
+def _korg_candidates(count=164):
+    return [(f"Product {i:03d}", f"https://www.korg.com/p/{i:03d}/", "synthesizer")
+            for i in range(count)]
+
+
+def test_korg_batches_are_even_and_cover_everything_once():
+    """Even sizes are the point: batching exists to give a predictable ceiling.
+
+    Hashing each URL was the first approach and gave 41/33/56/34 on the real
+    catalogue -- stable per product, but the worst batch is then 70% larger than the
+    best and the ceiling it was meant to impose is gone.
+    """
+    from unittest.mock import patch
+
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper = KorgScraper()
+    candidates = _korg_candidates()
+    seen, sizes = [], []
+
+    for day in range(KorgScraper.BATCHES):
+        with patch.object(KorgScraper, "_today_batch", lambda self, d=day: d):
+            batch = scraper._select_batch(candidates)
+        sizes.append(len(batch))
+        seen.extend(url for _name, url, _cat in batch)
+
+    assert sizes == [33, 33, 33, 33, 32]
+    assert len(seen) == len(set(seen)) == 164, "a product was missed or checked twice"
+
+
+def test_korg_full_sweep_takes_everything():
+    """The catch-up path, off by default because it costs the full 794s."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    candidates = _korg_candidates()
+
+    assert len(KorgScraper()._select_batch(candidates)) == 33
+    assert len(KorgScraper(full_sweep=True)._select_batch(candidates)) == 164
+
+
+def test_korg_full_sweep_reads_the_environment(monkeypatch):
+    """The registry builds scrapers with no arguments, so an operator needs this."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    monkeypatch.setenv(KorgScraper.FULL_SWEEP_ENV, "1")
+    assert KorgScraper()._full_sweep is True
+
+    monkeypatch.setenv(KorgScraper.FULL_SWEEP_ENV, "0")
+    assert KorgScraper()._full_sweep is False
+
+
+def test_korg_batch_selection_is_stable_across_runs():
+    """Sorted before striding, so the index's own ordering cannot reshuffle a batch.
+
+    Korg's index is ordered for presentation. Striding it directly would move
+    products between batches whenever that order changed, and a product could then
+    go unchecked for far longer than five days.
+    """
+    import random
+
+    from unittest.mock import patch
+
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper = KorgScraper()
+    candidates = _korg_candidates()
+    shuffled = candidates[:]
+    random.Random(3).shuffle(shuffled)
+
+    with patch.object(KorgScraper, "_today_batch", lambda self: 2):
+        first = scraper._select_batch(candidates)
+        second = scraper._select_batch(shuffled)
+
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_korg_reports_not_checked_outside_todays_batch():
+    """Not an empty success, which would claim Korg publishes nothing for it.
+
+    Four days in five that claim would be false, and it would put the whole
+    catalogue bar a fifth into devices_unexplained.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper = KorgScraper()
+    scraper._firmware = {"In Batch": []}
+
+    result = await scraper.fetch_firmware_versions("Not In Batch", "")
+
+    assert result.success is True
+    assert result.not_checked is True
+    assert result.firmware_versions == []
+
+
+@pytest.mark.asyncio
+async def test_scrape_routes_not_checked_away_from_unexplained():
+    """A deliberate skip is not an absence, and must not land in either absence list."""
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+    from src.scrapers import service as ss
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Batched", slug="batchedco")
+        )
+        for name in ("Checked", "Skipped"):
+            await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.OTHER,
+                firmware_page_url=f"https://batched.example.com/{name.lower()}",
+            ))
+
+    class Stub(BaseScraper):
+        manufacturer_name = "Batched"
+        manufacturer_slug = "batchedco"
+        manufacturer_website = "https://batched.example.com"
+
+        async def fetch_device_list(self):
+            return ScraperResult(success=True, devices=[ScrapedDevice(
+                name="Checked", category="other",
+                firmware_page_url="https://batched.example.com/checked",
+            )])
+
+        async def fetch_firmware_versions(self, name, url):
+            if name == "Skipped":
+                return ScraperResult(success=True, not_checked=True)
+            return ScraperResult(success=True, firmware_versions=[])
+
+    original = ScraperRegistry.create
+    ScraperRegistry.create = staticmethod(
+        lambda slug: Stub() if slug == "batchedco" else original(slug)
+    )
+    try:
+        async with test_session_maker() as db:
+            summary = await ss.scrape_manufacturer(db, "batchedco")
+    finally:
+        ScraperRegistry.create = original
+
+    assert summary["devices_not_checked"] == ["Skipped"]
+    assert summary["devices_without_firmware"] == ["Checked"]
+    assert summary["devices_unexplained"] == ["Checked"]
+    assert "Skipped" not in summary["devices_unexplained"]
