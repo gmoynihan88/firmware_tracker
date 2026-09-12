@@ -3812,3 +3812,39 @@ def test_fingerprint_failure_never_breaks_a_fetch():
     scraper._fingerprint("https://e.invalid/x", "<html></html>")  # must not raise
 
     assert scraper.identical_pages() == []
+
+
+def test_yamaha_reads_the_os_updater_and_not_the_drivers():
+    """The download pages list drivers and file sizes beside the firmware.
+
+    "Yamaha Steinberg USB Driver V2.1.9" is not the instrument's OS, and "3.91GB" is
+    a file size. Requiring the word Updater is what separates them.
+    """
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    page = """<html><body>
+      <p>MONTAGE M OS Updater V3.01 from earlier versions (3.91GB)</p>
+      <p>Yamaha Steinberg USB Driver V2.1.9 for Windows 11/10 (64-bit)</p>
+      <p>USB-MIDI Driver V1.3.2-2 for Mac macOS 10.15-OS X 10.5</p>
+      <p>[12.9MB]</p>
+    </body></html>"""
+
+    versions = YamahaScraper()._parse_updater_page(page)
+
+    assert [f.version for f in versions] == ["3.01"]
+
+
+def test_yamaha_accepts_a_hyphenated_updater_version():
+    """reface updaters are versioned "V1.30-3", which a plain x.y.z pattern truncates."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    page = "<html><body><p>reface CP updater V1.30-3 for Mac</p></body></html>"
+
+    assert [f.version for f in YamahaScraper()._parse_updater_page(page)] == ["1.30-3"]
+
+
+def test_yamaha_updater_page_with_nothing_to_read_returns_empty():
+    """So the caller falls through rather than inventing a version."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    assert YamahaScraper()._parse_updater_page("<html><body><p>no downloads</p></body></html>") == []

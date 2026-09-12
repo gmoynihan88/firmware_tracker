@@ -5,36 +5,48 @@ from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, Scrap
 
 
 class YamahaScraper(BaseScraper):
-    """Yamaha, where most of the product pages this tracked no longer exist.
+    """Yamaha, read from the pages its own sitemap lists.
 
     Eleven of the sixteen products pointed at URLs like
-    `/support/updates/montagem6_firm.html`, and every one of them returns the same
-    4,218-character landing page as a slug invented to test it. They are dead, and
-    the scraper used to report those products as having no firmware -- which claims
-    a verified absence where there is a broken URL.
+    `/support/updates/montagem6_firm.html`. Those never existed: every one returned
+    the same landing page as a slug invented to test it, and the scraper reported
+    the products as having no firmware, which claims a verified absence where there
+    is a broken URL.
 
-    The real pages were not found, and the search is recorded so it is not repeated
-    (checked 2026-09-12):
+    The real pages were found in `/sitemap.xml`, which lists 20,951 URLs including
+    2,334 under /support/updates/. Guessing slugs had failed against eleven shapes,
+    the updates index renders only navigation, and the one working page links to no
+    siblings -- the sitemap was the thing that was never tried.
 
-    - Eleven slug shapes were tried -- `montage_m6_firm`, `montage_m_firm`,
-      `modx_firm`, `reface_firm`, `seqtrak_firm` and others. All matched the control
-      exactly.
-    - `/support/updates/index.html` renders 5,091 characters of navigation menus and
-      exactly one link, to itself. `networkidle` never fires on it.
-    - `download.yamaha.com` returns 816 characters to a browser and nothing to
-      aiohttp; its search URLs return empty.
-    - The one page that does work, `thr_remote_mac.html`, links to no siblings, so
-      the working pages are islands with no index reaching them.
+    Two shapes, and one page usually covers a family:
 
-    So the dead pages are now detected and reported as failures. That is noisier than
-    the silence it replaces, and it is the truth: `devices_failed` means the fetch
-    broke, `devices_without_firmware` means the vendor publishes nothing, and these
-    are the first kind.
+        .../synthesizers/montagem/downloads.html   MONTAGE M OS Updater V3.01
+        .../synthesizers/modx/downloads.html       MODX OS Updater V2.52
+        .../seqtrak/downloads.html                 SEQTRAK OS Updater V2.00
+        /support/updates/reface_cp_updater_for_mac.html   reface CP updater V1.30-3
 
-    What still works is the THR Remote page, which lists amp firmware as
+    reface CS and DX share an updater; CP and YC have their own.
+
+    The download pages also list "Yamaha Steinberg USB Driver V2.1.9" and
+    "USB-MIDI Driver V1.3.2-2", so the pattern requires the word Updater. They carry
+    file sizes too -- 3.91GB, [12.9MB] -- which a looser version pattern reads as
+    releases.
+
+    The THR Remote page is unchanged and still works. It lists amp firmware as
     compatibility notes: "[Firmware Ver.1.50 for THR-II]" covers the four THR-II
     amps, and "[Firmware Ver.1.10 for THR30IIA Wireless]" is the G10T transmitter
     that ships with the wireless model, which is why a Line 6 product appears here.
+
+    No dates, checked rather than assumed. The download pages and the updater pages
+    behind them carry version history -- the MONTAGE M updater page lists every step
+    from "V1.00 to V1.10" up to "V3.00 to V3.01" with its changes -- and not one
+    release date among them. The only dates on those pages are a page-level
+    "Last updated: July 10, 2024" stamp and copyright years, neither of which belongs
+    to a release.
+
+    That version history is worth reading one day: it would turn the single version
+    each product reports into roughly ten with changelogs, at one more fetch per
+    family. It is not read yet.
     """
 
     manufacturer_name = "Yamaha"
@@ -51,17 +63,22 @@ class YamahaScraper(BaseScraper):
         ("THR10II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("THR10II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
         ("Line 6 G10TII", "wireless_system", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("MODX8", "synthesizer", "https://usa.yamaha.com/support/updates/modx8_firm.html"),
-        ("MODX7", "synthesizer", "https://usa.yamaha.com/support/updates/modx7_firm.html"),
-        ("MODX6", "synthesizer", "https://usa.yamaha.com/support/updates/modx6_firm.html"),
-        ("Montage M8x", "synthesizer", "https://usa.yamaha.com/support/updates/montagem8x_firm.html"),
-        ("Montage M7", "synthesizer", "https://usa.yamaha.com/support/updates/montagem7_firm.html"),
-        ("Montage M6", "synthesizer", "https://usa.yamaha.com/support/updates/montagem6_firm.html"),
-        ("SEQTRAK", "synthesizer", "https://usa.yamaha.com/support/updates/seqtrak_firm.html"),
-        ("reface CS", "synthesizer", "https://usa.yamaha.com/support/updates/reface_cs_firm.html"),
-        ("reface DX", "synthesizer", "https://usa.yamaha.com/support/updates/reface_dx_firm.html"),
-        ("reface CP", "synthesizer", "https://usa.yamaha.com/support/updates/reface_cp_firm.html"),
-        ("reface YC", "synthesizer", "https://usa.yamaha.com/support/updates/reface_yc_firm.html"),
+        ("MODX8", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
+        ("MODX7", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
+        ("MODX6", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
+        ("Montage M8x", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
+        ("Montage M7", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
+        ("Montage M6", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
+        ("SEQTRAK", "synthesizer",
+         "https://usa.yamaha.com/products/music_production/music-production-studios/seqtrak/downloads.html"),
+        ("reface CS", "synthesizer",
+         "https://usa.yamaha.com/support/updates/reface_csdx_updater_for_mac.html"),
+        ("reface DX", "synthesizer",
+         "https://usa.yamaha.com/support/updates/reface_csdx_updater_for_mac.html"),
+        ("reface CP", "synthesizer",
+         "https://usa.yamaha.com/support/updates/reface_cp_updater_for_mac.html"),
+        ("reface YC", "synthesizer",
+         "https://usa.yamaha.com/support/updates/reface_yc_updater_for_mac.html"),
     ]
 
     async def fetch_device_list(self) -> ScraperResult:
@@ -81,6 +98,14 @@ class YamahaScraper(BaseScraper):
     # live page titles itself after the download -- "THR Remote V1.6.0 for Mac".
     LANDING_TITLE = "Firmware / Software Updates"
 
+    # "MONTAGE M OS Updater V3.01", "reface CP updater V1.30-3 for Mac". Requiring
+    # "Updater" is what keeps out the drivers listed on the same pages -- "Yamaha
+    # Steinberg USB Driver V2.1.9", "USB-MIDI Driver V1.3.2-2" -- and the file sizes
+    # beside them, 3.91GB and [12.9MB], which a looser pattern reads as versions.
+    UPDATER = re.compile(
+        r"(?:OS\s+)?[Uu]pdater\s+V\s*(\d+(?:\.\d+)+(?:-\d+)?)", re.I
+    )
+
     def _is_dead_page(self, html: str) -> bool:
         """Whether Yamaha served its generic landing page instead of a product page.
 
@@ -89,6 +114,21 @@ class YamahaScraper(BaseScraper):
         """
         title = self.parse_html(html).title
         return bool(title) and self.LANDING_TITLE in title.get_text(strip=True)
+
+    def _parse_updater_page(self, html: str) -> list:
+        """Read the OS updater version from a downloads or updater page.
+
+        One page usually serves a whole family -- MONTAGE M6, M7 and M8x share an
+        updater, as do reface CS and DX -- so every product reading it gets the same
+        version, which is correct rather than the duplication bug it resembles.
+        """
+        text = re.sub(r"\s+", " ", self.parse_html(html).get_text(" "))
+        seen = []
+        for match in self.UPDATER.finditer(text):
+            version = match.group(1)
+            if version not in seen:
+                seen.append(version)
+        return [ScrapedFirmware(version=v) for v in seen]
 
     def _parse_thr_remote_page(self, html: str, device_name: str) -> list[ScrapedFirmware]:
         """Parse THR firmware versions from the THR Remote page."""
@@ -148,6 +188,10 @@ class YamahaScraper(BaseScraper):
             firmware_versions = self._parse_thr_remote_page(html, device_name)
             if firmware_versions:
                 return ScraperResult(success=True, firmware_versions=firmware_versions)
+
+        updater = self._parse_updater_page(html)
+        if updater:
+            return ScraperResult(success=True, firmware_versions=updater)
 
         soup = self.parse_html(html)
         firmware_versions = []
