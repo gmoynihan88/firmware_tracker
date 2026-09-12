@@ -9,6 +9,34 @@ Seven scrapers in this repo have been repaired with the ladder below. The failur
 almost always a **dead URL or a moved data source**, not a parsing bug — so resist
 rewriting the parser until step 2 says the data is actually reachable.
 
+## Step 0 — Which scraper is lying?
+
+The ladder below assumes you know which scraper is broken. Usually you do not, because
+the broken ones report success. Elektron gave eleven products the same two versions,
+read off a news blurb on a page that ignored its own query parameter, with
+`devices_failed` empty the whole time. Universal Audio ran in 0.01s, everything green,
+reporting the versions installed on this laptop.
+
+```bash
+.venv/bin/python scripts/audit_scrapers.py
+```
+
+Three checks, no network:
+
+- **One version across most of a vendor's catalogue.** Eleven Elektron products
+  sharing two versions is impossible; MC-101, MC-707 and VERSELAB MV-1 sharing Roland
+  System Program 1.82 is a real platform release. The output is a question.
+- **Defined and never referenced.** QSC's `_parse_k2_firmware_page` read the release
+  date correctly and was called from nowhere, so the date reached the database once
+  and could not be produced again.
+- **Sets a field the database never receives.** Boss carries a careful two-format date
+  extractor for a page layout that no longer exists. The code runs and the pattern
+  never matches, which no static check can see.
+
+**A sweep that finds nothing and a sweep that is broken look identical.** Point it at a
+commit from before a known fix before believing a clean report -- run against the
+commit preceding QSC's removal, it prints exactly that one orphaned method.
+
 ## First: what does the scrape actually report?
 
 ```bash
@@ -225,6 +253,40 @@ A GForce product page yields four of these and no firmware version at all. If a
 pattern matches something on a page you believe has no version, that is the pattern
 being wrong, not the page being right.
 
+### The version on the page often belongs to something else
+
+This is the commonest way a scraper reports a real number for the wrong thing. The
+page is about the product; the version is not.
+
+| Page says | Belongs to |
+|---|---|
+| Eventide H90: `Eventide Control 2.2.0`, `H90 Control 1.9.15` | editor apps, not the pedal -- whose own notes read "Requires H90 firmware 1.9.4+" |
+| Roland MC-101: `Driver Ver.1.0.3 for macOS Sonoma` | a USB driver, beside `System Program (Ver.1.82)` |
+| Elektron Digitakt: `Elektron Transfer 1.10.4` | a desktop transfer tool |
+| QSC TouchMix: `Revised 06/07/2017` | the installation instructions, not the firmware |
+| Eventide: `Version 9 \| English` | a manual revision |
+
+Two signals separate them. The firmware entry usually names the thing -- "System
+Program", "OS", "Installer" -- and the companion entry names a different product. And
+the companion's numbering runs on its own track: H90 Control was on 1.9.15 while H90
+firmware was on 1.9.4.
+
+### Calibrate the pattern against the page, in both directions
+
+Two failures, both made in the same afternoon, opposite to each other and each
+invisible without checking.
+
+**Looser than its parser.** Elektron writes `Sep 9, 2026` on some pages and
+`Sept 9, 2026` on others. A regex matching `(Jan|...|Sep)[a-z]*` accepts both, then
+`strptime` with `%b` rejects the four-letter form. Every MKII page silently came back
+undated while the code looked like it handled them.
+
+**Stricter than reality.** Roland writes `System Program (Ver.1.82)` and also
+`J-6 System Program Ver.1.02`. Requiring the parentheses returned nothing for the AIRA
+Compacts -- and "no versions found" reads exactly like "this product has none".
+
+When a product returns nothing, check the page before accepting it. A zero is a claim.
+
 Pair a version with its own date in one entry. TAL's old parser took the first version
 and the first date from one block — different releases — recording 4.9.5 with 5.1.2's
 date. `_parse_changelog` in `tal.py` shows the entry-at-a-time approach.
@@ -331,6 +393,24 @@ asyncio.run(main())
 NI's own thread said 8.13.0. Believing the search would have meant reporting a
 correct scraper as broken. Always confirm on the vendor's page.
 
+**Compare the products against each other, not just against the site.** Eleven
+identical results is the tell that no per-product fetch is happening at all, and it
+shows up in the verification table long before anyone reads the vendor's page.
+
+### Dates cannot be recovered later
+
+Worth knowing before spending time on it: of 749 stored versions with a changelog and
+no date, **three** contained a date-shaped string anywhere in that text. Eventide, 729
+of them, had one. There is no backfill hiding in the data already collected.
+
+Two sources look like dates and are not: a page-level "Last updated: July 10, 2024"
+stamp, which belongs to the page rather than any release on it, and a "Revised
+06/07/2017" against an instructions section. Attaching either to a version is the
+fabrication this project exists to avoid.
+
+Where a vendor gives only a month -- Roland's `[ Ver.1.82 ] JUN 2023` -- store the
+first of it and say so, rather than dropping the release date entirely.
+
 ## Before opening a PR
 
 - Tests offline against a fixture page — never the network. See
@@ -340,6 +420,11 @@ correct scraper as broken. Always confirm on the vendor's page.
   CI reports it before you do.
 - If a URL changed, note that `sync_devices` now refreshes `firmware_page_url` on
   existing rows, so the fix reaches devices already in the database.
+- **Existing firmware rows are refreshed too, but only filled or corrected, never
+  emptied.** A scraper that stops reporting a date will not erase one already stored,
+  so a parser fix reaches old rows while a regression cannot silently blank them.
+  Wrong values the scrape no longer produces are not touched at all -- Elektron's
+  twenty-two fabricated rows had to be deleted by hand.
 - **Read `devices_synced` after the first real scrape.** `{'created': 16,
   'updated': 12}` means the existing twelve rows were refreshed and sixteen products
   are new. If `created` is close to the old device count, the names stopped matching

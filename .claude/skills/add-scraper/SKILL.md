@@ -145,3 +145,16 @@ rendered — presence of the expected data structure is a better signal than tex
   the old device total means the names stopped matching.
 - **Pair a version with its own date**, from the same changelog entry. Taking the first
   version and first date out of a shared block silently mismatches them.
+- **Most versions on a support page are not the product's.** Editor apps, USB drivers,
+  transfer tools and manual revisions all carry version numbers and all sit on the
+  page you are scraping. Roland lists `Driver Ver.1.0.3 for macOS Sonoma` beside
+  `System Program (Ver.1.82)`; Eventide's H90 page leads with `Eventide Control 2.2.0`,
+  which is an editor. Anchor on the wording that names the firmware itself.
+- **Check your pattern against more than one page, in both directions.** A pattern
+  looser than its parser drops data silently -- a date regex accepting `Sept` handed to
+  `strptime` with `%b`, which only accepts `Sep`. A pattern stricter than the site
+  returns nothing, which reads as "this product publishes no firmware" rather than as
+  a bug.
+- **Run `scripts/audit_scrapers.py` once the scraper is in.** It flags one version
+  claimed across most of a catalogue, code nothing references, and fields you set that
+  never reach the database. All three have caught scrapers that reported no failures.
