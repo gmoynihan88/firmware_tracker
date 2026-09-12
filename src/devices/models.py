@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Text, Enum
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Float, Text, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -109,3 +109,51 @@ class Notification(Base):
 
     def __repr__(self):
         return f"<Notification(title={self.title})>"
+
+
+class ScrapeRun(Base):
+    """One record per manufacturer scrape, kept so gaps in the history are readable.
+
+    Without this, a firmware version's first-seen date is the only evidence of time,
+    and it cannot distinguish "the vendor published nothing for eight months" from
+    "our scraper was quietly broken for eight months". Given how this project's
+    scrapers fail -- reporting success while returning nothing, or the wrong thing --
+    that is the difference between a trustworthy series and a misleading one.
+
+    Counts rather than lists, except the failed device names, which are what you
+    actually want when reading back why a month looks empty.
+    """
+
+    __tablename__ = "scrape_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scraper_type = Column(String(100), nullable=False, index=True)
+    manufacturer_id = Column(Integer, ForeignKey("manufacturers.id"), nullable=True)
+
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime)
+    duration_seconds = Column(Float)
+
+    # False covers both a scraper that raised and one that could not be created.
+    success = Column(Boolean, nullable=False, default=False)
+    error = Column(Text)
+
+    devices_total = Column(Integer, default=0)
+    devices_failed = Column(Integer, default=0)
+    devices_without_firmware = Column(Integer, default=0)
+    devices_not_checked = Column(Integer, default=0)
+    new_versions = Column(Integer, default=0)
+    notifications_created = Column(Integer, default=0)
+
+    # Groups of different URLs that returned identical content. Non-zero means a URL
+    # shape may have stopped selecting a product, which otherwise reads as the
+    # vendor publishing nothing.
+    identical_page_groups = Column(Integer, default=0)
+
+    # JSON list of names, so a later reader can tell which products went quiet.
+    failed_devices = Column(Text)
+
+    manufacturer = relationship("Manufacturer")
+
+    def __repr__(self):
+        return f"<ScrapeRun({self.scraper_type} success={self.success})>"

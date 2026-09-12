@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from urllib.parse import urlparse
@@ -11,6 +12,7 @@ from src.scrapers.registry import ScraperRegistry
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 from src.config import get_settings
 from src.devices import service as device_service
+from src.devices.models import ScrapeRun
 from src.notifications.reconcile import is_behind
 
 logger = logging.getLogger(__name__)
@@ -294,6 +296,42 @@ def scrape_budget_for(device_count: int) -> float:
     return SCRAPE_BUDGET_BASE + SCRAPE_BUDGET_PER_DEVICE * max(device_count, 0)
 
 
+async def record_scrape_run(db: AsyncSession, scraper_type: str, started_at,
+                            duration: float, summary: dict,
+                            manufacturer_id: Optional[int] = None) -> None:
+    """Write one row describing a scrape, so a gap in the history can be explained.
+
+    Failures here are swallowed. This exists to make the record readable later, and
+    losing a row is a worse outcome than losing the scrape it describes -- but only
+    just, and never worth raising over the result the caller already has.
+    """
+    failed = summary.get("devices_failed") or []
+    try:
+        db.add(
+            ScrapeRun(
+                scraper_type=scraper_type,
+                manufacturer_id=manufacturer_id,
+                started_at=started_at,
+                finished_at=datetime.utcnow(),
+                duration_seconds=round(duration, 2),
+                success=bool(summary.get("success")),
+                error=summary.get("error"),
+                devices_total=(summary.get("devices_synced") or {}).get("total", 0),
+                devices_failed=len(failed),
+                devices_without_firmware=len(summary.get("devices_without_firmware") or []),
+                devices_not_checked=len(summary.get("devices_not_checked") or []),
+                new_versions=summary.get("new_firmware_versions", 0) or 0,
+                notifications_created=summary.get("notifications_created", 0) or 0,
+                identical_page_groups=len(summary.get("identical_pages") or []),
+                failed_devices=json.dumps(failed) if failed else None,
+            )
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("Could not record the scrape run for %s", scraper_type)
+        await db.rollback()
+
+
 async def scrape_manufacturer(
     db: AsyncSession, scraper_type: str
 ) -> dict:
@@ -301,12 +339,17 @@ async def scrape_manufacturer(
     Run a full scrape for a manufacturer.
     Returns summary of actions taken.
     """
+    started_at = datetime.utcnow()
+    started = time.monotonic()
+
     scraper = ScraperRegistry.create(scraper_type)
     if not scraper:
         logger.error("Unknown scraper type: %s", scraper_type)
-        return {"success": False, "error": f"Unknown scraper type: {scraper_type}"}
+        summary = {"success": False, "error": f"Unknown scraper type: {scraper_type}"}
+        await record_scrape_run(db, scraper_type, started_at, 0.0, summary)
+        return summary
 
-    started = time.monotonic()
+    manufacturer_id = None
     try:
         # Ensure manufacturer exists
         manufacturer_id = await ensure_manufacturer(db, scraper)
@@ -408,7 +451,7 @@ async def scrape_manufacturer(
                 scraper.manufacturer_name, ", ".join(devices_failed),
             )
 
-        return {
+        summary = {
             "success": True,
             "manufacturer": scraper.manufacturer_name,
             "devices_synced": device_sync,
@@ -419,12 +462,22 @@ async def scrape_manufacturer(
             "devices_not_checked": devices_not_checked,
             "identical_pages": duplicate_pages,
         }
+        await record_scrape_run(
+            db, scraper_type, started_at, time.monotonic() - started,
+            summary, manufacturer_id,
+        )
+        return summary
 
     except Exception as e:
         # The caller only gets str(e), which for most exceptions is a bare message
         # with no indication of where it came from. Keep the traceback.
         logger.exception("Scrape of %s failed after %.1fs", scraper_type, time.monotonic() - started)
-        return {"success": False, "error": str(e)}
+        summary = {"success": False, "error": str(e)}
+        await record_scrape_run(
+            db, scraper_type, started_at, time.monotonic() - started,
+            summary, manufacturer_id,
+        )
+        return summary
     finally:
         await scraper.close()
 
