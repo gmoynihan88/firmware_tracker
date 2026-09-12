@@ -156,6 +156,12 @@ class TCElectronicScraper(BaseScraper):
             firmware.append(
                 ScrapedFirmware(
                     version=version,
+                    # No date, deliberately. The download entries carry none, and the
+                    # only dates in the payload belong to a used-gear listings widget
+                    # on the same page -- listedDate, originalPurchaseDate, updatedAt.
+                    # Those describe somebody's second-hand pedal, not a release, and
+                    # attaching one to a firmware version would be an invention that
+                    # looked like data. Checked 2026-09-12.
                     release_date=None,
                     download_url=item.get("fileUrl"),
                     changelog=item.get("title"),
