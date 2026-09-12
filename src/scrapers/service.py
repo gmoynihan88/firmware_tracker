@@ -139,7 +139,13 @@ def _refresh_firmware_row(row, scraped: ScrapedFirmware) -> None:
     not delete one already recorded, because the stored value may have come from a
     source the vendor has since removed. created_at is untouched -- it is the
     first-seen signal, and the only date at all for roughly half the catalogue.
+
+    last_seen_at is the exception and is always stamped. The other fields answer what
+    a release is; this one answers whether the vendor still lists it, and that is only
+    true of the moment it was checked.
     """
+    row.last_seen_at = datetime.utcnow()
+
     if scraped.release_date is not None and row.release_date != scraped.release_date:
         row.release_date = scraped.release_date
 

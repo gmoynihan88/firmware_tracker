@@ -3965,3 +3965,71 @@ async def test_scrape_runs_can_be_read_back(client):
     assert len(only_acme) == 1
     assert only_acme[0]["new_versions"] == 4
     assert only_acme[0]["failed_devices"] == []
+
+
+def test_refresh_always_stamps_last_seen_but_never_created_at():
+    """last_seen_at answers whether the vendor still lists it, so it is always set.
+
+    The other fields answer what a release is and only fill or correct. created_at is
+    the first-seen signal and the only date at all for roughly half the catalogue,
+    so it is never rewritten.
+    """
+    from src.scrapers.base import ScrapedFirmware
+    from src.scrapers.service import _refresh_firmware_row
+
+    class Row:
+        release_date = datetime(2020, 1, 1)
+        download_url = None
+        changelog_raw = None
+        created_at = datetime(2026, 9, 9)
+        last_seen_at = datetime(2026, 9, 9)
+
+    row = Row()
+    before = datetime.utcnow()
+    _refresh_firmware_row(row, ScrapedFirmware(version="1.0"))
+
+    assert row.last_seen_at >= before
+    assert row.created_at == datetime(2026, 9, 9)
+    # A scrape reporting no date must still not erase the stored one.
+    assert row.release_date == datetime(2020, 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_a_version_the_vendor_drops_stops_being_stamped():
+    """This is the whole point: a withdrawn version looks identical without it.
+
+    Scrape twice, the second time without one of the versions, and only the version
+    still on the vendor's page should have a fresh last_seen_at.
+    """
+    from sqlalchemy import select
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory, FirmwareVersion
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+    from src.scrapers.base import ScrapedFirmware
+    from src.scrapers.service import sync_firmware_for_device
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="Withdraw Co", slug="withdrawco"))
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Box", category=DeviceCategory.OTHER,
+        ))
+
+        await sync_firmware_for_device(db, model.id, [
+            ScrapedFirmware(version="1.0"), ScrapedFirmware(version="2.0"),
+        ])
+        await db.commit()
+
+        rows = (await db.execute(select(FirmwareVersion))).scalars().all()
+        original = {r.version: r.last_seen_at for r in rows}
+
+        # The vendor pulls 1.0 and keeps 2.0.
+        await sync_firmware_for_device(db, model.id, [ScrapedFirmware(version="2.0")])
+        await db.commit()
+
+        rows = (await db.execute(select(FirmwareVersion))).scalars().all()
+        after = {r.version: r.last_seen_at for r in rows}
+
+    # The withdrawn version is still stored -- it did happen -- but was not confirmed.
+    assert set(after) == {"1.0", "2.0"}
+    assert after["1.0"] == original["1.0"]
+    assert after["2.0"] >= original["2.0"]
