@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
-from src.devices.models import DeviceCategory
+from src.devices.models import DeviceCategory, FirmwareAvailability
 
 
 # Manufacturer schemas
@@ -39,6 +39,7 @@ class DeviceModelBase(BaseModel):
     category: DeviceCategory = DeviceCategory.OTHER
     firmware_page_url: Optional[str] = None
     product_url: Optional[str] = None
+    firmware_availability: Optional[FirmwareAvailability] = None
 
 
 class DeviceModelCreate(DeviceModelBase):
@@ -50,6 +51,7 @@ class DeviceModelUpdate(BaseModel):
     category: Optional[DeviceCategory] = None
     firmware_page_url: Optional[str] = None
     product_url: Optional[str] = None
+    firmware_availability: Optional[FirmwareAvailability] = None
 
 
 class DeviceModelResponse(DeviceModelBase):

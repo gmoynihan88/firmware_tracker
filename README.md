@@ -82,10 +82,27 @@ Eventide is a similar case for hardware. The H90 downloads page shows version 2.
 which belongs to a companion app rather than the pedal; pedal firmware ships through
 Eventide's device manager and is not published anywhere.
 
+The reverse is worth stating, because assuming it cost this project 22 products. UA's
+UAFX pedals are delivered by UA Connect too — their release notes open with "To update
+your pedal's firmware, use UA Connect" — and are published in full, sixteen dated
+versions back to 2021. Shipping firmware through a vendor's own installer says nothing
+about whether the version is published.
+
 A scrape distinguishes three outcomes rather than two: `devices_failed` is a fetch or
 parse that broke, `devices_without_firmware` is a product the vendor publishes nothing
 for, and `devices_not_checked` is the time budget running out. Collapsing the first two
 would either hide a real breakage or report one every run.
+
+**Products that will never report a version say so.** 95 of them publish nothing, and
+for 62 a scraper has established why — the catalogue shows `not published` where the
+vendor publishes no version anywhere, and `no firmware` where the product takes no
+updates at all. The other 33 stay an em-dash, because nobody has checked and guessing
+is the thing this avoids.
+
+That split is what makes the absence list usable. `devices_without_firmware` carries
+95 entries on every sweep, so a product that goes silent tomorrow joins a crowd nobody
+reads; `devices_unexplained` holds only the ones with no recorded reason, and it is the
+list that should be shrinking.
 
 ## Scraping load
 
@@ -124,7 +141,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 580 devices across 24 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 602 devices across 24 vendors, so it
 filters: type to narrow by product or vendor, untick a vendor, or hide what you already
 track. Devices already tracked say so instead of offering to add a second copy.
 
@@ -329,8 +346,8 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 221 tests
-pytest --cov=src                         # 77% overall, 83% outside the scrapers
+pytest                                   # 229 tests
+pytest --cov=src                         # 78% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
 coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs
@@ -387,7 +404,7 @@ docker-compose.yml     # Volumes, log caps
   trade-off is that a vendor cannot tell who is calling or ask you to stop.
 - The web app itself runs anywhere on Python 3.11+. Linux is CI-verified across 3.11,
   3.12 and 3.13; macOS is the development platform; Windows is untested.
-- **Release dates are missing for about a fifth of current versions** — 394 of 485 have
+- **Release dates are missing for about a sixth of current versions** — 416 of 507 have
   one. That is what the vendor publishes, not what the scraper managed to read: some
   list a version with no date anywhere on the page. The catalogue shows an em-dash
   rather than substituting the date the version was first seen, which would read as a

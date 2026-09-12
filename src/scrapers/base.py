@@ -28,6 +28,11 @@ class ScrapedDevice:
     firmware_page_url: Optional[str] = None
     product_url: Optional[str] = None
 
+    # Why this product has no version, when the scraper knows. One of
+    # FirmwareAvailability's values, or None for "nobody has established why",
+    # which is the right answer unless the scraper's docstring can say how.
+    firmware_availability: Optional[str] = None
+
 
 @dataclass
 class ScrapedFirmware:

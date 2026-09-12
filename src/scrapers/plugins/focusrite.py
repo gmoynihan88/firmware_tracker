@@ -85,6 +85,11 @@ class FocusriteScraper(BaseScraper):
                 category=self._category_for(name),
                 firmware_page_url=urljoin(self.DOWNLOADS_BASE, href),
                 product_url=urljoin(self.DOWNLOADS_BASE, href),
+                # Firmware ships inside Focusrite Control and no version is published
+                # anywhere machine-readable, as the class docstring records. Without
+                # this every Focusrite product reads "Firmware unknown", which is how
+                # a permanently silent vendor looks identical to a broken scraper.
+                firmware_availability="not_published",
             )
             for href, name in seen.items()
         ]

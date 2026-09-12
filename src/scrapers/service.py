@@ -82,6 +82,7 @@ async def sync_devices(
                     category=map_category(device.category),
                     firmware_page_url=device.firmware_page_url,
                     product_url=device.product_url,
+                    firmware_availability=device.firmware_availability,
                 ),
             )
             created += 1
@@ -95,6 +96,15 @@ async def sync_devices(
             changes["firmware_page_url"] = device.firmware_page_url
         if device.product_url and device.product_url != existing.product_url:
             changes["product_url"] = device.product_url
+
+        # Revisable in both directions, unlike the URLs above. A scraper that learns
+        # a vendor does publish after all has to be able to clear this, or the first
+        # run's guess outlives the finding that corrected it.
+        stored = existing.firmware_availability
+        stored = stored.value if stored is not None else None
+        if device.firmware_availability != stored:
+            changes["firmware_availability"] = device.firmware_availability
+
         if changes:
             await device_service.update_device_model(
                 db, existing.id, DeviceModelUpdate(**changes)
@@ -377,6 +387,7 @@ async def scrape_manufacturer(
         # kept apart because they mean different things: a product can legitimately
         # have no firmware, which is not a failure to investigate.
         devices_without_firmware = []  # scraped OK, product has no firmware
+        devices_unexplained = []  # of those, the ones with no recorded reason
         devices_failed = []  # fetch failed or timed out
         devices_not_checked = []  # budget ran out before reaching them
 
@@ -419,6 +430,13 @@ async def scrape_manufacturer(
                         notifications_created += notifs
                 elif fw_result.success:
                     devices_without_firmware.append(model.name)
+                    # An absence nobody has accounted for. Focusrite's 28 products and
+                    # Eventide's 23 land in the list above on every run, which at 95
+                    # entries makes it wallpaper -- a product that went silent this
+                    # morning would join a crowd and never be noticed. This list holds
+                    # only the ones no scraper has explained.
+                    if model.firmware_availability is None:
+                        devices_unexplained.append(model.name)
                 else:
                     devices_failed.append(model.name)
 
@@ -456,6 +474,13 @@ async def scrape_manufacturer(
                 "%s devices that failed: %s",
                 scraper.manufacturer_name, ", ".join(devices_failed),
             )
+        if devices_unexplained:
+            # Warned about, unlike the accounted-for absences, because this is the
+            # list that should be shrinking.
+            logger.warning(
+                "%s reported no firmware and no reason for: %s",
+                scraper.manufacturer_name, ", ".join(devices_unexplained),
+            )
 
         summary = {
             "success": True,
@@ -464,6 +489,7 @@ async def scrape_manufacturer(
             "new_firmware_versions": total_new_firmware,
             "notifications_created": notifications_created,
             "devices_without_firmware": devices_without_firmware,
+            "devices_unexplained": devices_unexplained,
             "devices_failed": devices_failed,
             "devices_not_checked": devices_not_checked,
             "identical_pages": duplicate_pages,

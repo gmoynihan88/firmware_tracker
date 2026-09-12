@@ -28,6 +28,7 @@ class TCElectronicScraper(BaseScraper):
         ("Flashback 2", "guitar_pedal", PRODUCT_URL.format(handle="0709-agb")),
         # TonePrint-only: the page lists manuals but no firmware. Kept so the empty
         # result is an explicit, verified fact rather than an unexplained gap.
+        # See NO_FIRMWARE below.
         ("Hall of Fame 2", "guitar_pedal", PRODUCT_URL.format(handle="0709-afs")),
         ("Plethora X5", "guitar_pedal", PRODUCT_URL.format(handle="0709-aik")),
         ("Plethora X3", "guitar_pedal", PRODUCT_URL.format(handle="0709-ais")),
@@ -35,6 +36,16 @@ class TCElectronicScraper(BaseScraper):
         ("PolyTune 3 Mini", "guitar_pedal", PRODUCT_URL.format(handle="0713-aam")),
         ("PolyTune 3 Noir", "guitar_pedal", PRODUCT_URL.format(handle="0713-aan")),
     ]
+
+    # Products established as taking no firmware at all, so their empty result reads
+    # as the verified fact it is rather than as a scraper that stopped working.
+    #
+    # Only Hall of Fame 2 is on this list. Ditto X4, Plethora X5 and the PolyTune 3s
+    # also report nothing and are probably the same story, but "probably" is not what
+    # this field is for -- they stay unmarked until someone checks.
+    NO_FIRMWARE = {
+        "Hall of Fame 2": "no_firmware",
+    }
 
     def _extract_model_code(self, url: str) -> Optional[str]:
         """Extract the product handle from a TC Electronic product URL.
@@ -177,6 +188,7 @@ class TCElectronicScraper(BaseScraper):
                 category=category,
                 firmware_page_url=url,
                 product_url=url,
+                firmware_availability=self.NO_FIRMWARE.get(name),
             )
             for name, category, url in self.KNOWN_PRODUCTS
         ]
