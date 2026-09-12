@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Firmware Tracker is a FastAPI web app that scrapes manufacturer websites for firmware/software updates for music production hardware and VST plugins, stores them in SQLite, and notifies users when tracked devices have new versions. It uses a plugin-based scraper architecture with 17+ manufacturer scrapers.
+Firmware Tracker is a FastAPI web app that scrapes manufacturer websites for firmware/software updates for music production hardware and VST plugins, stores them in SQLite, and notifies users when tracked devices have new versions. It uses a plugin-based scraper architecture with 24 manufacturer scrapers.
 
 ## Commands
 
