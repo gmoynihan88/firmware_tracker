@@ -124,7 +124,13 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`, or in bulk:
+**Add devices** from the catalogue at `/catalog`. 397 devices across 23 vendors, so it
+filters: type to narrow by product or vendor, untick a vendor, or hide what you already
+track. Devices already tracked say so instead of offering to add a second copy.
+
+![The catalogue, filtered to five devices by typing "digi"](docs/images/catalog.png)
+
+Or add them in bulk:
 
 ```bash
 python scripts/scan_installed_plugins.py --compare   # what matches the database
@@ -206,6 +212,12 @@ lines in the dump.
 device list, and git history is permanent. If you want the dumps versioned, put them
 in a private repo.
 
+**Check referential integrity** with `python scripts/check_orphans.py` (`--fix` deletes
+what it finds, exits 1 when there is anything). It should always find nothing: deletes
+cascade through the ORM and SQLite is told to enforce foreign keys. It exists because
+neither was true for most of this project's life, and a database outlives the bug that
+damaged it.
+
 ## Security
 
 **Authentication is off until you configure it**, which keeps a local install working
@@ -267,19 +279,22 @@ likely to touch:
 
 | Hardware | Plugins |
 |---|---|
-| Boss | Eventide |
-| Crumar | GForce Software |
-| Elektron | IK Multimedia |
-| Focusrite | iZotope |
-| Line 6 | Modartt (Pianoteq) |
-| Peterson | Moog |
-| QSC | Native Instruments |
-| Roland | Steinberg |
-| Sound-Force | TAL Software |
-| Strymon | Universal Audio |
+| Boss | GForce Software |
+| Crumar | IK Multimedia |
+| Elektron | iZotope |
+| Eventide\* | Modartt (Pianoteq) |
+| Focusrite | Moog |
+| Line 6 | Native Instruments |
+| Peterson | Steinberg |
+| QSC | TAL Software |
+| Roland | Universal Audio |
+| Sound-Force | |
+| Strymon | |
 | TC Electronic | |
 | Tascam | |
 | Yamaha | |
+
+\*Eventide is the only one on both sides: 54 plugins and 29 pedals.
 
 ## Adding a scraper
 
@@ -312,8 +327,8 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 159 tests
-pytest --cov=src                         # 68% overall, 82% outside the scrapers
+pytest                                   # 215 tests
+pytest --cov=src                         # 77% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
 coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs
@@ -370,6 +385,11 @@ docker-compose.yml     # Volumes, log caps
   trade-off is that a vendor cannot tell who is calling or ask you to stop.
 - The web app itself runs anywhere on Python 3.11+. Linux is CI-verified across 3.11,
   3.12 and 3.13; macOS is the development platform; Windows is untested.
+- **Release dates are missing for about a third of current versions** — 211 of 302 have
+  one. That is what the vendor publishes, not what the scraper managed to read: some
+  list a version with no date anywhere on the page. The catalogue shows an em-dash
+  rather than substituting the date the version was first seen, which would read as a
+  release date and would be wrong.
 
 ## License
 
