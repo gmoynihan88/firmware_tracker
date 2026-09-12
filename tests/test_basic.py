@@ -3609,3 +3609,59 @@ def test_boss_picks_the_system_program_over_the_editor_and_drivers():
       <a href="/z/">SY-300 Driver Ver.1.0.2 for Windows 10/11</a>
     """
     assert BossScraper()._system_program_link(editor_only) is None
+
+
+def test_yamaha_recognises_its_generic_landing_page():
+    """Eleven Yamaha product URLs serve the same page an invented slug does.
+
+    Reported as "no firmware", that claims a verified absence where there is a dead
+    URL -- the distinction the scrape summary exists to keep.
+    """
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    scraper = YamahaScraper()
+
+    dead = "<html><head><title>Firmware / Software Updates - Yamaha - United States</title></head><body></body></html>"
+    live = "<html><head><title>THR Remote V1.6.0 for Mac - Yamaha USA</title></head><body></body></html>"
+
+    assert scraper._is_dead_page(dead) is True
+    assert scraper._is_dead_page(live) is False
+    # No title at all is not a claim either way, so it is not treated as dead.
+    assert scraper._is_dead_page("<html><body>nothing</body></html>") is False
+
+
+@pytest.mark.asyncio
+async def test_yamaha_dead_url_is_a_failure_not_an_absence():
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    scraper = YamahaScraper()
+
+    async def landing(*args, **kwargs):
+        return "<html><head><title>Firmware / Software Updates - Yamaha</title></head></html>"
+
+    scraper.fetch_page = landing
+    result = await scraper.fetch_firmware_versions(
+        "Montage M6", "https://usa.yamaha.com/support/updates/montagem6_firm.html"
+    )
+
+    assert result.success is False
+    assert "montagem6_firm" in result.error
+
+
+def test_yamaha_reads_thr_firmware_from_the_remote_page():
+    """The THR-II line's firmware appears as a compatibility note on an app page.
+
+    One note covers all four amps; a second covers the G10T transmitter that ships
+    with the wireless model, which is why a Line 6 product is listed under Yamaha.
+    """
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    page = ("<html><body><p>[Firmware Ver.1.50 for THR-II]</p>"
+            "<p>[Firmware Ver.1.10 for THR30IIA Wireless]</p></body></html>")
+    scraper = YamahaScraper()
+
+    amps = scraper._parse_thr_remote_page(page, "THR30II Wireless")
+    transmitter = scraper._parse_thr_remote_page(page, "Line 6 G10TII")
+
+    assert [f.version for f in amps] == ["1.50"]
+    assert [f.version for f in transmitter] == ["1.10"]

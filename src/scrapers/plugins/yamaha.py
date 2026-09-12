@@ -5,7 +5,37 @@ from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, Scrap
 
 
 class YamahaScraper(BaseScraper):
-    """Scraper for Yamaha guitars, amps, and music production gear."""
+    """Yamaha, where most of the product pages this tracked no longer exist.
+
+    Eleven of the sixteen products pointed at URLs like
+    `/support/updates/montagem6_firm.html`, and every one of them returns the same
+    4,218-character landing page as a slug invented to test it. They are dead, and
+    the scraper used to report those products as having no firmware -- which claims
+    a verified absence where there is a broken URL.
+
+    The real pages were not found, and the search is recorded so it is not repeated
+    (checked 2026-09-12):
+
+    - Eleven slug shapes were tried -- `montage_m6_firm`, `montage_m_firm`,
+      `modx_firm`, `reface_firm`, `seqtrak_firm` and others. All matched the control
+      exactly.
+    - `/support/updates/index.html` renders 5,091 characters of navigation menus and
+      exactly one link, to itself. `networkidle` never fires on it.
+    - `download.yamaha.com` returns 816 characters to a browser and nothing to
+      aiohttp; its search URLs return empty.
+    - The one page that does work, `thr_remote_mac.html`, links to no siblings, so
+      the working pages are islands with no index reaching them.
+
+    So the dead pages are now detected and reported as failures. That is noisier than
+    the silence it replaces, and it is the truth: `devices_failed` means the fetch
+    broke, `devices_without_firmware` means the vendor publishes nothing, and these
+    are the first kind.
+
+    What still works is the THR Remote page, which lists amp firmware as
+    compatibility notes: "[Firmware Ver.1.50 for THR-II]" covers the four THR-II
+    amps, and "[Firmware Ver.1.10 for THR30IIA Wireless]" is the G10T transmitter
+    that ships with the wireless model, which is why a Line 6 product appears here.
+    """
 
     manufacturer_name = "Yamaha"
     manufacturer_slug = "yamaha"
@@ -46,6 +76,19 @@ class YamahaScraper(BaseScraper):
             for name, category, url in self.KNOWN_PRODUCTS
         ]
         return ScraperResult(success=True, devices=devices)
+
+    # Every dead product URL serves this, and so does a slug made up to test it. A
+    # live page titles itself after the download -- "THR Remote V1.6.0 for Mac".
+    LANDING_TITLE = "Firmware / Software Updates"
+
+    def _is_dead_page(self, html: str) -> bool:
+        """Whether Yamaha served its generic landing page instead of a product page.
+
+        Checked on the title rather than the body length, which would break the first
+        time Yamaha changed a footer.
+        """
+        title = self.parse_html(html).title
+        return bool(title) and self.LANDING_TITLE in title.get_text(strip=True)
 
     def _parse_thr_remote_page(self, html: str, device_name: str) -> list[ScrapedFirmware]:
         """Parse THR firmware versions from the THR Remote page."""
@@ -89,6 +132,15 @@ class YamahaScraper(BaseScraper):
         if not html:
             return ScraperResult(
                 success=False, error=f"Failed to fetch {firmware_page_url}"
+            )
+
+        if self._is_dead_page(html):
+            return ScraperResult(
+                success=False,
+                error=(
+                    f"{firmware_page_url} is gone -- it serves Yamaha's generic "
+                    f"updates landing page, the same one an invented slug returns"
+                ),
             )
 
         # Special handling for THR Remote page
