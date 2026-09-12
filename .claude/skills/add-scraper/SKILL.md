@@ -59,6 +59,83 @@ make a catalogue worse, and the check is cheap to run before writing the scraper
 count how many of the products you plan to add appear in whatever source carries
 versions.
 
+## Count the pages before committing to a design
+
+A scraper's cost is pages fetched per run, and it is worth measuring rather than
+assuming — static reading of the code got this wrong twice, calling Focusrite a
+28-page scraper when it fetches 4 category listings, and Boss a cheap one when it
+fetches a detail page per device.
+
+Instrument the helpers and count distinct URLs:
+
+```python
+urls = set()
+for attr in ("fetch_page", "fetch_page_js", "fetch_json"):
+    orig = getattr(scraper, attr)
+    def wrap(o):
+        async def inner(url, *a, **k):
+            urls.add(url); return await o(url, *a, **k)
+        return inner
+    setattr(scraper, attr, wrap(orig))
+```
+
+Measured across this repo, for scale:
+
+| Vendor | Devices | Pages/run |
+|---|---|---|
+| Korg | 164 | 165 (batched to 33) |
+| Eventide | 83 | 61 |
+| Roland / Boss | 16 each | 32 / 31 — a detail page per device |
+| Arturia | 183 | 2 — one JSON catalogue, one of resources |
+| Line 6, GForce, Peterson, Modartt | 8–19 | 1 |
+
+The budget is `30s + 15s per device` with a 900s hard timeout, so a page costing
+~5s puts the ceiling near 170 pages. Anything approaching that needs a different
+shape, not a faster parser.
+
+### When a vendor is too big to check in one run
+
+Korg has no listing covering more than one product and 164 current products, which
+is 794s against a 900s timeout — the first live run was killed by it. The answer was
+to check a fifth per run:
+
+```python
+BATCHES = 5
+
+def _today_batch(self):
+    return date.today().toordinal() % self.BATCHES
+
+def _select_batch(self, candidates):
+    ordered = sorted(candidates, key=lambda c: c[1])   # sort, then stride
+    if self._full_sweep:
+        return ordered
+    return ordered[self._today_batch():: self.BATCHES]
+```
+
+Three things make this work rather than merely defer the cost:
+
+- **Stride a sorted list, do not hash.** Hashing each URL is stable per product but
+  lumpy — 41/33/56/34 on Korg's catalogue, where the point of batching is a
+  predictable ceiling. Sorting first also stops the vendor's own presentation order
+  from reshuffling every batch at once.
+- **Derive the batch from the date**, so there is no state to store and two machines
+  scraping on the same day do the same work.
+- **Report `not_checked`, not an empty success.** The service iterates devices from
+  the *database*, so it will ask about every product it knows, including the four
+  fifths you skipped. An empty success asserts the vendor publishes nothing for them,
+  which would be false most days and would bury them in `devices_unexplained`.
+
+```python
+return ScraperResult(success=True, not_checked=True)
+```
+
+Offer a full sweep for first imports and catch-up (`KORG_FULL_SWEEP=1`, or
+`full_sweep=True`), and leave it off by default since it costs the whole budget.
+
+The trade is staleness: a release can sit unseen for `BATCHES` days. `last_seen_at`
+records when each product was actually confirmed, so nothing claims to be fresher
+than it is.
+
 ## Skeleton
 
 ```python
