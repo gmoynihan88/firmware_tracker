@@ -37,16 +37,38 @@ class YamahaScraper(BaseScraper):
     amps, and "[Firmware Ver.1.10 for THR30IIA Wireless]" is the G10T transmitter
     that ships with the wireless model, which is why a Line 6 product appears here.
 
-    No dates, checked rather than assumed. The download pages and the updater pages
-    behind them carry version history -- the MONTAGE M updater page lists every step
-    from "V1.00 to V1.10" up to "V3.00 to V3.01" with its changes -- and not one
-    release date among them. The only dates on those pages are a page-level
-    "Last updated: July 10, 2024" stamp and copyright years, neither of which belongs
-    to a release.
+    Dates come from the downloads tables, which have a "Last Update" column:
 
-    That version history is worth reading one day: it would turn the single version
-    each product reports into roughly ten with changelogs, at one more fetch per
-    family. It is not read yet.
+        Name                                          OS   Size    Last Update
+        MONTAGE M OS Updater V3.01 from version V3.00  -   75.4MB  2026-01-14
+        Yamaha Steinberg USB Driver V2.1.9 for Win    Win   8.2MB  2025-06-25
+
+    An earlier version of this scraper recorded no dates and said there were none.
+    There are, and the reason they were missed is worth keeping: flattened to text
+    the date lands *after* its own row's size and immediately before the next row's
+    name, so "75.4MB 2026-01-14 Yamaha Steinberg USB Driver" reads as though the
+    date introduces the driver. Every date on the page appears to belong to the
+    entry below it. Reading the table cells instead of the text removes the
+    ambiguity entirely -- structure over free text, for a page where free text is
+    not merely unreliable but consistently off by one row.
+
+    The reface products moved to the same kind of page. They had been pointed at
+    `/support/updates/reface_*_updater_for_mac.html`, which are download gates
+    carrying a EULA and no table. `/products/.../reface/downloads.html` lists all
+    four with dates, and one row covers CS and DX together.
+
+    Five products still have no date, and it is an absence rather than a gap:
+
+      - THR30II, THR10II and their Wireless versions. Their firmware appears only
+        as compatibility notes on the THR Remote page ("[Firmware Ver.1.50 for
+        THR-II]"), which carries no dates. The THR-II downloads page does have a
+        dated row -- "THR Remote V1.6.0 ... 2025-12-17" -- but that is the desktop
+        editor, not the amp, and its numbering runs on its own track.
+      - Line 6 G10TII, for the same reason.
+
+    The only other date anywhere near these pages is "Last updated: July 10, 2024",
+    which is identical on the THR Remote page and all three reface updater pages
+    because it is the end of the licence agreement, not a release.
     """
 
     manufacturer_name = "Yamaha"
@@ -71,14 +93,10 @@ class YamahaScraper(BaseScraper):
         ("Montage M6", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
         ("SEQTRAK", "synthesizer",
          "https://usa.yamaha.com/products/music_production/music-production-studios/seqtrak/downloads.html"),
-        ("reface CS", "synthesizer",
-         "https://usa.yamaha.com/support/updates/reface_csdx_updater_for_mac.html"),
-        ("reface DX", "synthesizer",
-         "https://usa.yamaha.com/support/updates/reface_csdx_updater_for_mac.html"),
-        ("reface CP", "synthesizer",
-         "https://usa.yamaha.com/support/updates/reface_cp_updater_for_mac.html"),
-        ("reface YC", "synthesizer",
-         "https://usa.yamaha.com/support/updates/reface_yc_updater_for_mac.html"),
+        ("reface CS", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
+        ("reface DX", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
+        ("reface CP", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
+        ("reface YC", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
     ]
 
     async def fetch_device_list(self) -> ScraperResult:
@@ -111,9 +129,95 @@ class YamahaScraper(BaseScraper):
 
         Checked on the title rather than the body length, which would break the first
         time Yamaha changed a footer.
+
+        Only the "Firmware / Software Updates" landing page is detectable this way. A
+        made-up slug under /products/ returns the *category* index instead -- 200, and
+        titled "Synthesizers - Synthesizers & Music Production" -- which no title rule
+        separates from a real product page: "reface - Downloads - Synthesizers" has
+        Downloads in it and "MONTAGE M Synthesizer Manuals & Software" does not, so
+        requiring the word rejects two live pages. What protects against that page is
+        that it carries no updater row, and nothing here guesses a version from free
+        text any more.
         """
         title = self.parse_html(html).title
         return bool(title) and self.LANDING_TITLE in title.get_text(strip=True)
+
+    @staticmethod
+    def _row_applies_to(row_name: str) -> list:
+        """Product prefixes a downloads row covers.
+
+        The name runs "<product> [OS] Updater V<version> ...", and one row can cover
+        two products: "reface CS/DX updater" is CS and DX, the way one updater file
+        serves both instruments.
+        """
+        prefix = re.split(r"\s*updater\b", row_name, maxsplit=1, flags=re.I)[0]
+        prefix = re.sub(r"\bOS\s*$", "", prefix.strip()).strip()
+        if not prefix:
+            return []
+
+        # "reface CS/DX" -> "reface CS", "reface DX". The alternation is always on
+        # the last word, so everything before it is the shared part of the name.
+        head, _, tail = prefix.rpartition(" ")
+        if head and "/" in tail:
+            return [f"{head} {part}".lower() for part in tail.split("/") if part]
+        return [prefix.lower()]
+
+    def _parse_downloads_table(self, html: str, device_name: str) -> list:
+        """Read updater rows and their Last Update dates for one product.
+
+        Only rows whose own name names this product are taken. The same table lists
+        "Yamaha Steinberg USB Driver V2.1.9" and "USB-MIDI Driver V3.1.5", each with
+        a date of its own, and on the THR-II page "THR Remote V1.6.0" -- the editor
+        rather than the amp. Requiring the word Updater excludes all of them.
+        """
+        wanted = device_name.lower()
+        versions = []
+        seen = set()
+
+        for table in self.parse_html(html).find_all("table"):
+            rows = table.find_all("tr")
+            if not rows:
+                continue
+            header = [cell.get_text(" ", strip=True) for cell in rows[0].find_all(["td", "th"])]
+            if "Last Update" not in header:
+                continue
+            date_column = header.index("Last Update")
+
+            for row in rows[1:]:
+                cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["td", "th"])]
+                if len(cells) <= date_column:
+                    continue
+
+                match = self.UPDATER.search(cells[0])
+                if not match:
+                    continue
+                if not any(wanted.startswith(p) for p in self._row_applies_to(cells[0])):
+                    continue
+
+                version = match.group(1)
+                if version in seen:
+                    # MONTAGE M lists V3.01 twice, as a full installer and as a step
+                    # up from V3.00. One release, two files.
+                    continue
+                seen.add(version)
+
+                try:
+                    release_date = datetime.strptime(cells[date_column], "%Y-%m-%d")
+                except ValueError:
+                    release_date = None
+
+                versions.append(
+                    ScrapedFirmware(version=version, release_date=release_date)
+                )
+
+        # Newest first. The table is ordered by platform, not by version -- reface
+        # lists V1.30-3, then V1.30, then V1.20 -- and "1.30-3" has to sort above
+        # "1.30", so the numbers are compared as tuples rather than as text.
+        return sorted(versions, key=lambda fw: self._version_key(fw.version), reverse=True)
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        return tuple(int(part) for part in re.findall(r"\d+", version)) or (0,)
 
     def _parse_updater_page(self, html: str) -> list:
         """Read the OS updater version from a downloads or updater page.
@@ -189,96 +293,23 @@ class YamahaScraper(BaseScraper):
             if firmware_versions:
                 return ScraperResult(success=True, firmware_versions=firmware_versions)
 
+        # The table first: it is the only source that carries dates.
+        dated = self._parse_downloads_table(html, device_name)
+        if dated:
+            return ScraperResult(success=True, firmware_versions=dated)
+
         updater = self._parse_updater_page(html)
         if updater:
             return ScraperResult(success=True, firmware_versions=updater)
 
-        soup = self.parse_html(html)
-        firmware_versions = []
-        all_text = soup.get_text()
-
-        # Yamaha versions look like "V1.20" or "Ver.1.20" or "Version 1.20"
-        version_pattern = r"[Vv](?:er\.?|ersion)?\s*(\d+\.\d+(?:\.\d+)?)"
-
-        # Yamaha support pages have structured download sections
-        sections = soup.find_all(
-            ["div", "section", "article", "tr", "li", "td"],
-            class_=re.compile(r"download|firmware|update|version|content", re.I)
-        )
-
-        # Also look at table rows
-        tables = soup.find_all("table")
-        for table in tables:
-            rows = table.find_all("tr")
-            sections.extend(rows)
-
-        for section in sections:
-            text = section.get_text()
-            version_match = re.search(version_pattern, text)
-
-            if version_match:
-                version = version_match.group(1)
-
-                # Find download link
-                download_link = section.find("a", href=re.compile(r"\.(zip|exe|dmg|bin)", re.I))
-                download_url = download_link["href"] if download_link else None
-                if download_url and not download_url.startswith("http"):
-                    download_url = f"https://usa.yamaha.com{download_url}"
-
-                # Yamaha uses various date formats
-                date_patterns = [
-                    (r"(\w+)\s+(\d{1,2}),?\s+(\d{4})", "%B %d %Y"),  # Month DD, YYYY
-                    (r"(\d{4})[/-](\d{2})[/-](\d{2})", "%Y-%m-%d"),  # YYYY-MM-DD
-                    (r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", None),    # MM/DD/YYYY or DD/MM/YYYY
-                ]
-                release_date = None
-
-                for pattern, fmt in date_patterns:
-                    date_match = re.search(pattern, text)
-                    if date_match:
-                        try:
-                            if fmt:
-                                date_str = " ".join(date_match.groups())
-                                release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                            else:
-                                # Assume MM/DD/YYYY for US site
-                                m, d, y = date_match.groups()
-                                release_date = datetime(int(y), int(m), int(d))
-                            break
-                        except ValueError:
-                            continue
-
-                # Get changelog/notes
-                changelog = None
-                notes_elem = section.find(["ul", "div", "p"], class_=re.compile(r"note|change|detail|description", re.I))
-                if notes_elem:
-                    changelog = notes_elem.get_text(strip=True)[:500]
-
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=download_url,
-                        changelog=changelog,
-                    )
-                )
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-        firmware_versions = unique
-
-        # Fallback: scan entire page
-        if not firmware_versions:
-            matches = re.findall(version_pattern, all_text)
-            seen = set()
-            for version in matches:
-                if version not in seen:
-                    seen.add(version)
-                    firmware_versions.append(ScrapedFirmware(version=version))
-
-        return ScraperResult(success=True, firmware_versions=firmware_versions)
+        # No free-text fallback. What stood here scanned the whole page for
+        # anything shaped like "V1.20" and, failing that, scanned it again with the
+        # same pattern -- on pages that also carry driver versions, file sizes and
+        # macOS requirements. Every product now reads either the THR Remote page or
+        # a downloads table, so the fallback was unreachable for all sixteen while
+        # remaining the thing that would fire if a table ever moved: silently, with
+        # a number taken from whatever else was on the page.
+        #
+        # Reporting nothing is the honest answer. It renders as "Firmware Unknown",
+        # which prompts a look; a version scraped off a file size does not.
+        return ScraperResult(success=True, firmware_versions=[])

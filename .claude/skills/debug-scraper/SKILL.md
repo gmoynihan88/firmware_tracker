@@ -159,6 +159,19 @@ This is the identical-length tell sharpened: comparing two real URLs catches a d
 path, comparing a real one against a fabricated one catches an endpoint that cannot
 say no.
 
+**Sometimes no rule separates the control from a live page, and that is the answer.**
+A fabricated slug under Yamaha's `/products/.../<slug>/downloads.html` returns the
+*category index* with a 200 and a perfectly ordinary title. Titles do not tell them
+apart: the live pages are "reface - Downloads - Synthesizers" and "MONTAGE M
+Synthesizer Manuals & Software", so requiring the word Downloads rejects the second
+one. That was written, tested against the products, and reverted.
+
+When the page itself cannot be identified as dead, make the *parser* the thing that
+refuses: the category index carries no updater row, so a scraper that only reads
+rows reports nothing for it. This works only if there is no free-text fallback
+underneath -- one scanning for anything shaped like a version will happily find
+something on a category page. See Step 5.
+
 ## Step 1b — Does one page carry every product?
 
 Check before designing anything per-device. Several manufacturers publish a single
@@ -271,6 +284,32 @@ they look exactly right:
 A GForce product page yields four of these and no firmware version at all. If a
 pattern matches something on a page you believe has no version, that is the pattern
 being wrong, not the page being right.
+
+### A flattened table puts every value against the wrong row
+
+Worse than noise, because it is consistent and therefore convincing. Yamaha's
+downloads pages are a table:
+
+| Name | OS | Size | Last Update |
+|---|---|---|---|
+| MONTAGE M OS Updater V3.01 from version V3.00 | - | 75.4MB | 2026-01-14 |
+| Yamaha Steinberg USB Driver V2.1.9 for Windows | Win | 8.2MB | 2025-06-25 |
+
+`get_text()` renders that as:
+
+```
+...Updater V3.01 from version V3.00 - 75.4MB 2026-01-14 Yamaha Steinberg USB Driver V2.1.9...
+```
+
+Each date now sits immediately before the **next** row's name. Read as text, every
+date on the page looks like it introduces the entry below it, so the page reads as
+though only the drivers are dated and the updaters are not. That conclusion was
+written into the scraper's docstring -- "No dates, checked rather than assumed" --
+and stood for as long as nobody looked at the cells.
+
+The tell is a date that makes no sense for the thing it appears to modify, or a
+column of dates that all seem to belong to entries of one kind. Iterate `tr`, index
+the cells by their header, and the ambiguity disappears.
 
 ### The version on the page often belongs to something else
 
@@ -426,6 +465,27 @@ Two sources look like dates and are not: a page-level "Last updated: July 10, 20
 stamp, which belongs to the page rather than any release on it, and a "Revised
 06/07/2017" against an instructions section. Attaching either to a version is the
 fabrication this project exists to avoid.
+
+A useful check on the first kind: fetch a second, unrelated page from the same
+vendor. Yamaha's "Last updated: July 10, 2024" is byte-identical on the THR Remote
+page and all three reface updater pages, because it is the end of the licence
+agreement. A date that does not move between products is not about any product.
+
+### "This vendor publishes no dates" is a claim, not a finding
+
+It ages exactly as badly as a version number, and it is usually recorded as settled
+prose in a docstring where nothing re-checks it. Yamaha's said "No dates, checked
+rather than assumed." Every downloads page had a `Last Update` column; the text
+rendering hid it (see Step 4). Sixteen products carried no date for as long as that
+sentence went unquestioned.
+
+Before accepting it, re-run the search against the page rather than the docstring,
+and check whether the product has a second page. reface pointed at
+`/support/updates/reface_cp_updater_for_mac.html`, which is a EULA download gate
+with no table at all; `/products/.../reface/downloads.html` lists all four products
+with dates. **A URL that serves a file is not necessarily the page that describes
+it** -- when a scraper's page is a download gate, look for the product's own
+downloads page.
 
 Where a vendor gives only a month -- Roland's `[ Ver.1.82 ] JUN 2023` -- store the
 first of it and say so, rather than dropping the release date entirely.
