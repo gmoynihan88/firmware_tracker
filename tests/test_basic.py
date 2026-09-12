@@ -4390,3 +4390,134 @@ async def test_sqlite_is_told_to_enforce_foreign_keys():
 
     async with test_engine.connect() as conn:
         assert (await conn.execute(sa_text("PRAGMA foreign_keys"))).scalar_one() == 1
+
+
+# --- yamaha dates ----------------------------------------------------------
+
+
+def _yamaha_downloads_page() -> str:
+    """A downloads table, shaped like the real one.
+
+    Flattened to text this reads "...75.4MB 2026-01-14 Yamaha Steinberg USB Driver
+    V2.1.9...", which puts every date immediately before the *next* row's name. That
+    is why the scraper recorded no dates for so long and reported there were none.
+    The drivers and the editor carry their own versions and their own dates, and a
+    pattern that does not require the word Updater takes them.
+    """
+    return """
+    <html><head><title>MONTAGE M Synthesizer Manuals &amp; Software - Yamaha USA</title></head>
+    <body><table class="table table-bordered">
+      <tr><th>Name</th><th>OS</th><th>Size</th><th>Last Update</th></tr>
+      <tr><td>MONTAGE M OS Updater V3.01 from earlier versions (3.91GB)</td>
+          <td>-</td><td>&mdash;</td><td>2026-01-14</td></tr>
+      <tr><td>MONTAGE M OS Updater V3.01 from version V3.00</td>
+          <td>-</td><td>75.4MB</td><td>2026-01-14</td></tr>
+      <tr><td>MONTAGE M OS Updater V2.00</td>
+          <td>-</td><td>3.8GB</td><td>2024-06-11</td></tr>
+      <tr><td>Yamaha Steinberg USB Driver V2.1.9 for Windows 11/10 (64-bit)</td>
+          <td>Win</td><td>8.2MB</td><td>2025-06-25</td></tr>
+      <tr><td>THR Remote V1.6.0 for Mac</td><td>Mac</td><td>20.3MB</td><td>2025-12-17</td></tr>
+    </table></body></html>
+    """
+
+
+def _yamaha_reface_page() -> str:
+    """One table covering four products, with CS and DX sharing an updater file."""
+    return """
+    <html><head><title>reface - Downloads - Synthesizers - Yamaha USA</title></head>
+    <body><table class="table table-bordered">
+      <tr><th>Name</th><th>OS</th><th>Size</th><th>Last Update</th></tr>
+      <tr><td>reface CP updater V1.30-3 for Mac</td><td>Mac</td><td>7.9MB</td><td>2019-10-25</td></tr>
+      <tr><td>reface CS/DX updater V1.30-3 for Mac</td><td>Mac</td><td>6.6MB</td><td>2019-10-25</td></tr>
+      <tr><td>reface YC updater V1.30-3 for Mac</td><td>Mac</td><td>7.2MB</td><td>2019-10-25</td></tr>
+      <tr><td>reface CP updater V1.30 for Windows</td><td>Win</td><td>9.5MB</td><td>2016-04-07</td></tr>
+      <tr><td>reface CS/DX updater V1.20 for Win</td><td>Win</td><td>12.9MB</td><td>2015-09-01</td></tr>
+    </table></body></html>
+    """
+
+
+def test_yamaha_pairs_each_version_with_its_own_rows_date():
+    """The date is in the row's own cell, not the text that follows it."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    versions = YamahaScraper()._parse_downloads_table(
+        _yamaha_downloads_page(), "Montage M8x"
+    )
+
+    assert [(fw.version, fw.release_date.strftime("%Y-%m-%d")) for fw in versions] == [
+        ("3.01", "2026-01-14"),
+        ("2.00", "2024-06-11"),
+    ]
+
+
+def test_yamaha_ignores_the_drivers_and_the_editor_sharing_the_table():
+    """Each carries a version and a date of its own, and neither is the instrument's.
+
+    THR Remote is the trap worth naming: it is dated, it is on the amp's own
+    downloads page, and its numbering runs on a different track from the amp's.
+    """
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    versions = YamahaScraper()._parse_downloads_table(
+        _yamaha_downloads_page(), "Montage M8x"
+    )
+    found = {fw.version for fw in versions}
+
+    assert "2.1.9" not in found, "took the USB driver"
+    assert "1.6.0" not in found, "took the THR Remote editor"
+
+
+def test_yamaha_reads_a_shared_updater_for_both_products():
+    """reface CS/DX is one file for two instruments, and CP must not collect it."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    scraper = YamahaScraper()
+    page = _yamaha_reface_page()
+
+    cs = {fw.version for fw in scraper._parse_downloads_table(page, "reface CS")}
+    dx = {fw.version for fw in scraper._parse_downloads_table(page, "reface DX")}
+    cp = {fw.version for fw in scraper._parse_downloads_table(page, "reface CP")}
+
+    assert cs == dx == {"1.30-3", "1.20"}
+    assert cp == {"1.30-3", "1.30"}
+    assert "1.20" not in cp, "CP collected the CS/DX updater"
+
+
+def test_yamaha_sorts_newest_first_with_a_suffixed_version():
+    """The table is ordered by platform, so "1.30-3" has to sort above "1.30"."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    versions = YamahaScraper()._parse_downloads_table(_yamaha_reface_page(), "reface CP")
+
+    assert [fw.version for fw in versions] == ["1.30-3", "1.30"]
+
+
+def test_yamaha_invents_nothing_when_the_table_is_gone():
+    """The free-text fallback that used to stand here would scan this and find 10.15.
+
+    An honest empty renders as "Firmware Unknown" and prompts a look. A version
+    taken off an OS requirement is a green tick that stops anyone looking.
+    """
+    import asyncio
+
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    page = """<html><head><title>MODX Manuals &amp; Software - Yamaha USA</title></head>
+        <body><p>Requires macOS 10.15 or above. Download size 12.9MB.
+        See Firmware Ver.9.99 for details.</p></body></html>"""
+
+    scraper = YamahaScraper()
+    assert scraper._parse_downloads_table(page, "MODX8") == []
+
+    async def run():
+        async def fake_fetch(url, **kwargs):
+            return page
+
+        scraper.fetch_page = fake_fetch
+        return await scraper.fetch_firmware_versions(
+            "MODX8", "https://usa.yamaha.com/products/x/downloads.html"
+        )
+
+    result = asyncio.run(run())
+    assert result.success is True
+    assert result.firmware_versions == []
