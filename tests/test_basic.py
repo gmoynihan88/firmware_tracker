@@ -3727,3 +3727,88 @@ async def test_peterson_matches_the_vendors_casing():
 
     assert result.success is True
     assert [f.version for f in result.firmware_versions] == ["1.1.12"]
+
+
+def _probe_scraper():
+    from src.scrapers.base import BaseScraper
+
+    class Probe(BaseScraper):
+        manufacturer_name, manufacturer_slug = "Probe", "probe"
+        manufacturer_website = "https://example.invalid"
+
+        async def fetch_device_list(self):
+            ...
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url):
+            ...
+
+    return Probe()
+
+
+def test_identical_pages_groups_urls_that_return_the_same_thing():
+    """Every dead-URL case in this project is different URLs, one answer.
+
+    Yamaha's eleven product pages and an invented slug all returned the same landing
+    page; Elektron's query parameter selected nothing for any product.
+    """
+    scraper = _probe_scraper()
+
+    shell = "<html><body><p>Firmware / Software Updates</p></body></html>"
+    real = "<html><body><p>MODX6 firmware 1.20</p></body></html>"
+
+    scraper._fingerprint("https://e.invalid/a", shell)
+    scraper._fingerprint("https://e.invalid/b", shell)
+    scraper._fingerprint("https://e.invalid/c", shell)
+    scraper._fingerprint("https://e.invalid/real", real)
+
+    groups = scraper.identical_pages()
+
+    assert len(groups) == 1
+    assert groups[0] == ["https://e.invalid/a", "https://e.invalid/b", "https://e.invalid/c"]
+
+
+def test_products_sharing_one_url_are_not_flagged():
+    """QSC's K.2 range, every Peterson product and all of Steinberg share a URL.
+
+    That is one URL rather than several, so it cannot be a URL shape that stopped
+    selecting -- and flagging it would make the check noise.
+    """
+    scraper = _probe_scraper()
+
+    page = "<html><body><p>shared support page</p></body></html>"
+    for _ in range(5):
+        scraper._fingerprint("https://e.invalid/support", page)
+
+    assert scraper.identical_pages() == []
+
+
+def test_fingerprint_ignores_a_per_request_token():
+    """Elektron's pages differ only by an injected timestamp of constant length.
+
+        window.__wc_fb_page_generated = 1789238504;
+
+    Hashing the raw body makes eleven copies of one page look like eleven different
+    pages -- exactly the case this exists to catch. Scripts are stripped first.
+    """
+    scraper = _probe_scraper()
+
+    first = "<html><head><script>window.__wc_fb_page_generated = 1789238504;</script></head><body><p>same</p></body></html>"
+    second = "<html><head><script>window.__wc_fb_page_generated = 1789239134;</script></head><body><p>same</p></body></html>"
+
+    scraper._fingerprint("https://e.invalid/one", first)
+    scraper._fingerprint("https://e.invalid/two", second)
+
+    assert len(scraper.identical_pages()) == 1
+
+
+def test_fingerprint_failure_never_breaks_a_fetch():
+    """The fingerprint is diagnostic, so taking one must not affect the result."""
+    scraper = _probe_scraper()
+
+    def explode(_html):
+        raise ValueError("parser fell over")
+
+    scraper.parse_html = explode
+    scraper._fingerprint("https://e.invalid/x", "<html></html>")  # must not raise
+
+    assert scraper.identical_pages() == []
