@@ -24,6 +24,7 @@ actually reachable.
 | Versions right, dates missing or wrong | Step 4, then the dates section |
 | One version repeated across the catalogue | Step 0's audit, then Step 6 |
 | Data comes from an API and still looks wrong | Step 2b — API metadata lies too |
+| "Firmware only ships through the vendor's app" | Step 4c — that predicts nothing |
 | Scrape creates new rows instead of updating | Step 4b — name normalisation |
 
 ## Step 0 — Which scraper is lying?
@@ -453,6 +454,39 @@ check the two agree on a single value before trusting either.
 Prefer discovering product URLs from an index page over transcribing slugs --
 Focusrite and GForce had both changed their URL shape, and a discovered list cannot
 go stale the same way.
+
+## Step 4c — How firmware is delivered says nothing about whether it is published
+
+The most expensive wrong inference made in this repo, and it reads as obvious sense:
+this vendor ships firmware through its own installer, so there is no version to
+scrape. It cost 22 products with dated history.
+
+Universal Audio's UADX plugins go through UA Connect, and the manifest it fetches is
+an encrypted blob — genuinely unscrapeable. The whole vendor was written off on that
+basis. But UA's UAFX pedals go through UA Connect too, and their release notes open
+with:
+
+> To update your pedal's firmware, use UA Connect.
+
+and then list sixteen versions with dates back to March 2021. Same installer, same
+vendor, fully published.
+
+The same split runs through Eventide: pedal firmware ships via Eventide Device
+Manager and is published nowhere, while the plug-ins on the same downloads page carry
+versions. And Yamaha's updaters are downloaded manually, which implies nothing either
+way — what mattered was a table nobody had read.
+
+**Delivery mechanism and publication are independent.** The only thing that settles it
+is looking for the release notes:
+
+- The vendor's own support site, especially a Zendesk Help Center — `/api/v2/help_center/articles/search.json?query=firmware+release+notes` answers where the HTML does not.
+- Search the help centre per product line rather than per product. UA has one article
+  for all 21 UAFX pedals, the way Roland has one System Program per family.
+- A vendor with nothing for one product line may publish fully for another, so
+  conclude per line, not per vendor.
+
+When a vendor genuinely publishes nothing, record that with `firmware_availability`
+rather than leaving it as an unexplained silence — see the `add-scraper` skill.
 
 ## Step 5 — Never leave a hardcoded table as a silent fallback
 

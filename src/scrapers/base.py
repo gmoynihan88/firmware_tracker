@@ -51,6 +51,13 @@ class ScraperResult:
     firmware_versions: List[ScrapedFirmware] = field(default_factory=list)
     error: Optional[str] = None
 
+    # The scraper deliberately did not look this run. Distinct from an empty success,
+    # which asserts the vendor publishes nothing: this asserts nothing at all, and
+    # lands in `devices_not_checked` beside the devices a budget overrun skipped.
+    # Set by scrapers that spread their catalogue over several runs -- see korg.py,
+    # where checking all 164 products in one run exceeds the hard timeout.
+    not_checked: bool = False
+
 
 logger = logging.getLogger(__name__)
 
