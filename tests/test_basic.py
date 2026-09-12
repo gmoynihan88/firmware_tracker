@@ -4190,3 +4190,64 @@ async def test_notification_timestamps_share_one_column(client):
 
     assert "flex: 1" in block
     assert "min-width: 0" in block
+
+
+@pytest.mark.asyncio
+async def test_catalog_shows_the_vendor_s_release_date(client):
+    """The Released column carries the vendor's date and nothing else.
+
+    Two thirds of the current versions have one. For the rest the vendor publishes
+    none, and `created_at` -- when this tracker first saw the version -- is a
+    different fact. Borrowing it under a "Released" heading would turn "we started
+    looking in September" into "the vendor shipped this in September", which is the
+    invention the scrapers are written to avoid. The dashboard shows first-seen in
+    its own Discovered column.
+    """
+    import re
+    from datetime import datetime
+
+    from sqlalchemy import update
+
+    from src.devices.models import DeviceCategory, FirmwareVersion
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+    )
+    from src.devices import service as ds
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Datever", slug="datever")
+        )
+        dated = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Dated Box", category=DeviceCategory.OTHER,
+        ))
+        undated = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Undated Box", category=DeviceCategory.OTHER,
+        ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=dated.id, version="3.1.0",
+            release_date=datetime(2024, 11, 19), is_latest=True,
+        ))
+        fw = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=undated.id, version="4.0.0", is_latest=True,
+        ))
+        # Give it a first-seen date that would be visible if the column fell back.
+        await db.execute(
+            update(FirmwareVersion)
+            .where(FirmwareVersion.id == fw.id)
+            .values(created_at=datetime(2026, 1, 2))
+        )
+        await db.commit()
+
+    html = (await client.get("/catalog")).text
+
+    headers = re.findall(r"<th[^>]*>(?:<span[^>]*>)?([A-Za-z]+)", html)
+    assert headers[:5] == ["Vendor", "Product", "Type", "Latest", "Released"]
+
+    dated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Dated Box.*?</tr>", html, re.S)
+    assert dated_row and "2024-11-19" in dated_row.group(0)
+
+    undated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Undated Box.*?</tr>", html, re.S)
+    assert undated_row
+    assert "2026-01-02" not in undated_row.group(0), "fell back to the first-seen date"
+    assert "&#8212;" in undated_row.group(0) or "—" in undated_row.group(0)

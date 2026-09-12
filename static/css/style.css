@@ -2228,6 +2228,16 @@ select:disabled {
 
 .cell-category { color: var(--text-tertiary); }
 
+/* Used by both tables' date columns, which had no rule of their own. Tabular
+   figures so the day and month digits line up down the column rather than
+   drifting; a third of the catalog's dates are an em-dash, and ragged numerals
+   beside them made the column look like noise. */
+.cell-date {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
 .cell-link {
     color: var(--text-tertiary);
     text-decoration: none;

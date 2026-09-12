@@ -118,6 +118,7 @@
                     <th class="sortable" data-column="1" scope="col">Product</th>
                     <th class="sortable" data-column="2" scope="col">Type</th>
                     <th class="sortable numeric" data-column="3" scope="col">Latest</th>
+                    <th class="sortable" data-column="4" scope="col">Released</th>
                     <th scope="col"><span class="visually-hidden">Track</span></th>
                 </tr>
             </thead>
@@ -130,7 +131,18 @@
                     <td>{{ model.manufacturer.name }}</td>
                     <td class="device-name">{{ model.name }}</td>
                     <td class="muted">{{ model.category.value | replace('_', ' ') | title }}</td>
-                    <td class="numeric">{{ latest_versions.get(model.id) or '—' }}</td>
+                    {% set latest = latest_versions.get(model.id) %}
+                    <td class="numeric">{{ latest.version if latest else '—' }}</td>
+                    {# The vendor's own date, never the date we first saw the version. #}
+                    <td class="cell-date">
+                        {%- if latest and latest.release_date -%}
+                        {{ latest.release_date.strftime('%Y-%m-%d') }}
+                        {%- elif latest -%}
+                        <span title="{{ model.manufacturer.name }} publishes no release date for this version">—</span>
+                        {%- else -%}
+                        —
+                        {%- endif -%}
+                    </td>
                     <td class="row-action">
                         {% if model.id in tracked_model_ids %}
                         <span class="tracked-flag">&#10003; tracked</span>

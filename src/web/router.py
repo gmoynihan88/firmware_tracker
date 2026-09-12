@@ -288,12 +288,22 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
         row[0] for row in (await db.execute(select(MyDevice.device_model_id))).all()
     }
 
-    # Latest known version per model, in one query rather than one per row.
+    # Latest known version per model, in one query rather than one per row. The
+    # release date rides along: 201 of the 303 current versions carry one, and the
+    # other 102 are vendors who publish none rather than a date we failed to read.
+    # Those render as an em-dash. `created_at` is not substituted -- it is when this
+    # tracker first saw the version, which is a different fact, and putting it under
+    # a "Released" heading would be the invention this project exists to avoid. The
+    # dashboard shows it in its own "Discovered" column instead.
     latest_versions = {
-        row[0]: row[1]
+        row.device_model_id: row
         for row in (
             await db.execute(
-                select(FirmwareVersion.device_model_id, FirmwareVersion.version)
+                select(
+                    FirmwareVersion.device_model_id,
+                    FirmwareVersion.version,
+                    FirmwareVersion.release_date,
+                )
                 .where(FirmwareVersion.is_latest.is_(True))
             )
         ).all()
