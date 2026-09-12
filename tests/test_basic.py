@@ -3218,3 +3218,104 @@ async def test_device_models_partial_filters_by_manufacturer(client):
     response = await client.get(f"/partials/device-models?manufacturer_id={mfr_id}")
     assert response.status_code == 200
     assert "Partial Box" in response.text
+
+
+def test_soundforce_reads_a_date_that_sits_above_the_version():
+    """Sound-Force puts the date on its own line, behind a dash, above the version.
+
+    The combined pattern only matched when both shared a line, so seven releases were
+    stored with no date at all while the date sat one line up in the same page.
+    """
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    html = """<p>\u2013 07/10/2024:</p><p>V1.11:</p><p>MacOS updater app download</p>
+    <p>V1.11:</p><p>Windows updater</p>
+    <p>\u2013 18/07/2022:</p><p>V1.10:</p><p>MacOS updater app download</p>"""
+
+    versions = SoundForceScraper()._parse_updates(html)
+    dates = {fw.version: fw.release_date for fw in versions}
+
+    # 07/10/2024 is day/month: the page's other entries (18/07, 13/06) can only be
+    # read that way, so this is 7 October rather than 10 July.
+    assert dates["1.11"].strftime("%Y-%m-%d") == "2024-10-07"
+    assert dates["1.10"].strftime("%Y-%m-%d") == "2022-07-18"
+    # One date heads both the macOS and Windows entries, which dedupe to one version.
+    assert len(versions) == 2
+
+
+def test_soundforce_does_not_attach_a_date_to_an_unrelated_version():
+    """A version appearing before any date line must stay undated."""
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    html = "<p>V2.0:</p><p>early entry</p><p>\u2013 13/06/2022:</p><p>V1.9:</p>"
+
+    dates = {fw.version: fw.release_date for fw in SoundForceScraper()._parse_updates(html)}
+
+    assert dates["2.0"] is None
+    assert dates["1.9"].strftime("%Y-%m-%d") == "2022-06-13"
+
+
+def test_malformed_download_urls_are_rejected():
+    """An earlier TAL scraper stored links with a failed relative join.
+
+    `https://tal-software.com../../downloads/...` has dot-segments in the hostname,
+    which no amount of normalising fixes -- it is a bad join, not a relative path.
+    """
+    from src.scrapers.service import _clean_url
+
+    assert _clean_url("https://tal-software.com../../downloads/x.zip") is None
+    assert _clean_url("/relative/path") is None
+    assert _clean_url("ftp://example.com/x") is None
+    assert _clean_url("") is None
+    assert _clean_url(None) is None
+    assert _clean_url("https://example.com/a.zip") == "https://example.com/a.zip"
+
+
+def test_rescraping_corrects_a_stored_date_but_keeps_first_seen():
+    """A value written by an older scraper must not be permanent.
+
+    SFC-60 1.11 carried a date three months wrong, and fixing the parser did not
+    correct it because the row already existed. created_at stays put -- it is the
+    first-seen signal, and for roughly half the catalogue the only date there is.
+    """
+    from datetime import datetime
+    from src.scrapers.base import ScrapedFirmware
+    from src.scrapers.service import _refresh_firmware_row
+
+    class Row:
+        release_date = datetime(2024, 7, 10)
+        download_url = "https://tal-software.com../../bad.zip"
+        changelog_raw = None
+        created_at = datetime(2026, 9, 9)
+
+    row = Row()
+    _refresh_firmware_row(row, ScrapedFirmware(
+        version="1.11",
+        release_date=datetime(2024, 10, 7),
+        download_url=None,
+        changelog="Fixed a thing",
+    ))
+
+    assert row.release_date == datetime(2024, 10, 7)   # corrected
+    assert row.download_url is None                     # malformed value dropped
+    assert row.changelog_raw == "Fixed a thing"         # filled in
+    assert row.created_at == datetime(2026, 9, 9)       # first-seen untouched
+
+
+def test_refresh_never_erases_a_date_the_scraper_stopped_reporting():
+    """A vendor removing a date should not delete one already recorded."""
+    from datetime import datetime
+    from src.scrapers.base import ScrapedFirmware
+    from src.scrapers.service import _refresh_firmware_row
+
+    class Row:
+        release_date = datetime(2022, 6, 13)
+        download_url = "https://example.com/a.zip"
+        changelog_raw = "original notes"
+
+    row = Row()
+    _refresh_firmware_row(row, ScrapedFirmware(version="1.9"))
+
+    assert row.release_date == datetime(2022, 6, 13)
+    assert row.download_url == "https://example.com/a.zip"
+    assert row.changelog_raw == "original notes"

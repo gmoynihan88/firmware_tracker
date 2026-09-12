@@ -29,6 +29,16 @@ class SoundForceScraper(BaseScraper):
         r"^(?:(\d{2})/(\d{2})/(\d{4}):\s*)?[Vv](\d+(?:\.\d+)+):"
     )
 
+    # Some entries put the date on its own line above the version, behind a dash:
+    #
+    #     - 18/07/2022:
+    #     V1.10:
+    #     MacOS updater app download
+    #
+    # The combined pattern above only matches when both share a line, so those
+    # releases were parsed with no date at all -- the date was sitting one line up.
+    DATE_LINE = re.compile(r"^[\u2013\u2014-]?\s*(\d{2})/(\d{2})/(\d{4}):?\s*$")
+
     # (device name, category, the Support page's link text)
     # Device names are kept as they already exist in the database. Sound-Force titles
     # its pages by hardware revision -- "SFC-60 V3 updates" -- and adopting those
@@ -76,13 +86,27 @@ class SoundForceScraper(BaseScraper):
         """
         versions: List[ScrapedFirmware] = []
         seen = set()
+        # The most recent date seen above the current line. A version carrying its own
+        # date still wins; this only fills in the split layout. It is deliberately not
+        # cleared after use, because one date heads both the macOS and Windows entries.
+        pending: Optional[tuple] = None
 
-        for line in self.parse_html(html).get_text("\n").splitlines():
-            match = self.RELEASE.match(line.strip())
+        for raw in self.parse_html(html).get_text("\n").splitlines():
+            line = raw.strip()
+
+            standalone = self.DATE_LINE.match(line)
+            if standalone:
+                pending = standalone.groups()
+                continue
+
+            match = self.RELEASE.match(line)
             if not match:
                 continue
 
             day, month, year, version = match.groups()
+            if not (day and month and year) and pending:
+                day, month, year = pending
+
             if version in seen:
                 continue
 
