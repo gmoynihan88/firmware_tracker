@@ -162,7 +162,14 @@ pages in ways that defeat a single check:
 - **Focusrite** serves its 404 with the full site chrome: 3,385 characters of nav,
   search box and footer. A length threshold passes it.
 
-What catches both is **two different URLs returning identical text length**. Three
+What catches both is **two different URLs returning identical text length**.
+
+**A page whose `<title>` is a URL is a redirect stub, not a product page.** u-he is
+moving products to `/products/plug-ins/<slug>/` and left the old URLs as a few hundred
+bytes with `<link rel=canonical>` and a meta refresh. aiohttp does not follow a meta
+refresh, so the old URL returns 200 with nothing on it -- which reads as "this product
+has no release notes". Follow the canonical link, and dedupe on it: two old URLs
+pointed at the same Zebra 3. Three
 Line 6 category pages all came back at exactly 1778 characters, which no real set of
 product pages does.
 
@@ -635,6 +642,13 @@ and from the copyright string otherwise. Fixing it to use both produced
 vendor counted as two, which is the bug it was meant to fix wearing a different hat.
 Slugifying both outputs fixed it. Whenever you add a fallback source for a name,
 check the two agree on a single value before trusting either.
+
+**Display names can differ for good reasons, so key on something that cannot.** u-he's
+release notes call a product "Hive 2" and its installer is `Hive_212_16520_Mac.zip`;
+matching installers to products by normalised name found nothing for Hive or Uhbik,
+silently, while an earlier probe keyed on the URL slug had reported both agreeing.
+The URL slug is shared by every route to the product. Prefer it, and fall back to
+the name.
 
 Prefer discovering product URLs from an index page over transcribing slugs --
 Focusrite and GForce had both changed their URL shape, and a discovered list cannot

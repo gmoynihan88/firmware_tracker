@@ -341,7 +341,10 @@ a new vendor's page before believing an extraction.
 - **The vendor's own link text goes stale.** Zoom's F6 link says 2.00 and points at
   `F6_v2.20E.zip`. Prefer the artefact over the prose describing it.
 - **One product, several downloads** — Windows and macOS builds of one firmware.
-  Key on the product, keep the highest version.
+  Key on the product, keep the highest version. They do not always share a version:
+  Valhalla's Windows builds lag the Mac ones on five of ten plug-ins, so take the
+  newest build *with that build's own date*, and say in the docstring which platform
+  it is.
 - **Suffixes are not all revisions.** `H2n_v3.00E` is 3.00 with a language marker;
   `H6_v2.50a` is a real 2.50a.
 - **A vendor writes the same thing two ways**, and a filter fitted to one drops the
@@ -352,7 +355,10 @@ a new vendor's page before believing an extraction.
   it.
 - **Product names differ from the database's** — trademark symbols, typographic
   characters, casing, renames.
-- **Pair a version with its own date**, from the same entry.
+- **Pair a version with its own date**, from the same entry -- and find the entry by
+  its container, not by reading onward from the version heading. u-he puts the date
+  *before* the heading inside each `div.releasenote`; reading forward from the
+  heading paired every version with nothing, on a page where every entry is dated.
 - **Page-level "last updated" stamps are not release dates.** Neither is "Revised
   06/07/2017" against an instructions section.
 - **Never leave a hardcoded version table as a silent fallback.**
