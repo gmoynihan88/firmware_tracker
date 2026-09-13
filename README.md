@@ -62,10 +62,11 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 46 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys, Elektron, Eventide,
-  Empress, FabFilter, Fender, Focusrite, Fractal Audio, Goodhertz, iConnectivity, iZotope, Kemper, Kilohearts, Korg,
-  Moog, Native Instruments, Neural DSP, Novation, Steinberg, Strymon,
-  Teenage Engineering, u-he, Universal Audio, Valhalla DSP, Xfer Records, Zoom and more
+- **Scrapes 46 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys,
+  Elektron, Eventide, Empress, FabFilter, Fender, Focusrite, Fractal Audio, Goodhertz,
+  iConnectivity, iZotope, Kemper, Kilohearts, Korg, Moog, Native Instruments, Neural DSP,
+  Novation, Steinberg, Strymon, Teenage Engineering, u-he, Universal Audio, Valhalla DSP,
+  Xfer Records, Zoom and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
