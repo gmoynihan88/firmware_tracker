@@ -220,6 +220,14 @@ cp /tmp/v.bak src/scrapers/plugins/VENDOR.py
 
 Expect `1 failed` then all passed. If the sabotage passes, the test is decoration.
 
+**When a sabotage passes, check the fixture before the test.** Three Xfer tests
+survived their sabotage in one sitting, and none was asserting nothing: the fixture
+never reached the decision. Comparing versions as text passed because 1.11 beats 1.1
+either way (1.9 against 1.11 does not); leaving a UUID in a slug passed because a
+second guard -- the product's major version -- threw the result out anyway. Make the
+fixture one that only the defended line can get right, with every other guard out of
+its way.
+
 Add the slug assertion in `tests/test_basic.py::test_api_scrapers` while you are here
 — it is the one wire-up step with no other symptom when forgotten.
 
