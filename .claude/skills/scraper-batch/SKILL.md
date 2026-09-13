@@ -27,6 +27,37 @@ survey all candidates  ->  pick the cheapest feasible one
         +--> next vendor
 ```
 
+## Progress — keep `.claude/batch.json` current
+
+The status line (`.claude/statusline.py`, wired in `.claude/settings.local.json`) reads
+this file and prints where the batch stands, then the branch and how far it is ahead
+of main:
+
+    batch 2/10 · Kilohearts · test · 2 merged · next: Goodhertz │ kilohearts-scraper (+1)
+
+Write the file once the candidate list is settled, then change one field per step:
+
+    {"name": "boutique plugins",
+     "vendors": [{"name": "Kilohearts", "slug": "kilohearts"}, ...],
+     "current": {"slug": "kilohearts", "step": "test"}}
+
+- **`current.step`** is one of `survey`, `extract`, `build`, `test`, `live`, `pr`,
+  `merge`. Set it when the step starts. `merge` means the PR is up and waiting on
+  the user -- the one step that is not yours.
+- **`"verdict": "none"`** on a vendor the survey rules out. It counts toward done and
+  shows as skipped.
+- **Never record that a vendor merged.** The script reads it from `main`: a vendor is
+  merged when a plugin declaring its `manufacturer_slug` exists there. A hand-kept
+  count drifts, the way the README's and `CLAUDE.md`'s scraper counts both did. It
+  reads the *local* `main`, so a PR merged on GitHub shows once `main` is pulled --
+  which the merge step does anyway.
+- **The `slug` must equal the scraper's `manufacturer_slug` exactly.** Seeded slugs
+  are guesses. If the class ends up as `valhalladsp` and the file says `valhalla`,
+  the vendor never shows as merged and the batch never reads complete -- so correct
+  the file when the class is written, not after.
+
+Both files are gitignored: batch progress is one person's local state.
+
 ## Step 1 — Survey every candidate before building any
 
 Rank first, by what the catalogue gains rather than by what looks easy. Then probe
