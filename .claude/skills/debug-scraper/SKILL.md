@@ -23,6 +23,7 @@ actually reachable.
 | Versions found, but they are the wrong thing | Step 4 — editors, drivers, manuals |
 | Versions right, dates missing or wrong | Step 4, then the dates section |
 | One version repeated across the catalogue | Step 0's audit, then Step 6 |
+| The whole site is blocked or challenged | Step 1a — try its support platform's API |
 | Data comes from an API and still looks wrong | Step 2b — API metadata lies too |
 | "Firmware only ships through the vendor's app" | Step 4c — that predicts nothing; watch what the app fetches |
 | Scrape creates new rows instead of updating | Step 4b — name normalisation |
@@ -167,6 +168,13 @@ Without a control the honest reading is "those products publish no firmware". Wi
 one it is "this endpoint answers the same way for anything, and only mariana has
 content" -- a different conclusion, reached from the same responses.
 
+**Apply the rule to your own guesses too.** Ableton's Push release notes were nearly
+missed this way: `/en/release-notes/push/` and `/push-3/` are both 404s, and two
+invented slugs returning nothing was written up as "Push has no release notes page".
+The release-notes *index* links `/en/release-notes/push-12/`, which carries 30 dated
+releases. A 404 from a URL you made up is evidence about your guess, not about the
+vendor -- find the index before concluding a page does not exist.
+
 **Make the control obviously impossible, like a random string.** The first attempt at
 this used `moogerfooger`, `spectravox` and `messenger` as the fakes. All three are
 real Moog products. A plausible-sounding name you have not heard of is a name you
@@ -190,6 +198,35 @@ rows reports nothing for it. This works only if there is no free-text fallback
 underneath -- one scanning for anything shaped like a version will happily find
 something on a category page. See Step 5.
 
+## Step 1a — A bot challenge is not a dead vendor
+
+Fender returns *nothing* to aiohttp — not the support pages, not `fender.com`. A
+browser gets Cloudflare:
+
+```
+title: "Just a moment..."   text: 382 chars
+```
+
+The control slug returns the identical page at the identical length, which is the
+tell: a 404 differs from a real page, a challenge does not differ from anything.
+Two things follow.
+
+**The challenge may simply clear.** Fender's resolves after about five seconds of
+waiting, which is longer than a probe would normally allow. Wait and re-read the
+title before concluding:
+
+```python
+await p.goto(url, wait_until="domcontentloaded")
+await p.wait_for_timeout(5000)
+if "just a moment" in (await p.title()).lower():
+    await p.wait_for_timeout(8000)
+```
+
+**The API behind it is usually not challenged.** Fender's site is unreachable and
+`support.fender.com/api/v2/help_center/articles.json` answers instantly with no
+challenge at all. The block is on the marketing site, not the data. So a blocked
+site is a reason to go looking for the support platform, not a reason to stop.
+
 ## Step 1b — Does one page carry every product?
 
 Check before designing anything per-device. Several manufacturers publish a single
@@ -208,6 +245,30 @@ no version consumed 95s of the 120s per-manufacturer budget, and the last two de
 then failed on navigation timeouts -- which is indistinguishable from a broken page
 until you time it. If a scraper is slow *and* its last few devices fail, suspect the
 budget before the pages.
+
+## Step 1c — Try the vendor's support platform early
+
+This is the highest-yield move in the ladder and it belongs before any parsing. Three
+vendors this project would otherwise have written off:
+
+| Vendor | Site says | Support platform says |
+|---|---|---|
+| Universal Audio | UAFX ships through UA Connect | Zendesk: 16 UAFX versions, all dated |
+| Novation | Every page leads with one USB driver version | Components' `/api/v2/firmwares`: 118 records |
+| Fender | Cloudflare challenge on everything | Zendesk: 8 amplifiers, 25 versions |
+
+The two shapes worth trying, in order:
+
+```bash
+# Zendesk Help Center — no key, answers when the HTML does not
+curl "https://support.VENDOR.com/api/v2/help_center/articles.json?per_page=100"
+curl "https://support.VENDOR.com/api/v2/help_center/articles/search.json?query=firmware"
+
+# The updater's web build — open it and watch the network (Step 2)
+```
+
+A `/hc/en-us/` link anywhere on the site means Zendesk. Paginate: the firmware
+articles are rarely all on page one.
 
 ## Step 2 — If it renders in a browser but not for the scraper, find the real source
 
@@ -434,6 +495,17 @@ and stood for as long as nobody looked at the cells.
 The tell is a date that makes no sense for the thing it appears to modify, or a
 column of dates that all seem to belong to entries of one kind. Iterate `tr`, index
 the cells by their header, and the ambiguity disappears.
+
+**And check there is a `<table>` at all.** iConnectivity's downloads page looks like
+one and has none: it is a Squarespace grid of three sibling `div.col` elements, each
+holding a `<p>` per row. Flattened, the columns come out whole and consecutive —
+eighteen product names, then eighteen versions — so reading in order pairs the first
+product with the second product. Off by a whole column rather than by one row.
+
+Read the columns separately and zip them by position, and verify they are the same
+length before trusting it. One iConnectivity cell is `mioXL ﻿` with a zero-width
+no-break space: a parser that skipped blank-looking cells in one column would shift
+every later row by one and look entirely plausible doing it.
 
 ### The version on the page often belongs to something else
 
@@ -698,6 +770,12 @@ stamp, which belongs to the page rather than any release on it, and a "Revised
 06/07/2017" against an instructions section. Attaching either to a version is the
 fabrication this project exists to avoid.
 
+The same test works *within* one document. Fender's Tone Master Pro article carries
+a release date per version, and also `v5.72.0 (updated 3/26/2025)` -- the ASIO
+driver -- repeated inside every release block. A date search finds that one thirteen
+times and would stamp most of the history with it. A date that repeats identically
+is about the thing that repeats, not about each block it appears in.
+
 A useful check on the first kind: fetch a second, unrelated page from the same
 vendor. Yamaha's "Last updated: July 10, 2024" is byte-identical on the THR Remote
 page and all three reface updater pages, because it is the end of the licence
@@ -750,6 +828,25 @@ for child in list(body.children)[:6]:
 ```
 
 Bound the depth. Beyond the first few children you are inside the changelog.
+
+### The dates may be on a different page from the versions
+
+Empress splits them, and reading either page alone is wrong in a different
+direction:
+
+```
+/pages/firmware-updates         Echosystem   Download Firmware (v2.50)     no date
+/pages/old-firmware-downloads   Echosystem   Firmware v2.42 — Released 2025-11-14
+```
+
+The first gives the shipping release with no date. The second gives dated history
+that stops one release short, so a scraper reading only the archive reports v2.42 as
+current — eight releases behind.
+
+Read both and merge, and **do not date the current release from the archive's newest
+entry**: those two numbers sit inches apart on screen and belong to different
+releases. An "older versions" or "archive" link beside a download is worth following
+before concluding a vendor publishes no dates.
 
 ### "This vendor publishes no dates" is a claim, not a finding
 
