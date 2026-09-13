@@ -24,7 +24,7 @@ actually reachable.
 | Versions right, dates missing or wrong | Step 4, then the dates section |
 | One version repeated across the catalogue | Step 0's audit, then Step 6 |
 | Data comes from an API and still looks wrong | Step 2b — API metadata lies too |
-| "Firmware only ships through the vendor's app" | Step 4c — that predicts nothing |
+| "Firmware only ships through the vendor's app" | Step 4c — that predicts nothing; watch what the app fetches |
 | Scrape creates new rows instead of updating | Step 4b — name normalisation |
 
 ## Step 0 — Which scraper is lying?
@@ -477,7 +477,50 @@ versions. And Yamaha's updaters are downloaded manually, which implies nothing e
 way — what mattered was a table nobody had read.
 
 **Delivery mechanism and publication are independent.** The only thing that settles it
-is looking for the release notes:
+is looking for the release notes — or, better, at what the vendor's own updater asks
+for.
+
+### Open the companion app's web version and watch its network
+
+The updater has to learn the current version from somewhere. If it has a web build,
+that request is visible, and it is the vendor's own source rather than a page written
+about it.
+
+Novation is the clean case. Its downloads site is a convincing dead end: every
+product page leads with `Novation USB Driver 2.30.0.83` — one driver, the same
+version everywhere — then DAW scripts, then a link reading "Go to Components Web".
+Peak and Summit list nothing but drivers. Loading `components.novationmusic.com` and
+watching the network shows:
+
+```
+GET https://components.novationmusic.com/api/v2/firmwares
+```
+
+No key required, 118 records over 24 products, and Peak and Summit are both on 2.2 —
+versions their own product pages do not admit exist.
+
+Universal Audio is the same move with the opposite answer: UA Connect fetches
+`external-content.db` from S3 and it is an encrypted blob. That is still worth
+knowing, because it turns "we could not find it" into "it is not obtainable".
+
+Try, in order: the app's web build, the vendor's support site (a Zendesk Help Center
+answers `/api/v2/help_center/articles/search.json?query=firmware+release+notes` where
+the HTML does not), and only then conclude nothing is published.
+
+### One API can version several components under one product
+
+Novation's manifest carries `firmware_type`, and six of its records are `fpga` rather
+than `firmware`. Their version numbers **collide exactly** with the instrument's:
+Peak has an fpga 2.1 and a firmware 2.1, Summit likewise. Deduplicating by version
+string silently keeps whichever came last, so "Peak 2.1" ends up pointing at the FPGA
+image.
+
+This is the "belongs to something else" trap at its least visible — not an editor
+with its own numbering on a shared page, but the same product, the same version
+string, a different component, inside one authoritative endpoint. Check whether a
+type discriminator exists before grouping by version, and filter on it.
+
+Other places to look for the notes:
 
 - The vendor's own support site, especially a Zendesk Help Center — `/api/v2/help_center/articles/search.json?query=firmware+release+notes` answers where the HTML does not.
 - Search the help centre per product line rather than per product. UA has one article
