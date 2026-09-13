@@ -61,3 +61,7 @@ Thumbs.db
 
 # Development response cache (src/scrapers/cache.py)
 .scrape_cache/
+
+# Claude Code local state: personal settings and scraper-batch progress
+.claude/settings.local.json
+.claude/batch.json
