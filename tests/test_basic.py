@@ -1589,8 +1589,14 @@ async def test_dashboard_filter_chips_are_alphabetical(client):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
-    """The discovery date is the scrape that first recorded the version."""
+async def test_dashboard_shows_when_the_latest_firmware_was_released(client):
+    """The vendor's release date, which is what "is this recent?" actually asks.
+
+    This column used to show the discovery date -- when a scrape first recorded the
+    version. That was the best available when half the catalogue had no release date;
+    66 of the 71 tracked devices with a latest version now have one, so the weaker
+    signal was taking the column.
+    """
     from datetime import datetime
 
     from src.devices.schemas import (
@@ -1604,15 +1610,16 @@ async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
         model = await ds.create_device_model(db, DeviceModelCreate(
             manufacturer_id=mfr.id, name="Dated Synth", category=DeviceCategory.SYNTHESIZER,
         ))
-        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
             device_model_id=model.id, version="1.2.0", is_latest=True,
+            release_date=datetime(2025, 4, 17),
         ))
         await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
 
     html = (await client.get("/")).text
 
-    assert ">Discovered<" in html
-    assert firmware.created_at.strftime("%Y-%m-%d") in html
+    assert ">Released<" in html
+    assert "2025-04-17" in html
 
 
 async def _seed_one_device(name: str = "Filter Box", slug: str = "filterco"):
@@ -6021,3 +6028,214 @@ async def test_te_fails_when_a_product_page_is_unreachable():
     result = await scraper.fetch_firmware_versions("OP-XY", "https://teenage.engineering/downloads/op-xy")
 
     assert result.success is False
+
+
+# --- hardware / software filter ---------------------------------------------
+# The coarsest cut, and the one most often wanted: "my pedals" or "my plugins"
+# rather than one of six categories. Software is VST_PLUGIN, hardware is the rest.
+
+
+async def _seed_one_of_each():
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Kindco", slug="kindco")
+        )
+        for name, category in (
+            ("Kind Pedal", DeviceCategory.GUITAR_PEDAL),
+            ("Kind Synth", DeviceCategory.SYNTHESIZER),
+            ("Kind Interface", DeviceCategory.AUDIO_INTERFACE),
+            ("Kind Controller", DeviceCategory.MIDI_CONTROLLER),
+            ("Kind Other", DeviceCategory.OTHER),
+            ("Kind Plugin", DeviceCategory.VST_PLUGIN),
+        ):
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=category,
+            ))
+            await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+
+def _kinds_by_product(html):
+    import re
+
+    found = {}
+    for row in re.findall(r"<tr[^>]*data-kind=[^>]*>.*?</tr>", html, re.S):
+        kind = re.search(r'data-kind="(\w+)"', row)
+        name = re.search(r"Kind \w+", row)
+        if kind and name:
+            found[name.group(0)] = kind.group(1)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_catalog_marks_every_row_hardware_or_software(client):
+    """Only VST_PLUGIN is software. Every other category is a physical thing."""
+    await _seed_one_of_each()
+
+    kinds = _kinds_by_product((await client.get("/catalog")).text)
+
+    assert kinds == {
+        "Kind Pedal": "hardware",
+        "Kind Synth": "hardware",
+        "Kind Interface": "hardware",
+        "Kind Controller": "hardware",
+        "Kind Other": "hardware",
+        "Kind Plugin": "software",
+    }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_marks_every_row_hardware_or_software(client):
+    """The same split on the page showing only what you own."""
+    await _seed_one_of_each()
+
+    kinds = _kinds_by_product((await client.get("/")).text)
+
+    assert set(kinds.values()) == {"hardware", "software"}
+    assert kinds["Kind Plugin"] == "software"
+    assert sum(1 for k in kinds.values() if k == "hardware") == 5
+
+
+@pytest.mark.asyncio
+async def test_both_pages_offer_the_type_filter(client):
+    """The chips have to exist, or data-kind is dead weight."""
+    await _seed_one_of_each()
+
+    for path, container in (("/catalog", "catalog-kind-filters"), ("/", "kind-filters")):
+        html = (await client.get(path)).text
+        assert f'id="{container}"' in html, f"{path} has no type filter"
+        assert 'value="hardware"' in html
+        assert 'value="software"' in html
+
+
+# --- track button carries the device through ---------------------------------
+# The catalogue's Track button links to /devices/add?model_id=N. Until the route
+# read it, the form opened empty: clicking Track on Digitakt II left you at
+# "Select a manufacturer first" with 755 devices to find it among, which is worse
+# than no link at all because it looks like it worked.
+
+
+async def _seed_two_vendors():
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        wanted = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Wanted Co", slug="wantedco")
+        )
+        other = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Other Co", slug="otherco")
+        )
+        target = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=wanted.id, name="Target Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=wanted.id, name="Sibling Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=other.id, name="Unrelated Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        return target.id
+
+
+@pytest.mark.asyncio
+async def test_add_form_preselects_the_model_the_catalogue_sent(client):
+    """Both selects, since the model list is useless without its manufacturer."""
+    import re
+
+    model_id = await _seed_two_vendors()
+    html = (await client.get(f"/devices/add?model_id={model_id}")).text
+
+    manufacturer = re.search(r'<option value="\d+" selected>Wanted Co</option>', html)
+    assert manufacturer, "manufacturer not preselected"
+    assert re.search(rf'<option value="{model_id}" selected>Target Box', html), \
+        "device model not preselected"
+
+
+@pytest.mark.asyncio
+async def test_add_form_lists_only_that_manufacturers_models(client):
+    """The page holds every model in the catalogue; the select must not.
+
+    Rendering the lot would put 755 devices in the dropdown, which is the problem
+    the Track button exists to avoid.
+    """
+    import re
+
+    model_id = await _seed_two_vendors()
+    html = (await client.get(f"/devices/add?model_id={model_id}")).text
+
+    select = re.search(r'<select[^>]*name="device_model_id".*?</select>', html, re.S).group(0)
+
+    assert "Target Box" in select
+    assert "Sibling Box" in select, "dropped the rest of the manufacturer's range"
+    assert "Unrelated Box" not in select, "listed another manufacturer's models"
+
+
+@pytest.mark.asyncio
+async def test_add_form_opens_empty_without_a_model_id(client):
+    """Reached from the nav rather than the catalogue, nothing is chosen yet."""
+    await _seed_two_vendors()
+    html = (await client.get("/devices/add")).text
+
+    assert "Select a manufacturer first..." in html
+    assert "selected>" not in html
+
+
+@pytest.mark.asyncio
+async def test_add_form_ignores_a_model_id_that_no_longer_exists(client):
+    """A stale bookmark must not preselect an id that would fail on submit."""
+    await _seed_two_vendors()
+    response = await client.get("/devices/add?model_id=999999")
+
+    assert response.status_code == 200
+    assert "Select a manufacturer first..." in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_keeps_the_discovery_date_as_a_tooltip(client):
+    """Where the vendor publishes no date, the em-dash carries first-seen.
+
+    Putting it in the column would label it a release date, which it is not -- five
+    tracked devices are in this state, all from vendors that publish no dates at all.
+    The information is still real, so it stays reachable without being mislabelled.
+    """
+    from datetime import datetime
+
+    from sqlalchemy import update
+
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory, FirmwareVersion
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Undated Co", slug="undatedco")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Undated Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="3.0.0", is_latest=True,
+        ))
+        await db.execute(
+            update(FirmwareVersion)
+            .where(FirmwareVersion.id == firmware.id)
+            .values(created_at=datetime(2026, 2, 11))
+        )
+        await db.commit()
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    assert "First seen by a scrape on 2026-02-11" in html, "lost the discovery date"
+    # And it must not be sitting in the column pretending to be a release date.
+    assert ">2026-02-11<" not in html
