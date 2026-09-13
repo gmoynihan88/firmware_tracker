@@ -28,10 +28,24 @@ class FenderScraper(BaseScraper):
         Version Information 12/3/2025
         Tone Master Pro Firmware – v1.7.53 download link
 
-    The date line precedes the version line, so they are paired by walking the
-    article and holding the last date seen. Seventeen Tone Master Pro versions, of
-    which fifteen are dated -- the two newest sit in the article's header, above the
-    first "Version Information" block, and stay undated rather than borrowing one.
+    The date precedes the version, so they are paired by walking the article and
+    holding the date of the current "Version Information" block. Fender writes that
+    block two ways, and its newest releases use the second:
+
+        Version Information 12/3/2025          date on the same line
+        Version Information                    date on the next line, numeric or
+        15 Jul 2026                            day-month-year
+
+    Until 2026-09-13 only the first was read, which left the two newest Tone Master
+    Pro releases and the Super's 2.0.30 undated -- and this docstring claimed they
+    had no date to read.
+
+    **A block's date covers every model released in it.** Twin and Twin Blonde ship
+    one firmware, listed one after the other under a single date, and the Deluxe pair
+    the same way; taking the date for the first line only left both Blonde models
+    undated. A model that appears a second time in one block is another release and
+    does not take the date, and a download line with no block above it stays
+    undated rather than borrowing the next date down.
 
     **Three things in these articles look like the amplifier's firmware.** All appear
     within a few lines of the real version:
@@ -46,6 +60,14 @@ class FenderScraper(BaseScraper):
     stamp most of the history with one driver's date. The version pattern therefore
     requires the product's own name in front of the word Firmware, and refuses lines
     beginning Mac or PC.
+
+    **Most of the Tone Master line shares one version, and that is real.** On
+    2026-09-13 the Twin, Twin Blonde, Deluxe, Deluxe Blonde, Super and Princeton all
+    stated 2.0.42, dated 2026-07-14 -- each named with its own version in its own
+    article, the Blonde models beside their siblings. `scripts/audit_scrapers.py`
+    flags one version across most of a catalogue, because that is how a scraper
+    stamping one article's version onto every product looks; for this vendor it is a
+    platform release, the way UAFX's shared version is, and was checked as such.
 
     Mustang, Rumble and Acoustic amps have articles explaining how to update but
     never state a version, so they are absent rather than listed as permanently
@@ -77,6 +99,14 @@ class FenderScraper(BaseScraper):
 
     # "Version Information 12/3/2025", which introduces a release block.
     VERSION_INFO = re.compile(r"^Version\s+Information\s+(\d{1,2})/(\d{1,2})/(\d{4})\s*$", re.I)
+    # "Version Information" alone, with its date on the next line.
+    VERSION_INFO_ALONE = re.compile(r"^Version\s+Information\s*$", re.I)
+    # The next line's date: "6/25/2025" or "15 Jul 2026".
+    DATE_NUMERIC = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+    DATE_WORDS = re.compile(r"^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})$")
+    MONTH_NUMBERS = {m: i for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun",
+         "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
 
     # Only lines offering a download are releases; the article repeats the current
     # version in its opening summary without one.
@@ -95,12 +125,46 @@ class FenderScraper(BaseScraper):
         text = re.sub(r"<[^>]+>", "\n", body or "")
         return [line.strip() for line in text.splitlines() if line.strip()]
 
+    @classmethod
+    def _standalone_date(cls, line: str) -> Optional[datetime]:
+        """The date on the line after a bare "Version Information", if it is one."""
+        text = line.strip()
+        try:
+            numeric = cls.DATE_NUMERIC.match(text)
+            if numeric:
+                month, day, year = numeric.groups()
+                return datetime(int(year), int(month), int(day))
+            words = cls.DATE_WORDS.match(text)
+            if words:
+                day, month_name, year = words.groups()
+                month = cls.MONTH_NUMBERS.get(month_name[:3].lower())
+                return datetime(int(year), month, int(day)) if month else None
+        except ValueError:
+            return None
+        return None
+
     def _parse_article(self, body: str) -> Dict[str, List[tuple]]:
         """(version, date) per product named in one article."""
         found: Dict[str, List[tuple]] = {}
         pending: Optional[datetime] = None
+        # Models that have taken this block's date. Siblings released together share
+        # it; the same model appearing again in the block is another release.
+        dated_in_block: set = set()
+        awaiting_date = False
 
         for line in self._lines(body):
+            if awaiting_date:
+                awaiting_date = False
+                parsed = self._standalone_date(line)
+                if parsed is not None:
+                    pending = parsed
+                    continue
+                # Not a date: the block is undated, and this line is read normally.
+
+            if self.VERSION_INFO_ALONE.match(line):
+                pending, dated_in_block, awaiting_date = None, set(), True
+                continue
+
             dated = self.VERSION_INFO.match(line)
             if dated:
                 month, day, year = dated.groups()
@@ -108,6 +172,7 @@ class FenderScraper(BaseScraper):
                     pending = datetime(int(year), int(month), int(day))
                 except ValueError:
                     pending = None
+                dated_in_block = set()
                 continue
 
             matched = self.FIRMWARE_LINE.match(line)
@@ -115,9 +180,13 @@ class FenderScraper(BaseScraper):
                 continue
 
             name = " ".join(matched.group(1).split())
-            found.setdefault(name, []).append((matched.group(2), pending))
-            # A date introduces one release, so it is not carried to the next.
-            pending = None
+            if name in dated_in_block:
+                date = None
+            else:
+                date = pending
+                if pending is not None:
+                    dated_in_block.add(name)
+            found.setdefault(name, []).append((matched.group(2), date))
 
         return found
 
