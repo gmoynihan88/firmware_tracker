@@ -525,6 +525,38 @@ Program", "OS", "Installer" -- and the companion entry names a different product
 the companion's numbering runs on its own track: H90 Control was on 1.9.15 while H90
 firmware was on 1.9.4.
 
+**Do not rely on the second signal.** Neural DSP announces each release as
+`coros-3-3-1-and-cortex-control-1-4-1-are-now-available`: CorOS is the Quad Cortex's
+firmware and Cortex Control is the desktop editor, and those numbers are plainly
+different. Then they converged, and today's post reads
+`coros-4-0-1-and-cortex-control-4-0-1` -- the same number twice.
+
+A scraper that took the editor would now be right by coincidence, would test clean,
+and would go wrong silently the next time the two diverge. Anchor on which name
+precedes the number, never on the numbers looking different. The versions running on
+separate tracks is a useful *tell while investigating*; it is not something a parser
+can depend on.
+
+### One vendor can word the same thing several ways
+
+Not across vendors -- within one, on pages that look identical. Fractal Audio's nine
+product download pages share a layout and write the firmware title three ways:
+
+```
+Firmware 32.06                 Axe-Fx III, FX8, MFC
+Firmware v12.0                 FM9, FM3, VP4
+AX8 Firmware Quantum 10.01     AX8
+```
+
+A pattern written against the first page matched three of nine, and the six misses
+looked exactly like products that publish no firmware. Check a *sample* of pages
+before fixing the pattern, not the one you opened first.
+
+Widening it has a cost: the loose version -- the trailing number of any title naming
+firmware -- then also matches `USB Firmware Update 1.04`, a separate chip's firmware
+in the same list. Loosening a pattern usually means adding an explicit refusal, and
+a pattern with no exclusions after you widened it is suspicious.
+
 ### Calibrate the pattern against the page, in both directions
 
 Two failures, both made in the same afternoon, opposite to each other and each
