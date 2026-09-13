@@ -5726,7 +5726,8 @@ def test_ableton_tracks_a_major_version_as_its_own_product():
     devices = asyncio.run(AbletonScraper().fetch_device_list())
     names = [d.name for d in devices.devices]
 
-    assert names == ["Live 12", "Live 11"]
+    assert names[:2] == ["Live 12", "Live 11"]
+    assert "Push" in names, "Push versions itself separately and belongs here too"
     assert all("release-notes" in d.firmware_page_url for d in devices.devices)
 
 
@@ -6436,3 +6437,69 @@ async def test_iconnectivity_reports_a_withdrawn_product_as_an_absence():
 
     assert result.success is True
     assert result.firmware_versions == []
+
+
+def _ableton_push_page() -> str:
+    """Push's layout: no release_note_text wrapper, date in the p below the heading."""
+    return """
+    <h1>Push 2.4.5 with Live 12.4.5</h1>
+    <p>August 26, 2026</p>
+    <h2>New Features and Improvements</h2>
+    <h3>Max for Live</h3>
+    <ul><li>Added Control Surface support.</li></ul>
+    <h2>Push 2.4.3 with Live 12.4.3</h2>
+    <p>July 14, 2026</p>
+    <h3>Bugfixes</h3>
+    <ul><li>Fixed an issue introduced in 12.4.2.</li></ul>
+    """
+
+
+def test_ableton_push_stores_the_device_version_not_the_application_version():
+    """"Push 2.4.3 with Live 12.4.3" states both, and only one is the firmware.
+
+    2.4.3 is what a Push reports about itself; 12.4.3 belongs to the application it
+    shipped alongside. The two move together, which is what would make taking the
+    wrong one invisible.
+    """
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    versions = AbletonScraper()._parse_push_releases(_ableton_push_page())
+
+    assert [fw.version for fw in versions] == ["2.4.5", "2.4.3"]
+    assert "12.4.5" not in {fw.version for fw in versions}
+
+
+def test_ableton_push_reads_the_date_below_the_heading():
+    """Push has no release_note_text wrapper, so the Live parser finds nothing here."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    scraper = AbletonScraper()
+    push = scraper._parse_push_releases(_ableton_push_page())
+
+    assert push[0].release_date.strftime("%Y-%m-%d") == "2026-08-26"
+    assert push[1].release_date.strftime("%Y-%m-%d") == "2026-07-14"
+    # The Live parser must not silently half-work on this page.
+    assert scraper._parse_releases(_ableton_push_page()) == []
+
+
+def test_ableton_push_changelog_stops_at_the_next_release():
+    """Without a wrapper the notes are gathered by walking siblings."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    versions = AbletonScraper()._parse_push_releases(_ableton_push_page())
+    newest = versions[0]
+
+    assert "Added Control Surface support" in newest.changelog
+    assert "Fixed an issue" not in newest.changelog, "ran into the next release"
+
+
+@pytest.mark.asyncio
+async def test_ableton_lists_push_as_hardware():
+    """Live is software; Push is a thing on a desk."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    devices = await AbletonScraper().fetch_device_list()
+    by_name = {d.name: d.category for d in devices.devices}
+
+    assert by_name["Push"] == "midi_controller"
+    assert by_name["Live 12"] == "vst_plugin"

@@ -40,9 +40,25 @@ class AbletonScraper(BaseScraper):
     Eventide's legacy line out. Adding them later is one line each if that judgement
     turns out wrong.
 
-    Push has no release notes page of its own -- `/en/release-notes/push/` is a 404 --
-    because Push firmware ships inside Live rather than being versioned separately.
-    There is nothing to track for it.
+    **Push is on the same site with a different layout.** Its page was nearly missed:
+    `/en/release-notes/push/` and `/push-3/` are both 404s, and concluding from two
+    guessed slugs that Push publishes nothing was wrong. The release-notes index
+    links `/en/release-notes/push-12/`, which carries 30 dated releases.
+
+    Push versions itself separately from Live and states both:
+
+        <h2>Push 2.4.3 with Live 12.4.3</h2>
+        <p>July 14, 2026</p>
+
+    The Push number is the one stored, because that is the device's firmware -- 2.4.3
+    is what a Push reports about itself, and 12.4.3 belongs to the application it
+    shipped alongside. The two happen to move together, which is exactly the kind of
+    coincidence that makes taking the wrong one invisible.
+
+    So there are two layouts here and each gets its own reading: Live puts the date
+    inside a `div.release_note_text` and leads its heading with the number, while
+    Push puts the date in the `<p>` below the heading and leads with the word "Push".
+    One selector stretched over both is how a parser silently half-works.
     """
 
     manufacturer_name = "Ableton"
@@ -55,10 +71,18 @@ class AbletonScraper(BaseScraper):
     PRODUCTS = {
         "Live 12": "live-12",
         "Live 11": "live-11",
+        "Push": "push-12",
     }
+
+    # Products whose page uses the Push layout rather than the Live one.
+    PUSH_PRODUCTS = {"Push"}
 
     # "12.4.5\n        Release Notes" -- the version leads the heading.
     HEADING_VERSION = re.compile(r"^(\d+(?:\.\d+)+)\b")
+
+    # "Push 2.4.3 with Live 12.4.3" -- the device's own number comes first, and the
+    # application's is deliberately not captured.
+    PUSH_HEADING = re.compile(r"^Push\s+(\d+(?:\.\d+)+)\b", re.I)
 
     # "August 26, 2026" and "Aug 6, 2024", as the entire text of its own element.
     # Both spellings appear: 12.0.20 uses the short one, and requiring the long form
@@ -163,6 +187,53 @@ class AbletonScraper(BaseScraper):
 
         return sorted(versions, key=lambda fw: self._version_key(fw.version), reverse=True)
 
+    def _parse_push_releases(self, html: str) -> List[ScrapedFirmware]:
+        """Push's page: version in the heading, date in the paragraph below it.
+
+        No `div.release_note_text` wrapper, so the notes are gathered by walking
+        siblings until the next version heading.
+        """
+        soup = self.parse_html(html)
+        versions: List[ScrapedFirmware] = []
+        seen = set()
+
+        for heading in soup.find_all(["h1", "h2", "h3"]):
+            matched = self.PUSH_HEADING.match(heading.get_text(" ", strip=True))
+            if not matched or matched.group(1) in seen:
+                continue
+            version = matched.group(1)
+            seen.add(version)
+
+            release_date = None
+            notes: List[str] = []
+            for sibling in heading.find_next_siblings():
+                text = sibling.get_text(" ", strip=True)
+                if self.PUSH_HEADING.match(text):
+                    break
+                if release_date is None:
+                    dated = self.RELEASE_DATE.fullmatch(text)
+                    if dated:
+                        month, day, year = dated.groups()
+                        try:
+                            release_date = datetime(
+                                int(year), self.MONTHS[month[:3].lower()], int(day)
+                            )
+                        except (ValueError, KeyError):
+                            release_date = None
+                        continue
+                if text:
+                    notes.append(text)
+
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=release_date,
+                    changelog=" ".join(notes)[:500] or None,
+                )
+            )
+
+        return sorted(versions, key=lambda fw: self._version_key(fw.version), reverse=True)
+
     async def _load(self, product: str) -> Optional[List[ScrapedFirmware]]:
         if product in self._releases:
             return self._releases[product]
@@ -175,7 +246,10 @@ class AbletonScraper(BaseScraper):
         if not html:
             return None
 
-        releases = self._parse_releases(html)
+        releases = (
+            self._parse_push_releases(html) if product in self.PUSH_PRODUCTS
+            else self._parse_releases(html)
+        )
         if not releases:
             return None
         self._releases[product] = releases
@@ -187,7 +261,8 @@ class AbletonScraper(BaseScraper):
             devices=[
                 ScrapedDevice(
                     name=name,
-                    category="vst_plugin",
+                    # Push is a physical instrument; Live is not.
+                    category="midi_controller" if name in self.PUSH_PRODUCTS else "vst_plugin",
                     firmware_page_url=self.RELEASE_NOTES.format(slug=slug),
                     product_url=self.RELEASE_NOTES.format(slug=slug),
                 )
