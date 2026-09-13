@@ -6102,3 +6102,90 @@ async def test_both_pages_offer_the_type_filter(client):
         assert f'id="{container}"' in html, f"{path} has no type filter"
         assert 'value="hardware"' in html
         assert 'value="software"' in html
+
+
+# --- track button carries the device through ---------------------------------
+# The catalogue's Track button links to /devices/add?model_id=N. Until the route
+# read it, the form opened empty: clicking Track on Digitakt II left you at
+# "Select a manufacturer first" with 755 devices to find it among, which is worse
+# than no link at all because it looks like it worked.
+
+
+async def _seed_two_vendors():
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        wanted = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Wanted Co", slug="wantedco")
+        )
+        other = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Other Co", slug="otherco")
+        )
+        target = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=wanted.id, name="Target Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=wanted.id, name="Sibling Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=other.id, name="Unrelated Box",
+            category=DeviceCategory.SYNTHESIZER,
+        ))
+        return target.id
+
+
+@pytest.mark.asyncio
+async def test_add_form_preselects_the_model_the_catalogue_sent(client):
+    """Both selects, since the model list is useless without its manufacturer."""
+    import re
+
+    model_id = await _seed_two_vendors()
+    html = (await client.get(f"/devices/add?model_id={model_id}")).text
+
+    manufacturer = re.search(r'<option value="\d+" selected>Wanted Co</option>', html)
+    assert manufacturer, "manufacturer not preselected"
+    assert re.search(rf'<option value="{model_id}" selected>Target Box', html), \
+        "device model not preselected"
+
+
+@pytest.mark.asyncio
+async def test_add_form_lists_only_that_manufacturers_models(client):
+    """The page holds every model in the catalogue; the select must not.
+
+    Rendering the lot would put 755 devices in the dropdown, which is the problem
+    the Track button exists to avoid.
+    """
+    import re
+
+    model_id = await _seed_two_vendors()
+    html = (await client.get(f"/devices/add?model_id={model_id}")).text
+
+    select = re.search(r'<select[^>]*name="device_model_id".*?</select>', html, re.S).group(0)
+
+    assert "Target Box" in select
+    assert "Sibling Box" in select, "dropped the rest of the manufacturer's range"
+    assert "Unrelated Box" not in select, "listed another manufacturer's models"
+
+
+@pytest.mark.asyncio
+async def test_add_form_opens_empty_without_a_model_id(client):
+    """Reached from the nav rather than the catalogue, nothing is chosen yet."""
+    await _seed_two_vendors()
+    html = (await client.get("/devices/add")).text
+
+    assert "Select a manufacturer first..." in html
+    assert "selected>" not in html
+
+
+@pytest.mark.asyncio
+async def test_add_form_ignores_a_model_id_that_no_longer_exists(client):
+    """A stale bookmark must not preselect an id that would fail on submit."""
+    await _seed_two_vendors()
+    response = await client.get("/devices/add?model_id=999999")
+
+    assert response.status_code == 200
+    assert "Select a manufacturer first..." in response.text

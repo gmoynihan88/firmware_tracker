@@ -1,6 +1,6 @@
 <select id="device_model_id" name="device_model_id" required>
     <option value="">Select a device model...</option>
     {% for model in device_models %}
-    <option value="{{ model.id }}">{{ model.name }} ({{ model.category.value | replace('_', ' ') | title }})</option>
+    <option value="{{ model.id }}"{% if selected_model and model.id == selected_model.id %} selected{% endif %}>{{ model.name }} ({{ model.category.value | replace('_', ' ') | title }})</option>
     {% endfor %}
 </select>

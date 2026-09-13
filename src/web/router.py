@@ -64,11 +64,25 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/devices/add", response_class=HTMLResponse)
-async def add_device_page(request: Request, db: AsyncSession = Depends(get_db)):
-    """Page to add a new device to track."""
+async def add_device_page(
+    request: Request,
+    model_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Page to add a new device to track.
+
+    The catalogue's Track button links here with `?model_id=`, and until this read
+    it the form opened empty: clicking Track on Digitakt II dropped you at "Select a
+    manufacturer first" with 755 devices to find it among, which is worse than no
+    link at all because it looks like it did something.
+    """
     manufacturers = await device_service.get_manufacturers(db)
     device_models = await device_service.get_device_models(db)
     unread_count = await device_service.get_unread_count(db)
+
+    # Resolved rather than trusted: a stale bookmark or a deleted model would
+    # otherwise pre-select an id that no longer exists and fail on submit.
+    selected = await device_service.get_device_model(db, model_id) if model_id else None
 
     return templates.TemplateResponse(
         request,
@@ -77,6 +91,11 @@ async def add_device_page(request: Request, db: AsyncSession = Depends(get_db)):
             "manufacturers": manufacturers,
             "device_models": device_models,
             "unread_count": unread_count,
+            "selected_model": selected,
+            "selected_models": (
+                [m for m in device_models if m.manufacturer_id == selected.manufacturer_id]
+                if selected else []
+            ),
         },
     )
 

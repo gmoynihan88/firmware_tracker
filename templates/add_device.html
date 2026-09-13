@@ -40,7 +40,7 @@
             >
                 <option value="">Select a manufacturer...</option>
                 {% for manufacturer in manufacturers %}
-                <option value="{{ manufacturer.id }}">{{ manufacturer.name }}</option>
+                <option value="{{ manufacturer.id }}"{% if selected_model and manufacturer.id == selected_model.manufacturer_id %} selected{% endif %}>{{ manufacturer.name }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -54,9 +54,20 @@
                 Device Model
             </label>
             <div id="device-model-select">
+                {# Rendered here when the catalogue sent a model, so the choice
+                   survives without waiting for an HTMX round trip. HTMX replaces this
+                   whole div when the manufacturer changes. #}
+                {% if selected_model %}
+                {# device_models on this page is the whole catalogue; the partial
+                   wants one manufacturer's, which the route pre-filtered. #}
+                {% with device_models = selected_models %}
+                {% include "partials/device_models_select.html" with context %}
+                {% endwith %}
+                {% else %}
                 <select id="device_model_id" name="device_model_id" required disabled>
                     <option value="">Select a manufacturer first...</option>
                 </select>
+                {% endif %}
             </div>
         </div>
     </div>
