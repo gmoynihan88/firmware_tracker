@@ -1,9 +1,10 @@
 version: 2
 updates:
   # The scrapers parse vendor-controlled input through aiohttp, lxml, BeautifulSoup
-  # and Chromium. Dependencies are declared as floors, so CI already installs the
-  # newest of each; these PRs raise the floors, and the audit job in ci.yml is what
-  # catches a known vulnerability in whatever actually installs.
+  # and Chromium. What installs is the hashed lock files, which Dependabot
+  # regenerates with pip-compile from requirements.in and requirements-dev.in --
+  # it only recompiles from .in files, never from pyproject.toml, which is why they
+  # exist. The audit job in ci.yml checks the pins for known vulnerabilities.
   - package-ecosystem: pip
     directory: "/"
     schedule:

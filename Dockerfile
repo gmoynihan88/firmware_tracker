@@ -11,11 +11,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dependencies are installed from pyproject alone first, so editing application code
-# does not invalidate the layer holding Chromium.
-COPY pyproject.toml README.md ./
-RUN mkdir -p src && touch src/__init__.py \
-    && pip install --no-cache-dir -e ".[browser]" \
+# Dependencies come from the hashed lock, so pip refuses any package whose hash differs
+# from the one reviewed in requirements.txt. The lock is copied alone first, so editing
+# application code does not invalidate the layer holding Chromium. The project itself
+# is not installed -- uvicorn imports `src` from /app -- so nothing is built.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt \
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 

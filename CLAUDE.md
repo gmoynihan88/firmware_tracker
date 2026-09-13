@@ -11,11 +11,17 @@ Firmware Tracker is a FastAPI web app that scrapes manufacturer websites for fir
 Requires Python 3.11+.
 
 ```bash
-# Install
-pip install -e ".[dev]"
+# Install from the hashed lock (runtime, Playwright, test and audit tools)
+pip install --require-hashes -r requirements-dev.txt
+playwright install chromium   # the browser for JS-rendered scraper pages
 
-# Install with Playwright browser support (needed for JS-rendered scraper pages)
-pip install -e ".[browser]" && playwright install chromium
+# Change a dependency: edit pyproject.toml AND the matching .in file, then re-lock.
+# test_lock_files_satisfy_pyproject fails if pyproject and the locks disagree.
+# Re-lock from a separate venv: with click 8.5, pip-tools 7.6.1 writes a spurious
+# --no-index into the lock header -- and the dev lock itself pins click 8.5.
+python -m venv /tmp/pip-tools && /tmp/pip-tools/bin/pip install pip-tools "click<8.5"
+/tmp/pip-tools/bin/pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
+/tmp/pip-tools/bin/pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements-dev.txt requirements-dev.in
 
 # Run dev server (http://localhost:8000)
 uvicorn src.main:app --reload
