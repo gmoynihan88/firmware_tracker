@@ -6695,9 +6695,11 @@ def test_fender_pairs_a_version_with_the_date_above_it():
 
 
 def test_fender_leaves_the_newest_undated_rather_than_borrowing():
-    """v1.8.58 sits in the article header, above the first Version Information.
+    """A download line with no Version Information above it stays undated.
 
-    The next date down belongs to v1.7.53, five releases earlier.
+    The next date down belongs to v1.7.53, five releases earlier. The live article
+    has since given its newest releases dated blocks of their own; this guards the
+    case where a release has none.
     """
     from src.scrapers.plugins.fender import FenderScraper
 
@@ -8524,3 +8526,69 @@ async def test_uhe_fails_loudly_without_the_product_index():
     _stub_fetch(scraper, {})
 
     assert (await scraper.fetch_device_list()).success is False
+
+
+# --- fender: dates -----------------------------------------------------------
+
+
+FENDER_SPLIT_DATES = """
+<p>Version Information</p>
+<p>15 Jul 2026</p>
+<p>Tone Master Pro Firmware - v1.8.58</p>
+<p>Download the latest firmware here:</p>
+<p>Tone Master Pro Firmware – v1.8.58 download link</p>
+<p>--------------------------------</p>
+<p>Version Information</p>
+<p>6/25/2025</p>
+<p>Tone Master Pro Firmware – v1.8.45 download link</p>
+<p>Version Information 12/3/2025</p>
+<p>Tone Master Pro Firmware – v1.7.53 download link</p>
+<p>Version Information</p>
+<p>Tone Master Pro Firmware – v1.0.0 download link</p>
+"""
+
+
+def test_fender_reads_a_date_on_the_line_after_version_information():
+    """The newest releases put the date on its own line, in either of two forms.
+
+    A bare "Version Information" followed by something that is not a date leaves
+    that release undated -- and the line after it must still be read.
+    """
+    from src.scrapers.plugins.fender import FenderScraper
+
+    versions = FenderScraper()._parse_article(FENDER_SPLIT_DATES)["Tone Master Pro"]
+
+    assert [(v, d.date().isoformat() if d else None) for v, d in versions] == [
+        ("1.8.58", "2026-07-15"),
+        ("1.8.45", "2025-06-25"),
+        ("1.7.53", "2025-12-03"),
+        ("1.0.0", None),
+    ]
+
+
+FENDER_SIBLINGS = """
+<p>Version Information 7/14/2026</p>
+<p>Tone Master Twin Firmware – v2.0.42 download link</p>
+<p>Firmware update for Tone Master Twin Reverbs using Jensen N12K speakers.</p>
+<p>Tone Master Twin Blonde Firmware – v2.0.42 download link</p>
+<p>Firmware update for Tone Master Twin Reverbs using Celestion G12 NEO Creamback speakers.</p>
+<p>Tone Master Twin Firmware – v2.0.41 download link</p>
+"""
+
+
+def test_fender_gives_sibling_models_the_date_of_their_shared_release():
+    """Twin and Twin Blonde ship one firmware under one date; both take it.
+
+    Twin listed a second time in the same block is another release, so it does not.
+    """
+    from src.scrapers.plugins.fender import FenderScraper
+
+    parsed = FenderScraper()._parse_article(FENDER_SIBLINGS)
+    as_text = {name: [(v, d.date().isoformat() if d else None) for v, d in vals]
+               for name, vals in parsed.items()}
+
+    assert as_text == {
+        "Tone Master Twin": [("2.0.42", "2026-07-14"), ("2.0.41", None)],
+        "Tone Master Twin Blonde": [("2.0.42", "2026-07-14")],
+    }
+
