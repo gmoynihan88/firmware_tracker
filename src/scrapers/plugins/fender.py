@@ -61,6 +61,14 @@ class FenderScraper(BaseScraper):
     requires the product's own name in front of the word Firmware, and refuses lines
     beginning Mac or PC.
 
+    **Most of the Tone Master line shares one version, and that is real.** On
+    2026-09-13 the Twin, Twin Blonde, Deluxe, Deluxe Blonde, Super and Princeton all
+    stated 2.0.42, dated 2026-07-14 -- each named with its own version in its own
+    article, the Blonde models beside their siblings. `scripts/audit_scrapers.py`
+    flags one version across most of a catalogue, because that is how a scraper
+    stamping one article's version onto every product looks; for this vendor it is a
+    platform release, the way UAFX's shared version is, and was checked as such.
+
     Mustang, Rumble and Acoustic amps have articles explaining how to update but
     never state a version, so they are absent rather than listed as permanently
     unknown.
