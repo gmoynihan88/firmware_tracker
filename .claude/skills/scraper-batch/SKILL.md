@@ -84,9 +84,18 @@ for why a plausible-sounding fake name is not a control.
 form in its chrome.** Bitwig's `/previous_releases/` was recorded here as "renders a
 login" and left unbuilt for that reason; a plain fetch returns 9,003 characters of
 text with every release back to 1.0, dated. What the probe saw was the site's header
-login widget, which is on every page including the ones that work. Read the text the
-probe prints rather than grepping it for "login" -- and check for a *version list*
-before concluding a page is behind a wall.
+login widget, which is on every page including the ones that work.
+
+PSPaudioware is the same probe output meaning the opposite, and the two together give
+the test. Its `/downloads` really is gated: the page **body** is the login form --
+"You need to be logged into your PSP account to proceed!" -- and there is no version
+list anywhere on it. So: a login in the chrome beside content is not a gate; a login
+*instead of* content is. Read what the probe prints rather than grepping it for
+"login", and look for the version list.
+
+A real gate is also not the end of the vendor. PSP's public product pages carry a
+30-day-trial link each, and the version is in the installer's filename -- 43 of its
+57 plug-ins, without an account.
 
 The same probe shows the other reason to read the output rather than trust the hit
 count: Bitwig's download page yields `['6.1.1', '24.04', '24.04']`, and the last two
@@ -306,6 +315,10 @@ a new vendor's page before believing an extraction.
   `H6_v2.50a` is a real 2.50a.
 - **A vendor writes the same thing two ways**, and a filter fitted to one drops the
   other silently. Zoom: "Firmware" and "System Version". Fractal: three wordings.
+  **This applies to hosts as well as words** -- PSPaudioware serves the same
+  installers from its own CDN and from an S3 bucket, so anchoring the pattern on the
+  hostname silently took 31 of 43 products. Anchor on the artefact, not on who serves
+  it.
 - **Product names differ from the database's** — trademark symbols, typographic
   characters, casing, renames.
 - **Pair a version with its own date**, from the same entry.
