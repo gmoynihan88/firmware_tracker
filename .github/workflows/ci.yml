@@ -73,3 +73,30 @@ jobs:
       # the project.
       - name: Coverage gate -- whole project
         run: coverage report --fail-under=65
+
+  audit:
+    # Dependencies are floors rather than pins, so CI installs the newest release of
+    # each and this audits exactly what was installed. The scrapers parse input the
+    # vendors control, through aiohttp, lxml, BeautifulSoup and Chromium, so a known
+    # vulnerability in one of those is a vulnerability in this app.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The browser extra is included here, unlike the test jobs: Playwright is
+      # optional for the tests but not for the scrapers that need it. pip itself is
+      # upgraded first so an old runner pip is not what fails the audit.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,browser]" pip-audit
+
+      - name: Audit installed packages
+        run: pip-audit --skip-editable --progress-spinner off
