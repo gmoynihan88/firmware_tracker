@@ -45,6 +45,30 @@ product catalogue and every published download, so `fetch_device_list` and
 catalogue endpoint beside the one carrying versions — the downloads page had to get
 its product filter from somewhere.
 
+## Decide what counts as one product
+
+Not always obvious, and getting it wrong makes the latest-version logic lie.
+
+**A major version can be the product.** The database holds `Cubase 12` and
+`Cubase 13` separately, and `Live 12` and `Live 11`, because their numbering only
+means anything within a major. One "Ableton Live" row would have 12.4.5 and 11.3.43
+competing to be latest, the newer would always win, and every Live 11 owner would be
+told they are behind by a major they have not bought.
+
+**A family can be one product.** UAFX versions the platform rather than each pedal,
+so all 21 report the same list, as Roland's System Program 1.82 covers MC-101,
+MC-707 and VERSELAB MV-1, and Novation's manifest is keyed by `launchkey-mk4` rather
+than by the 25/37/49/61/88. Follow the vendor's own granularity: if one file updates
+several products, they share a row's worth of firmware.
+
+**Two catalogue entries can be one product.** Arturia lists AudioFuse twice, for two
+generations, where the current entry holds only the latest release and the retired
+one holds the history. Key by name and merge.
+
+The test in each case is what the latest version means to someone who owns the
+thing. If "latest" would tell them to install something that is not for their
+device, the split is wrong.
+
 ## Decide scope with the vendor's own taxonomy
 
 A big catalogue is not automatically worth importing whole. Arturia publishes 782
