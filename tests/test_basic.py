@@ -102,6 +102,8 @@ async def test_api_scrapers(client):
     assert "ableton" in data["scrapers"]
     assert "teenageengineering" in data["scrapers"]
     assert "akai" in data["scrapers"]
+    assert "iconnectivity" in data["scrapers"]
+    assert "keithmcmillen" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
@@ -6239,3 +6241,198 @@ async def test_dashboard_keeps_the_discovery_date_as_a_tooltip(client):
     assert "First seen by a scrape on 2026-02-11" in html, "lost the discovery date"
     # And it must not be sitting in the column pretending to be a release date.
     assert ">2026-02-11<" not in html
+# --- iconnectivity ----------------------------------------------------------
+# A Squarespace grid that looks like a table and is three sibling columns, so the
+# flattened text gives eighteen product names then eighteen versions.
+
+
+def _iconn_page() -> str:
+    """The firmware grid, the driver grid below it, and the manuals above.
+
+    mioXL's cell carries the zero-width no-break space the real page has: a parser
+    that dropped blank-looking cells from one column would shift every later row.
+    """
+    return """
+    <h3>Manuals</h3>
+    <div class="row"><div class="col"><p>mioXL</p></div>
+      <div class="col"><p>Owner's manual version 1.3</p></div></div>
+
+    <h3>Firmware</h3>
+    <div class="row">
+      <div class="col"><strong>Product</strong>
+        <p>PlayAUDIO2U</p><p>mioXL ﻿</p><p>iConnectMIDI4+</p></div>
+      <div class="col"><strong>Version &amp; Date</strong>
+        <p>Version 1.0.3 - Aug 19, 2026</p>
+        <p>Version 2.4.1 - Aug 17, 2025</p>
+        <p>Version 2.2.1 - Jan 20, 2021</p></div>
+      <div class="col"><strong>Release Notes</strong>
+        <p>Release Notes</p><p>Release Notes</p><p>Release Notes</p></div>
+    </div>
+
+    <h3>Windows Drivers</h3>
+    <div class="row">
+      <div class="col"><p>Unified USB driver for all current iConnectivity products</p></div>
+      <div class="col"><p>Version 6.0 - Dec 2, 2025</p></div>
+    </div>
+    """
+
+
+def test_iconnectivity_zips_the_product_and_version_columns():
+    from src.scrapers.plugins.iconnectivity import IConnectivityScraper as IC
+
+    grid = IC()._parse_grid(_iconn_page())
+
+    assert grid["PlayAUDIO2U"].version == "1.0.3"
+    assert grid["mioXL"].version == "2.4.1"
+    assert grid["iConnectMIDI4+"].version == "2.2.1"
+    assert grid["PlayAUDIO2U"].release_date.strftime("%Y-%m-%d") == "2026-08-19"
+
+
+def test_iconnectivity_strips_the_zero_width_space_from_a_name():
+    """"mioXL ﻿" would be a second row beside anyone's "mioXL"."""
+    from src.scrapers.plugins.iconnectivity import IConnectivityScraper as IC
+
+    grid = IC()._parse_grid(_iconn_page())
+
+    assert "mioXL" in grid
+    assert not any("﻿" in name for name in grid)
+
+
+def test_iconnectivity_skips_the_driver_grid():
+    """Identical shape, one heading away: "Unified USB driver ... Version 6.0"."""
+    from src.scrapers.plugins.iconnectivity import IConnectivityScraper as IC
+
+    grid = IC()._parse_grid(_iconn_page())
+
+    assert not any("driver" in name.lower() for name in grid)
+    assert "6.0" not in {fw.version for fw in grid.values()}
+
+
+def test_iconnectivity_ignores_the_manual_revisions():
+    """Twenty-odd "Owner's manual version 1.3" entries sit above the firmware grid."""
+    from src.scrapers.plugins.iconnectivity import IConnectivityScraper as IC
+
+    grid = IC()._parse_grid(_iconn_page())
+
+    assert set(grid) == {"PlayAUDIO2U", "mioXL", "iConnectMIDI4+"}
+    assert "1.3" not in {fw.version for fw in grid.values()}
+
+
+# --- keith mcmillen ---------------------------------------------------------
+# Every version on the downloads page belongs to an editor, a manual or a Bitwig
+# script. The products are listed and report nothing, flagged so the catalogue
+# says why.
+
+
+def _kmi_page() -> str:
+    return """
+    <h3>Firmware Downloads</h3>
+    <h4>SendSysEx</h4>
+    <p>v1.3.0; command line utility that can update KMI product firmware.</p>
+    <h3>K-Board Downloads</h3>
+    <h4>K-Board Editor for Mac</h4><p>K-Board Editor v1.3.0 for Mac</p>
+    <h3>BopPad Downloads</h3>
+    <h4>BopPad Editor for Mac</h4><p>BopPad Editor v1.2.0 for Mac</p>
+    <h3>K-Mix Downloads</h3>
+    """
+
+
+def test_kmi_reads_products_from_the_downloads_headings():
+    from src.scrapers.plugins.keith_mcmillen import KeithMcMillenScraper as KMI
+
+    assert KMI()._parse_products(_kmi_page()) == ["K-Board", "BopPad", "K-Mix"]
+
+
+def test_kmi_does_not_treat_the_firmware_heading_as_a_product():
+    """"Firmware Downloads" matches the pattern and introduces SendSysEx, a utility."""
+    from src.scrapers.plugins.keith_mcmillen import KeithMcMillenScraper as KMI
+
+    assert "Firmware" not in KMI()._parse_products(_kmi_page())
+
+
+@pytest.mark.asyncio
+async def test_kmi_reports_no_version_and_says_why():
+    """The editors are versioned and the instruments are not.
+
+    Reporting "K-Board Editor v1.3.0" as the K-Board's firmware is the companion-app
+    trap, which this page sets about twenty times. Every product is flagged
+    not_published so the catalogue explains the blank instead of looking broken.
+    """
+    from src.scrapers.plugins.keith_mcmillen import KeithMcMillenScraper as KMI
+
+    scraper = KMI()
+
+    async def fake_fetch(url, **kwargs):
+        return _kmi_page()
+
+    scraper.fetch_page = fake_fetch
+
+    devices = await scraper.fetch_device_list()
+    assert {d.firmware_availability for d in devices.devices} == {"not_published"}
+    assert {d.category for d in devices.devices} == {"midi_controller", "audio_interface"}
+
+    result = await scraper.fetch_firmware_versions("K-Board", "")
+    assert result.success is True
+    assert result.firmware_versions == []
+
+
+def _iconn_scraper(page):
+    from src.scrapers.plugins.iconnectivity import IConnectivityScraper as IC
+
+    scraper = IC()
+    asked = []
+
+    async def fake_fetch(url, **kwargs):
+        asked.append(url)
+        return page
+
+    scraper.fetch_page = fake_fetch
+    return scraper, asked
+
+
+@pytest.mark.asyncio
+async def test_iconnectivity_reads_the_page_once_for_the_whole_catalogue():
+    """One page holds every product, so the firmware pass must not refetch it."""
+    scraper, asked = _iconn_scraper(_iconn_page())
+
+    devices = await scraper.fetch_device_list()
+    await scraper.fetch_firmware_versions("mioXL", "")
+    await scraper.fetch_firmware_versions("PlayAUDIO2U", "")
+
+    assert [d.name for d in devices.devices] == ["PlayAUDIO2U", "iConnectMIDI4+", "mioXL"]
+    assert len(asked) == 1
+
+
+@pytest.mark.asyncio
+async def test_iconnectivity_categorises_audio_and_midi_products():
+    scraper, _ = _iconn_scraper(_iconn_page())
+    devices = await scraper.fetch_device_list()
+    by_name = {d.name: d.category for d in devices.devices}
+
+    assert by_name["PlayAUDIO2U"] == "audio_interface"
+    assert by_name["iConnectMIDI4+"] == "midi_controller"
+
+
+@pytest.mark.asyncio
+async def test_iconnectivity_fails_when_the_grid_is_gone():
+    """A page that loads with no firmware grid means the layout moved.
+
+    Reporting success with nothing would empty iConnectivity from the catalogue's
+    view the day Squarespace changes its column classes.
+    """
+    scraper, _ = _iconn_scraper("<h3>Firmware</h3><p>coming soon</p>")
+    result = await scraper.fetch_device_list()
+
+    assert result.success is False
+
+    unreachable, _ = _iconn_scraper(None)
+    assert (await unreachable.fetch_device_list()).success is False
+
+
+@pytest.mark.asyncio
+async def test_iconnectivity_reports_a_withdrawn_product_as_an_absence():
+    scraper, _ = _iconn_scraper(_iconn_page())
+    result = await scraper.fetch_firmware_versions("Discontinued Thing", "")
+
+    assert result.success is True
+    assert result.firmware_versions == []
