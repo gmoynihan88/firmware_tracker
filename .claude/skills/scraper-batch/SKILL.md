@@ -148,6 +148,7 @@ Most vendors are one of these. Recognising the shape early saves the whole searc
 | Zendesk Help Center | site is blocked or empty; `support.<vendor>.com/api/v2/help_center/…` answers | Universal Audio, Fender, Keith McMillen |
 | Gatsby `page-data` | `/page-data/…/page-data.json`, plus `staticQueryHashes` | Akai |
 | Next.js RSC payload | `self.__next_f.push([1,"…"])` in the HTML | TC Electronic |
+| Nuxt payload | `/_nuxt/builds/meta/<id>.json` in the HTML; `<page>/_payload.json?<id>` is one flat array whose objects hold indices into it | Cableguys |
 | One page covers the range | a single `/firmware/` or `/downloads/` listing every product | Zoom, Line 6, GForce, Empress |
 | JS-rendered page | plain fetch returns shell; Playwright returns content | Kemper, Empress |
 | One page per product | no listing carries versions | Korg (164 pages — needs batching) |
