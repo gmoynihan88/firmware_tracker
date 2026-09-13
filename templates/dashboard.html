@@ -116,7 +116,7 @@
                 <th class="sortable" data-column="2" scope="col">Category</th>
                 <th class="sortable numeric" data-column="3" scope="col">Installed</th>
                 <th class="sortable numeric" data-column="4" scope="col">Latest</th>
-                <th class="sortable" data-column="5" scope="col">Discovered</th>
+                <th class="sortable" data-column="5" scope="col">Released</th>
                 <th class="sortable" data-column="6" scope="col">Status</th>
                 <th scope="col"><span class="visually-hidden">Details</span></th>
             </tr>
@@ -148,8 +148,19 @@
                     —
                     {%- endif -%}
                 </td>
-                <td class="cell-date" title="When a scrape first recorded this version">
-                    {% if item.latest_firmware and item.latest_firmware.created_at %}{{ item.latest_firmware.created_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+                {# The vendor's own release date, which is what "is this recent?"
+                   actually asks. 66 of the 71 tracked devices with a latest version
+                   have one. Where the vendor publishes none, the em-dash carries the
+                   first-seen date as a tooltip: it is real information, and putting
+                   it in the column would label it as a release date, which it is not. #}
+                <td class="cell-date">
+                    {%- if item.latest_firmware and item.latest_firmware.release_date -%}
+                    {{ item.latest_firmware.release_date.strftime('%Y-%m-%d') }}
+                    {%- elif item.latest_firmware and item.latest_firmware.created_at -%}
+                    <span title="{{ item.device.device_model.manufacturer.name }} publishes no release date. First seen by a scrape on {{ item.latest_firmware.created_at.strftime('%Y-%m-%d') }}.">—</span>
+                    {%- else -%}
+                    —
+                    {%- endif -%}
                 </td>
                 <td class="cell-status">
                     {% if item.status == 'update' %}

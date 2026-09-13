@@ -1589,8 +1589,14 @@ async def test_dashboard_filter_chips_are_alphabetical(client):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
-    """The discovery date is the scrape that first recorded the version."""
+async def test_dashboard_shows_when_the_latest_firmware_was_released(client):
+    """The vendor's release date, which is what "is this recent?" actually asks.
+
+    This column used to show the discovery date -- when a scrape first recorded the
+    version. That was the best available when half the catalogue had no release date;
+    66 of the 71 tracked devices with a latest version now have one, so the weaker
+    signal was taking the column.
+    """
     from datetime import datetime
 
     from src.devices.schemas import (
@@ -1604,15 +1610,16 @@ async def test_dashboard_shows_when_the_latest_firmware_was_discovered(client):
         model = await ds.create_device_model(db, DeviceModelCreate(
             manufacturer_id=mfr.id, name="Dated Synth", category=DeviceCategory.SYNTHESIZER,
         ))
-        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
             device_model_id=model.id, version="1.2.0", is_latest=True,
+            release_date=datetime(2025, 4, 17),
         ))
         await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
 
     html = (await client.get("/")).text
 
-    assert ">Discovered<" in html
-    assert firmware.created_at.strftime("%Y-%m-%d") in html
+    assert ">Released<" in html
+    assert "2025-04-17" in html
 
 
 async def _seed_one_device(name: str = "Filter Box", slug: str = "filterco"):
@@ -6189,3 +6196,46 @@ async def test_add_form_ignores_a_model_id_that_no_longer_exists(client):
 
     assert response.status_code == 200
     assert "Select a manufacturer first..." in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_keeps_the_discovery_date_as_a_tooltip(client):
+    """Where the vendor publishes no date, the em-dash carries first-seen.
+
+    Putting it in the column would label it a release date, which it is not -- five
+    tracked devices are in this state, all from vendors that publish no dates at all.
+    The information is still real, so it stays reachable without being mislabelled.
+    """
+    from datetime import datetime
+
+    from sqlalchemy import update
+
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory, FirmwareVersion
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate, MyDeviceCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Undated Co", slug="undatedco")
+        )
+        model = await ds.create_device_model(db, DeviceModelCreate(
+            manufacturer_id=mfr.id, name="Undated Synth", category=DeviceCategory.SYNTHESIZER,
+        ))
+        firmware = await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=model.id, version="3.0.0", is_latest=True,
+        ))
+        await db.execute(
+            update(FirmwareVersion)
+            .where(FirmwareVersion.id == firmware.id)
+            .values(created_at=datetime(2026, 2, 11))
+        )
+        await db.commit()
+        await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+    html = (await client.get("/")).text
+
+    assert "First seen by a scrape on 2026-02-11" in html, "lost the discovery date"
+    # And it must not be sitting in the column pretending to be a release date.
+    assert ">2026-02-11<" not in html
