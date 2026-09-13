@@ -17,6 +17,7 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 from src.config import get_settings
+from src.scrapers import netguard
 from src.scrapers.cache import ResponseCache
 
 
@@ -79,6 +80,9 @@ class BaseScraper(ABC):
         self._session: Optional[aiohttp.ClientSession] = None
         self._playwright = None
         self._browser: Optional["Browser"] = None
+        self._resolver: Optional[netguard.GuardedResolver] = None
+        # host -> may a rendered page load from it. Per scraper, so per run.
+        self._host_verdicts: Dict[str, bool] = {}
         # The store backs two different behaviours, so it exists if either is on.
         # _serve_from_cache is the development one that skips the network entirely;
         # _revalidate is the production one that still fetches, but conditionally.
@@ -104,8 +108,14 @@ class BaseScraper(ABC):
         """Get or create an aiohttp session."""
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=self.settings.request_timeout)
+            # Every connection is checked against where it actually lands, and every
+            # request -- redirect hops included -- against an IP literal it names.
+            # See netguard.py for why both are needed.
+            self._resolver = netguard.GuardedResolver()
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
+                connector=aiohttp.TCPConnector(resolver=self._resolver),
+                middlewares=(netguard.refuse_literal_addresses,),
                 headers={
                     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -196,7 +206,9 @@ class BaseScraper(ABC):
                     self._fingerprint(url, stored["body"])
                     return stored["body"]
                 if response.status == 200:
-                    body = await response.text()
+                    body = await netguard.read_text_capped(
+                        response, self.settings.max_response_bytes
+                    )
                     self._fingerprint(url, body)
                     if self._cache:
                         self._cache.set(
@@ -209,7 +221,7 @@ class BaseScraper(ABC):
                     return body
                 return None
         except Exception as e:
-            logger.warning("Fetch failed for %s: %s", url, e)
+            logger.warning("Fetch failed for %s: %s", url, str(e) or type(e).__name__)
             return None
 
     async def fetch_json(
@@ -250,11 +262,13 @@ class BaseScraper(ABC):
                         return None
                 if response.status != 200:
                     return None
-                text = await response.text()
+                text = await netguard.read_text_capped(
+                    response, self.settings.max_response_bytes
+                )
                 etag = response.headers.get("ETag")
                 last_modified = response.headers.get("Last-Modified")
         except Exception as e:
-            logger.warning("Fetch failed for %s: %s", url, e)
+            logger.warning("Fetch failed for %s: %s", url, str(e) or type(e).__name__)
             return None
 
         try:
@@ -319,6 +333,9 @@ class BaseScraper(ABC):
             browser = await self._get_browser()
             page = await browser.new_page()
             try:
+                # Before navigating, so the page itself is checked as well as
+                # everything its scripts go on to request.
+                await page.route("**/*", self._guard_browser_request)
                 # Use domcontentloaded instead of networkidle to avoid
                 # hanging on pages with long-polling or streaming connections
                 await page.goto(url, wait_until="domcontentloaded", timeout=wait_for_timeout)
@@ -348,6 +365,19 @@ class BaseScraper(ABC):
             logger.warning("Rendered fetch failed for %s: %s", url, e)
             return None
 
+    async def _guard_browser_request(self, route) -> None:
+        """Let a rendered page load only what lives on the public internet.
+
+        A page's own scripts decide what else Chromium fetches, so the address check
+        that covers aiohttp is repeated here for every request the browser makes.
+        """
+        url = route.request.url
+        if await netguard.url_allowed(url, self._host_verdicts):
+            await route.continue_()
+        else:
+            logger.warning("Blocked rendered request to a non-public address: %s", url)
+            await route.abort("blockedbyclient")
+
     def parse_html(self, html: str) -> BeautifulSoup:
         """Parse HTML content."""
         return BeautifulSoup(html, "lxml")
@@ -356,6 +386,11 @@ class BaseScraper(ABC):
         """Close the aiohttp session and Playwright browser."""
         if self._session and not self._session.closed:
             await self._session.close()
+        # The connector does not own a resolver it was handed, so it is closed here.
+        resolver = getattr(self, "_resolver", None)
+        if resolver is not None:
+            await resolver.close()
+            self._resolver = None
         if self._browser:
             await self._browser.close()
             self._browser = None

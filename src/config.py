@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     request_timeout: int = 30
     rate_limit_delay: float = 1.0  # seconds between requests per manufacturer
 
+    # The largest body any vendor has returned is about 4 MB. A response past this is
+    # not a firmware page, and reading it whole would spend its size in memory. See
+    # src/scrapers/netguard.py.
+    max_response_bytes: int = 25_000_000
+
     # An on-disk response cache for development only, off by default so production
     # always fetches live. Debugging a scraper means running it repeatedly against
     # data that has not changed; SCRAPE_CACHE=1 makes those repeats hit disk instead
