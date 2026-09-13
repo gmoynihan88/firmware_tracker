@@ -326,6 +326,28 @@ five wait configurations were tested before this was understood.
 decodes and concatenates every chunk, and `_match_bracket` ignores brackets inside
 string literals.
 
+## Step 3b — Gatsby pages: the data is in page-data, and the filename is a build artefact
+
+Next.js is not the only framework that ships its content as JSON beside the page.
+Akai's `/downloads` renders about 1,900 characters in a browser and the real listing
+is a Gatsby static query. The tell in the network capture is `page-data/`:
+
+```
+GET /page-data/downloads-and-support/downloads/page-data.json
+GET /page-data/sq/d/2008607954.json      <- 218KB, every product and its downloads
+```
+
+**Do not hardcode that number.** It is a build hash and changes whenever the site is
+rebuilt, which is the same rot that killed every Focusrite and GForce product URL.
+The route's own `page-data.json` names it:
+
+```json
+{"componentChunkName": "...", "staticQueryHashes": ["2008607954", "2568188990"]}
+```
+
+So fetch `page-data.json`, read `staticQueryHashes`, and try each until one parses
+into something with products. Two requests, no browser, and it cannot go stale.
+
 ## Step 4 — Parse structure, never free text
 
 Scan the specific element that holds the version, not the page text. Free text
@@ -352,6 +374,40 @@ they look exactly right:
 A GForce product page yields four of these and no firmware version at all. If a
 pattern matches something on a page you believe has no version, that is the pattern
 being wrong, not the page being right.
+
+**They survive into structured data.** Finding an API does not retire this table, it
+just moves it. Akai's downloads entries are typed and carry a `version` field, and
+half of them leave it empty with the number in the description:
+
+```
+"Advance 25 - Firmware ReadMe (76.74 kB)"    -> 76.74 is a file size
+"MPC 2.11.10 Software Update (74.64 kB)"     -> the desktop software, not the device
+"MPC Studio Windows Firmware Update v1.10"   -> 1.10, genuinely
+"MPC2500 Operating System [v1.24]"           -> 1.24, genuinely
+```
+
+Reading any version-shaped string out of that field gave Advance 25 a firmware of
+76.74. Strip parenthesised sizes first, and trust prose only where an explicit `v`
+marks the number — the real versions carry one and the sizes do not. The cost is
+nine products whose version could not be established, which is the right trade
+against nine products carrying a file size.
+
+### When the container differs between products, pair by adjacency
+
+A selector is the right tool until the vendor uses two layouts. Teenage Engineering
+puts OP-XY's version and date inside one `div.bxl` and EP-133's in separate elements,
+so a selector written against either found eight of fifteen products — and reported
+EP-133 on 2.0.2 while the index said 2.5, which is the shape of a scraper that looks
+like it works.
+
+What held across both was that the date immediately follows its version. Pairing a
+line that is *entirely* a version with a line that is *entirely* a date reads both
+layouts, and the "entirely" is what keeps the changelog out: the notes underneath say
+"OS 2.0.2" and "support for 2.0", and neither is a bare line.
+
+This is a step down from parsing structure, so reach for it only when the structure
+genuinely varies — and pair two whole lines rather than searching a blob, or you are
+back to free text with extra steps.
 
 ### A flattened table puts every value against the wrong row
 
@@ -427,6 +483,7 @@ attached to.
 |---|---|---|
 | `Oberheim OB-E®` | `Oberheim OB-E` | trademark symbol |
 | `Clarett⁺ 2Pre` | `Clarett+ 2Pre` | superscript plus (U+207A) |
+| `OP–XY`, `EP–133` | `OP-XY`, `EP-133` | en dash (U+2013), which nobody types |
 | `Scarlett 18i20 3rd gen` | `Scarlett 18i20 3rd Gen` | inconsistent casing |
 | `VSM IV` | `Virtual String Machine` | renamed product |
 | `Relay G10TII Transmitter` | `Relay G10II` | firmware ships under a component's name |
