@@ -5562,3 +5562,47 @@ async def test_novation_fails_loudly_when_the_manifest_is_unreachable():
 
     assert result.success is False
     assert "firmwares" in result.error
+
+
+@pytest.mark.asyncio
+async def test_novation_reads_the_manifest_once_per_run():
+    """Every product's versions come from one response; asking again must not refetch."""
+    from src.scrapers.plugins.novation import NovationScraper
+
+    scraper = NovationScraper()
+    calls = []
+
+    async def counting_fetch(url, **kwargs):
+        calls.append(url)
+        return _novation_manifest()
+
+    scraper.fetch_page = counting_fetch
+
+    await scraper.fetch_device_list()
+    await scraper.fetch_firmware_versions("Peak", "")
+    await scraper.fetch_firmware_versions("Bass Station II", "")
+
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_novation_fails_rather_than_crashes_on_a_broken_manifest():
+    """An endpoint that starts returning HTML is a breakage, not an empty vendor."""
+    for payload in ("<html>maintenance</html>", '{"firmwares": []}'):
+        scraper = _novation_scraper(payload=payload)
+        result = await scraper.fetch_device_list()
+        assert result.success is False, f"accepted {payload[:20]!r}"
+
+
+@pytest.mark.asyncio
+async def test_novation_reports_a_withdrawn_product_as_an_absence():
+    """A device row outliving its manifest entry is not a failure to investigate.
+
+    The endpoint answered; Novation simply stopped listing it. Reporting failure
+    would raise a false alarm on every run for as long as the row exists.
+    """
+    scraper = _novation_scraper()
+    result = await scraper.fetch_firmware_versions("Discontinued Thing", "")
+
+    assert result.success is True
+    assert result.firmware_versions == []

@@ -354,7 +354,7 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 251 tests
+pytest                                   # 254 tests
 pytest --cov=src                         # 79% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
