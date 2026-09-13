@@ -6021,3 +6021,84 @@ async def test_te_fails_when_a_product_page_is_unreachable():
     result = await scraper.fetch_firmware_versions("OP-XY", "https://teenage.engineering/downloads/op-xy")
 
     assert result.success is False
+
+
+# --- hardware / software filter ---------------------------------------------
+# The coarsest cut, and the one most often wanted: "my pedals" or "my plugins"
+# rather than one of six categories. Software is VST_PLUGIN, hardware is the rest.
+
+
+async def _seed_one_of_each():
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate, MyDeviceCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(
+            db, ManufacturerCreate(name="Kindco", slug="kindco")
+        )
+        for name, category in (
+            ("Kind Pedal", DeviceCategory.GUITAR_PEDAL),
+            ("Kind Synth", DeviceCategory.SYNTHESIZER),
+            ("Kind Interface", DeviceCategory.AUDIO_INTERFACE),
+            ("Kind Controller", DeviceCategory.MIDI_CONTROLLER),
+            ("Kind Other", DeviceCategory.OTHER),
+            ("Kind Plugin", DeviceCategory.VST_PLUGIN),
+        ):
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=category,
+            ))
+            await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
+
+
+def _kinds_by_product(html):
+    import re
+
+    found = {}
+    for row in re.findall(r"<tr[^>]*data-kind=[^>]*>.*?</tr>", html, re.S):
+        kind = re.search(r'data-kind="(\w+)"', row)
+        name = re.search(r"Kind \w+", row)
+        if kind and name:
+            found[name.group(0)] = kind.group(1)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_catalog_marks_every_row_hardware_or_software(client):
+    """Only VST_PLUGIN is software. Every other category is a physical thing."""
+    await _seed_one_of_each()
+
+    kinds = _kinds_by_product((await client.get("/catalog")).text)
+
+    assert kinds == {
+        "Kind Pedal": "hardware",
+        "Kind Synth": "hardware",
+        "Kind Interface": "hardware",
+        "Kind Controller": "hardware",
+        "Kind Other": "hardware",
+        "Kind Plugin": "software",
+    }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_marks_every_row_hardware_or_software(client):
+    """The same split on the page showing only what you own."""
+    await _seed_one_of_each()
+
+    kinds = _kinds_by_product((await client.get("/")).text)
+
+    assert set(kinds.values()) == {"hardware", "software"}
+    assert kinds["Kind Plugin"] == "software"
+    assert sum(1 for k in kinds.values() if k == "hardware") == 5
+
+
+@pytest.mark.asyncio
+async def test_both_pages_offer_the_type_filter(client):
+    """The chips have to exist, or data-kind is dead weight."""
+    await _seed_one_of_each()
+
+    for path, container in (("/catalog", "catalog-kind-filters"), ("/", "kind-filters")):
+        html = (await client.get(path)).text
+        assert f'id="{container}"' in html, f"{path} has no type filter"
+        assert 'value="hardware"' in html
+        assert 'value="software"' in html

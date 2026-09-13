@@ -23,6 +23,23 @@
 {% set manufacturers = devices | map(attribute='device.device_model.manufacturer') | list | unique(attribute='slug') | sort(attribute='name') | list %}
 
 <div class="filter-bar">
+    {# Coarser than the category filter below and used more: most people want
+       "my pedals" or "my plugins" rather than one of six categories. Software is
+       the VST_PLUGIN category, hardware is everything else. #}
+    <span class="filter-label">Type:</span>
+    <div class="filter-checkboxes" id="kind-filters">
+        <label class="filter-checkbox">
+            <input type="checkbox" value="hardware" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Hardware</span>
+        </label>
+        <label class="filter-checkbox">
+            <input type="checkbox" value="software" checked onchange="filterDevices()">
+            <span class="filter-chip"><span class="chip-box"></span>Software</span>
+        </label>
+    </div>
+</div>
+
+<div class="filter-bar">
     <span class="filter-label">Filter by status:</span>
     <div class="filter-checkboxes" id="status-filters">
         <label class="filter-checkbox">
@@ -108,6 +125,7 @@
             {% for item in devices %}
             <tr class="device-row {% if item.status == 'update' %}has-update{% endif %}"
                 data-category="{{ item.device.device_model.category.value }}"
+                data-kind="{{ 'software' if item.device.device_model.category.value == 'vst_plugin' else 'hardware' }}"
                 data-brand="{{ item.device.device_model.manufacturer.slug }}"
                 data-status="{{ item.status }}">
                 <td class="cell-vendor">{{ item.device.device_model.manufacturer.name }}</td>
@@ -173,6 +191,7 @@ function filterDevices() {
     const categoryCheckboxes = document.querySelectorAll('#category-filters input');
     const brandCheckboxes = document.querySelectorAll('#brand-filters input');
     const statusCheckboxes = document.querySelectorAll('#status-filters input');
+    const kindCheckboxes = document.querySelectorAll('#kind-filters input');
 
     const activeCategories = Array.from(categoryCheckboxes)
         .filter(cb => cb.checked)
@@ -190,6 +209,9 @@ function filterDevices() {
     const allBrands = Array.from(brandCheckboxes).map(cb => cb.value);
     const allStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
 
+    const activeKinds = Array.from(kindCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+    const allKinds = Array.from(kindCheckboxes).map(cb => cb.value);
+
     // Fail open. A card whose value no filter offers is left visible rather than
     // hidden: if the page and the route ever disagree -- a stale server process
     // serving a new template, say -- every card carries a value no checkbox has, and
@@ -203,8 +225,9 @@ function filterDevices() {
         const matchesCategory = matches(card.dataset.category, activeCategories, allCategories);
         const matchesBrand = matches(card.dataset.brand, activeBrands, allBrands);
         const matchesStatus = matches(card.dataset.status, activeStatuses, allStatuses);
+        const matchesKind = matches(card.dataset.kind, activeKinds, allKinds);
 
-        card.hidden = !(matchesCategory && matchesBrand && matchesStatus);
+        card.hidden = !(matchesCategory && matchesBrand && matchesStatus && matchesKind);
     });
 }
 

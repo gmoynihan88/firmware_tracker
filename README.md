@@ -149,8 +149,8 @@ together, or need a vendor the others do not cover.
 ## Usage
 
 **Add devices** from the catalogue at `/catalog`. 755 devices across 29 vendors, so it
-filters: type to narrow by product or vendor, untick a vendor, or hide what you already
-track. Devices already tracked say so instead of offering to add a second copy.
+filters: type to narrow by product or vendor, split hardware from software, untick a
+vendor, or hide what you already track. Devices already tracked say so instead of offering to add a second copy.
 
 ![The catalogue, filtered to five devices by typing "digi"](docs/images/catalog.png)
 
@@ -357,7 +357,7 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 275 tests
+pytest                                   # 278 tests
 pytest --cov=src                         # 79% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
