@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 26 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 27 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -58,8 +58,9 @@ uvicorn src.main:app --reload
 
 ## What it does
 
-- **Scrapes 26 manufacturers** — Arturia, Boss, Elektron, Eventide, Focusrite, iZotope,
-  Korg, Moog, Native Instruments, Novation, Steinberg, Strymon, Universal Audio and more
+- **Scrapes 27 manufacturers** — Ableton, Arturia, Boss, Elektron, Eventide, Focusrite,
+  iZotope, Korg, Moog, Native Instruments, Novation, Steinberg, Strymon, Universal Audio
+  and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -111,7 +112,7 @@ request volume low.
 
 - One request per second per manufacturer, and a daily check rather than hourly.
 - Conditional requests (`If-None-Match` / `If-Modified-Since`), so an unchanged page
-  returns `304` with no body. Five of the 26 vendors send validators; for those it
+  returns `304` with no body. Five of the 27 vendors send validators; for those it
   saves the full page on every run.
 - `SCRAPE_CACHE=1` serves repeat requests from disk during development. Working on a
   scraper means fetching the same page dozens of times, and a cached run is 35× faster
@@ -147,7 +148,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 713 devices across 26 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 715 devices across 27 vendors, so it
 filters: type to narrow by product or vendor, untick a vendor, or hide what you already
 track. Devices already tracked say so instead of offering to add a second copy.
 
@@ -302,23 +303,23 @@ likely to touch:
 
 | Hardware | Plugins |
 |---|---|
-| Arturia\* | GForce Software |
-| Boss | IK Multimedia |
-| Crumar | iZotope |
-| Elektron | Modartt (Pianoteq) |
-| Eventide\* | Moog |
-| Korg | |
-| Novation | |
-| Focusrite | Native Instruments |
+| Arturia\* | Ableton (Live) |
+| Boss | GForce Software |
+| Crumar | IK Multimedia |
+| Elektron | iZotope |
+| Eventide\* | Modartt (Pianoteq) |
+| Focusrite | Moog |
+| Korg | Native Instruments |
 | Line 6 | Steinberg |
-| Peterson | TAL Software |
-| QSC | Universal Audio |
-| Roland | |
-| Sound-Force | |
-| Strymon | |
-| TC Electronic | |
-| Tascam | |
-| Yamaha | |
+| Novation | TAL Software |
+| Peterson | Universal Audio |
+| QSC |  |
+| Roland |  |
+| Sound-Force |  |
+| Strymon |  |
+| TC Electronic |  |
+| Tascam |  |
+| Yamaha |  |
 
 \*Arturia and Eventide are on both sides: Arturia 116 instruments and effects
 alongside 67 hardware products, Eventide 54 plugins and 29 pedals.
@@ -354,7 +355,7 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 254 tests
+pytest                                   # 260 tests
 pytest --cov=src                         # 79% overall, 83% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
@@ -394,7 +395,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (26 scrapers)
+    plugins/           # One file per manufacturer (27 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries

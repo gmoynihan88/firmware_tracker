@@ -591,6 +591,37 @@ asyncio.run(main())
 "
 ```
 
+### `.env` sets `SCRAPE_CACHE=true`, so "live" runs are not live
+
+This step is the one the cache silently defeats. The repo's `.env` turns the dev
+cache on, `get_settings()` reads it, and a verification run then confirms the parser
+against HTML saved earlier rather than against the vendor. Nothing says so: every
+scraper reports `ok`, every device count is right, and the result is worthless as
+evidence the site still exists.
+
+Pass it explicitly on the command line, which overrides `.env`, and print what took
+effect so the output cannot be misread later:
+
+```bash
+SCRAPE_CACHE=false .venv/bin/python -c "
+from src.config import get_settings
+print('scrape_cache:', get_settings().scrape_cache)
+..."
+```
+
+**The tell is implausible timing.** A full sweep that reported every scraper healthy
+gave Eventide's 61 pages in 2s and Roland's 32 in 0s. The same sweep uncached:
+
+```
+korg      310s      elektron  113s      roland  103s
+boss       74s      eventide   66s      arturia   7s
+```
+
+If a scraper that fetches a page per device finishes faster than its device count in
+seconds, it did not fetch anything. Arturia really is 7s for 183 devices, because it
+is two JSON calls -- which is the point of preferring an API, and also why speed
+alone cannot be the check.
+
 **Search results lag badly on version numbers.** A search said Kontakt was on 8.9.0;
 NI's own thread said 8.13.0. Believing the search would have meant reporting a
 correct scraper as broken. Always confirm on the vendor's page.
@@ -640,6 +671,28 @@ The clustering test is the whole check and costs one request: **group the candid
 dates and count how many fall on the same day.** Genuine release dates spread out;
 migration artefacts stack up. It is the same question as "does this date move between
 products", asked of an API instead of a page.
+
+### Match a date against a whole element, do not search the block
+
+Where a date lives in its own tag, compare it to the element's *entire* text rather
+than searching the flattened block. Ableton puts the release date in three places:
+an `h4` as the first child, a `p` below an opening section heading, and on older
+Live 11 point releases nowhere at all. An anchored search over the flattened text
+finds only the first shape and cost 29 of 67 versions their date.
+
+Searching rather than full-matching has the opposite failure: 12.4.5's changelog
+mentions "May 5, 2025" while the release is dated August 26, 2026, and 11.0.12's
+notes reference an issue from January 3, 2021 with no release date of its own. A
+search finds both and attributes them.
+
+```python
+for child in list(body.children)[:6]:
+    text = child.get_text(" ", strip=True)
+    if DATE.fullmatch(text):          # the element is the date, not merely contains one
+        ...
+```
+
+Bound the depth. Beyond the first few children you are inside the changelog.
 
 ### "This vendor publishes no dates" is a claim, not a finding
 

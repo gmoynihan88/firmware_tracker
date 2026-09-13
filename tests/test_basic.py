@@ -99,6 +99,7 @@ async def test_api_scrapers(client):
     assert "arturia" in data["scrapers"]
     assert "korg" in data["scrapers"]
     assert "novation" in data["scrapers"]
+    assert "ableton" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
@@ -5606,3 +5607,129 @@ async def test_novation_reports_a_withdrawn_product_as_an_absence():
 
     assert result.success is True
     assert result.firmware_versions == []
+
+
+# --- ableton ----------------------------------------------------------------
+# One page per major, each release an h2 followed by div.release_note_text. The
+# date sits in three different places and sometimes nowhere, which took two passes
+# to get right: an anchored match cost 29 of 67 versions their date, and requiring
+# a full month name then cost 12.0.20 its "Aug 6, 2024".
+
+
+def _ableton_page() -> str:
+    return """
+    <h2>12.4.5
+        Release Notes</h2>
+    <div class="release_note_text">
+      <h4>August 26, 2026</h4>
+      <h3>New Features and Improvements</h3>
+      <ul><li>Added Control Surface support, replacing the behaviour from May 5, 2025.</li></ul>
+    </div>
+
+    <h2>12.0.20
+        Release Notes</h2>
+    <div class="release_note_text">
+      <h4>Aug 6, 2024</h4>
+      <ul><li>No Live specific release notes.</li></ul>
+    </div>
+
+    <h2>11.3.42
+        Release Notes</h2>
+    <div class="release_note_text">
+      <h3>Move Control Surface Updates</h3>
+      <p>April 14, 2025</p>
+      <ul><li>A notification is now shown when steps are transposed.</li></ul>
+    </div>
+
+    <h2>11.0.12
+        Release Notes</h2>
+    <div class="release_note_text">
+      <h3>Bugfixes:</h3>
+      <ul><li>Fixed an issue reported back in January 3, 2021 by several users.</li></ul>
+    </div>
+
+    <h2>12.5
+        Coming Soon</h2>
+    <p>Not a release block, so not a release.</p>
+    """
+
+
+def test_ableton_reads_the_date_from_each_of_its_three_positions():
+    """First child, after a section heading, and abbreviated."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    by_version = {fw.version: fw for fw in AbletonScraper()._parse_releases(_ableton_page())}
+
+    assert by_version["12.4.5"].release_date.strftime("%Y-%m-%d") == "2026-08-26"
+    assert by_version["11.3.42"].release_date.strftime("%Y-%m-%d") == "2025-04-14"
+    # "Aug 6, 2024" -- requiring the long spelling silently dropped this one.
+    assert by_version["12.0.20"].release_date.strftime("%Y-%m-%d") == "2024-08-06"
+
+
+def test_ableton_leaves_an_undated_release_undated():
+    """11.0.12 opens straight into "Bugfixes:" and carries no date on the page.
+
+    Its changelog mentions January 3, 2021, which is a date inside prose about an
+    issue rather than the release's own. Taking it would be the fabrication the whole
+    project is arranged against, and it is the reason the date is matched against a
+    whole element rather than searched for.
+    """
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    by_version = {fw.version: fw for fw in AbletonScraper()._parse_releases(_ableton_page())}
+
+    assert by_version["11.0.12"].release_date is None
+    assert "January 3, 2021" in by_version["11.0.12"].changelog
+
+
+def test_ableton_does_not_take_a_date_from_the_changelog_of_a_dated_release():
+    """12.4.5's notes mention May 5, 2025; its release date is August 26, 2026."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    by_version = {fw.version: fw for fw in AbletonScraper()._parse_releases(_ableton_page())}
+
+    assert by_version["12.4.5"].release_date.year == 2026
+
+
+def test_ableton_skips_a_version_heading_with_no_notes_under_it():
+    """"12.5 Coming Soon" is navigation, not a release."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    versions = {fw.version for fw in AbletonScraper()._parse_releases(_ableton_page())}
+
+    assert "12.5" not in versions
+    assert versions == {"12.4.5", "12.0.20", "11.3.42", "11.0.12"}
+
+
+def test_ableton_tracks_a_major_version_as_its_own_product():
+    """Following Steinberg's Cubase 12 and Cubase 13.
+
+    One "Ableton Live" row would have 12.4.5 and 11.3.43 competing to be latest, and
+    the newer always wins — telling a Live 11 owner they are behind by a major they
+    have not bought.
+    """
+    import asyncio
+
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    devices = asyncio.run(AbletonScraper().fetch_device_list())
+    names = [d.name for d in devices.devices]
+
+    assert names == ["Live 12", "Live 11"]
+    assert all("release-notes" in d.firmware_page_url for d in devices.devices)
+
+
+@pytest.mark.asyncio
+async def test_ableton_fails_when_a_release_notes_page_is_unreachable():
+    """An empty success would claim Ableton shipped nothing for that major."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    scraper = AbletonScraper()
+
+    async def no_response(url, **kwargs):
+        return None
+
+    scraper.fetch_page = no_response
+    result = await scraper.fetch_firmware_versions("Live 12", "https://x/")
+
+    assert result.success is False
