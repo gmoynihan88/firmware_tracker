@@ -1,0 +1,9 @@
+# Everything CI and local development install: the application's dependencies
+# plus the test and audit tools. Compiled into requirements-dev.txt with hashes.
+#
+# The tools mirror pyproject.toml's `dev` extra.
+-r requirements.in
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pip-audit>=2.7

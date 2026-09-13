@@ -49,11 +49,15 @@ python scripts/scan_installed_plugins.py
 Requires Python 3.11+.
 
 ```bash
-pip install -e ".[dev]"
-pip install -e ".[browser]" && playwright install chromium   # 10 scrapers need a browser
+pip install --require-hashes -r requirements-dev.txt
+playwright install chromium   # 10 scrapers need a browser
 alembic upgrade head
 uvicorn src.main:app --reload
 ```
+
+Dependencies install from hashed lock files, so pip refuses any package whose contents
+differ from the version that was reviewed. To change one, edit `pyproject.toml` and the
+matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md`.
 </details>
 
 ## What it does

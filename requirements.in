@@ -1,0 +1,23 @@
+# What the application needs to run, Playwright included -- ten scrapers render
+# pages in a browser. Compiled into requirements.txt with hashes; the command is in
+# that file's header, and Dependabot regenerates it from this file.
+#
+# pyproject.toml declares the same dependencies (and the `browser` extra).
+# test_lock_files_satisfy_pyproject fails if the two drift apart.
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+aiosqlite>=0.19.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+jinja2>=3.1.3
+python-multipart>=0.0.6
+aiohttp>=3.12
+beautifulsoup4>=4.12.3
+lxml>=5.1.0
+apscheduler>=3.10.4
+anthropic>=0.18.0
+httpx>=0.26.0
+greenlet>=3.0.0
+playwright>=1.40.0

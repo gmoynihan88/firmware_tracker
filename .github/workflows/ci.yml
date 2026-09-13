@@ -34,12 +34,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-dev.txt
 
-      # The browser extra is deliberately omitted: Playwright is optional and
-      # guarded by PLAYWRIGHT_AVAILABLE, and no test exercises fetch_page_js().
+      # From the hashed lock: pip refuses any file whose hash differs from the one
+      # reviewed in requirements-dev.txt. The project itself is not installed -- tests
+      # import `src` from the checkout -- so nothing is built and no build backend is
+      # fetched unhashed. Playwright's Python package comes with the lock but its
+      # browser does not, so the one real-Chromium test skips here.
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install --require-hashes -r requirements-dev.txt
 
       - name: Run tests
         run: pytest -q
@@ -59,10 +62,10 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install --require-hashes -r requirements-dev.txt
 
       # concurrency = ["greenlet", "thread"] in pyproject is what makes these numbers
       # real. SQLAlchemy bridges async to the sync DBAPI through greenlets, and
@@ -90,10 +93,10 @@ jobs:
         run: coverage report --fail-under=65
 
   audit:
-    # Dependencies are floors rather than pins, so CI installs the newest release of
-    # each and this audits exactly what was installed. The scrapers parse input the
-    # vendors control, through aiohttp, lxml, BeautifulSoup and Chromium, so a known
-    # vulnerability in one of those is a vulnerability in this app.
+    # Audits the lock files, pin by pin: requirements.txt is exactly what the Docker
+    # image installs and requirements-dev.txt is what CI runs. The scrapers parse
+    # input the vendors control, through aiohttp, lxml, BeautifulSoup and Chromium, so
+    # a known vulnerability in one of those is a vulnerability in this app.
     runs-on: ubuntu-latest
 
     steps:
@@ -105,15 +108,16 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-dev.txt
 
-      # The browser extra is included here, unlike the test jobs: Playwright is
-      # optional for the tests but not for the scrapers that need it. pip itself is
-      # upgraded first so an old runner pip is not what fails the audit.
+      # pip-audit itself comes from the hashed dev lock.
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,browser]" pip-audit
+        run: pip install --require-hashes -r requirements-dev.txt
 
-      - name: Audit installed packages
-        run: pip-audit --skip-editable --progress-spinner off
+      # --disable-pip audits the pinned versions as written, without resolving or
+      # installing anything, so the result describes the lock files and not this
+      # runner's environment.
+      - name: Audit the lock files
+        run: >-
+          pip-audit --progress-spinner off --require-hashes --disable-pip
+          -r requirements.txt -r requirements-dev.txt
