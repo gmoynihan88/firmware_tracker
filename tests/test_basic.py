@@ -106,6 +106,9 @@ async def test_api_scrapers(client):
     assert "keithmcmillen" in data["scrapers"]
     assert "empress" in data["scrapers"]
     assert "fender" in data["scrapers"]
+    assert "kemper" in data["scrapers"]
+    assert "fractal" in data["scrapers"]
+    assert "neuraldsp" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
@@ -6798,3 +6801,287 @@ async def test_fender_reports_a_retired_product_as_an_absence():
 
     assert result.success is True
     assert result.firmware_versions == []
+
+
+# --- kemper, fractal, neural dsp --------------------------------------------
+# Three modellers, three different sources, one shared hazard: each publishes a
+# companion application's version beside the instrument's.
+
+
+def _kemper_page() -> str:
+    """The download list and the release-notes modal behind it."""
+    return """
+    <ul class="downloads-list">
+      <li class="panel"><h3>PROFILER Operating System 14.2.1 Release for all PROFILER models</h3>
+        <div class="panel-footer"><span class="meta">Date: 2026-08-06, File size: 30.8 MB</span></div></li>
+      <li class="panel"><h3>Rig Manager 4.2.13 for macOS</h3>
+        <div class="panel-footer"><span class="meta">Date: 2026-08-06, File size: 265 MB</span></div></li>
+      <li class="panel"><h3>Main Manual 14.2</h3>
+        <div class="panel-footer"><span class="meta">Date: 2026-07-23, File size: 8.23 MB</span></div></li>
+    </ul>
+    <div class="modal-content"><div class="modal-body">
+      <pre>PROFILER Operating System 14.2.1.67566
+PROFILER Operating System 14.2.0.67476
+PROFILER Operating System 14.1.2.66277</pre>
+    </div></div>
+    """
+
+
+def test_kemper_takes_the_os_not_rig_manager_or_the_manual():
+    """Rig Manager is the librarian app and "Main Manual 14.2" is a document."""
+    from src.scrapers.plugins.kemper import KemperScraper
+
+    versions = {fw.version for fw in KemperScraper()._parse(_kemper_page())}
+
+    assert versions == {"14.2.1", "14.2.0", "14.1.2"}
+    assert "4.2.13" not in versions, "took Rig Manager"
+
+
+def test_kemper_dates_only_the_shipping_release():
+    """The modal states no dates at all, so the history stays undated."""
+    from src.scrapers.plugins.kemper import KemperScraper
+
+    versions = KemperScraper()._parse(_kemper_page())
+    by_version = {fw.version: fw for fw in versions}
+
+    assert by_version["14.2.1"].release_date.strftime("%Y-%m-%d") == "2026-08-06"
+    assert by_version["14.2.0"].release_date is None
+
+
+def test_kemper_trims_the_build_number():
+    """14.2.1.67566 in the modal and 14.2.1 in the list are one release."""
+    from src.scrapers.plugins.kemper import KemperScraper
+
+    versions = [fw.version for fw in KemperScraper()._parse(_kemper_page())]
+
+    assert versions.count("14.2.1") == 1
+    assert not any(v.count(".") > 2 for v in versions)
+
+
+def _fractal_page(title, tail="Compatible with all models – June 25, 2026") -> str:
+    return f"""
+    <div class="w-iconbox"><div class="w-iconbox-meta">
+      <h3 class="w-iconbox-title">{title}</h3><p>{tail}</p>
+    </div></div>
+    <div class="w-iconbox"><div class="w-iconbox-meta">
+      <h3 class="w-iconbox-title">USB Firmware Update 1.04</h3><p>Separate chip.</p>
+    </div></div>
+    """
+
+
+def test_fractal_reads_all_three_firmware_wordings():
+    """A pattern fitted to one silently drops the other two."""
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    scraper = F()
+    for title, expected in (
+        ("Firmware 32.06", "32.06"),
+        ("Firmware v12.0", "12.0"),
+        ("AX8 Firmware Quantum 10.01", "10.01"),
+    ):
+        parsed = scraper._parse_product(_fractal_page(title))
+        assert [fw.version for fw in parsed] == [expected], title
+
+
+def test_fractal_refuses_the_usb_chips_firmware():
+    """"USB Firmware Update 1.04" sits in the same list on the FM9 page."""
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    parsed = F()._parse_product(_fractal_page("Firmware v12.0"))
+
+    assert [fw.version for fw in parsed] == ["12.0"]
+    assert "1.04" not in {fw.version for fw in parsed}
+
+
+def test_fractal_reads_the_date_from_the_line_below():
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    parsed = F()._parse_product(_fractal_page("Firmware 32.06"))
+
+    assert parsed[0].release_date.strftime("%Y-%m-%d") == "2026-06-25"
+    undated = F()._parse_product(_fractal_page("Firmware 5.03", tail="No date here."))
+    assert undated[0].release_date is None
+
+
+def _neural_index() -> str:
+    return """
+    <article><a href="/us/quad-cortex-updates/coros-4-1-0-and-cortex-control-4-1-0-are-now-available">x</a>
+      <time>August 26, 2026</time></article>
+    <article><a href="/us/quad-cortex-updates/coros-3-3-1-and-cortex-control-1-4-1-are-now-available">x</a>
+      <time>December 15, 2025</time></article>
+    <article><a href="/us/quad-cortex-updates/coros-and-cortex-control-4-2-0-are-now-available">x</a>
+      <time>September 2, 2026</time></article>
+    <article><a href="/us/quad-cortex-updates/coros-3-0-0-release-schedule">x</a>
+      <time>July 30, 2024</time></article>
+    <article><a href="/us/quad-cortex-updates/quad-cortex-development-update-59">x</a>
+      <time>June 1, 2026</time></article>
+    """
+
+
+def test_neural_takes_coros_not_cortex_control():
+    """Each slug names the firmware and the desktop editor.
+
+    CorOS 3.3.1 shipped with Cortex Control 1.4.1; on recent releases the two have
+    converged, which is what would make taking the wrong one invisible until they
+    diverge again.
+    """
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    versions = {fw.version for fw in N()._parse_index(_neural_index())}
+
+    assert "3.3.1" in versions
+    assert "1.4.1" not in versions, "took the Cortex Control editor version"
+
+
+def test_neural_handles_both_slug_shapes():
+    """"coros-4-1-0-and-..." and "coros-and-cortex-control-4-2-0-..." both appear."""
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    versions = [fw.version for fw in N()._parse_index(_neural_index())]
+
+    assert versions[:2] == ["4.2.0", "4.1.0"]
+
+
+def test_neural_skips_posts_that_are_not_releases():
+    """The index also carries release schedules and development updates, several of
+    which name a version that had not shipped."""
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    versions = {fw.version for fw in N()._parse_index(_neural_index())}
+
+    assert "3.0.0" not in versions, "took the release-schedule post"
+    assert versions == {"4.2.0", "4.1.0", "3.3.1"}
+
+
+def test_neural_dates_each_release_from_its_card():
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    by_version = {fw.version: fw for fw in N()._parse_index(_neural_index())}
+
+    assert by_version["4.1.0"].release_date.strftime("%Y-%m-%d") == "2026-08-26"
+    assert by_version["3.3.1"].release_date.strftime("%Y-%m-%d") == "2025-12-15"
+
+
+def _stub_fetch(scraper, pages, attr="fetch_page"):
+    """Serve canned pages and record what was asked for."""
+    asked = []
+
+    async def fake(url, **kwargs):
+        asked.append(url)
+        return pages.get(url)
+
+    setattr(scraper, attr, fake)
+    return asked
+
+
+@pytest.mark.asyncio
+async def test_kemper_lists_one_device_and_reads_the_page_once():
+    """One OS covers every PROFILER model, so it is one device, not four."""
+    from src.scrapers.plugins.kemper import KemperScraper
+
+    scraper = KemperScraper()
+    asked = _stub_fetch(scraper, {KemperScraper.DOWNLOADS_URL: _kemper_page()},
+                        attr="fetch_page_js")
+
+    devices = await scraper.fetch_device_list()
+    result = await scraper.fetch_firmware_versions("PROFILER", "")
+
+    assert [d.name for d in devices.devices] == ["PROFILER"]
+    assert len(result.firmware_versions) == 3
+    assert len(asked) == 1
+
+
+@pytest.mark.asyncio
+async def test_kemper_fails_when_no_operating_system_is_listed():
+    """The page is JS-rendered; unrendered it has no version anywhere.
+
+    Reporting success would read as Kemper having stopped publishing.
+    """
+    from src.scrapers.plugins.kemper import KemperScraper
+
+    scraper = KemperScraper()
+    _stub_fetch(scraper, {KemperScraper.DOWNLOADS_URL: "<html><body>nav only</body></html>"},
+                attr="fetch_page_js")
+
+    assert (await scraper.fetch_device_list()).success is False
+
+
+@pytest.mark.asyncio
+async def test_fractal_lists_only_products_whose_firmware_it_could_read():
+    """Axe-Fx II states its firmware in a shape none of the patterns match.
+
+    Listing it would add a row reporting nothing on every run.
+    """
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    home = ('<a href="https://www.fractalaudio.com/fm9-downloads/">FM9</a>'
+            '<a href="https://www.fractalaudio.com/axe-fx-ii-downloads/">II</a>')
+    pages = {
+        "https://www.fractalaudio.com/": home,
+        "https://www.fractalaudio.com/fm9-downloads/": _fractal_page("Firmware v12.0"),
+        "https://www.fractalaudio.com/axe-fx-ii-downloads/": "<p>Downloads coming soon</p>",
+    }
+    scraper = F()
+    _stub_fetch(scraper, pages)
+
+    devices = await scraper.fetch_device_list()
+
+    assert [d.name for d in devices.devices] == ["FM9"]
+    assert "Axe-Fx II" not in {d.name for d in devices.devices}
+
+
+@pytest.mark.asyncio
+async def test_fractal_fetches_each_page_once_across_both_calls():
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    pages = {
+        "https://www.fractalaudio.com/": '<a href="/fm9-downloads/">FM9</a>',
+        "https://www.fractalaudio.com/fm9-downloads/": _fractal_page("Firmware v12.0"),
+    }
+    scraper = F()
+    asked = _stub_fetch(scraper, pages)
+
+    await scraper.fetch_device_list()
+    await scraper.fetch_firmware_versions("FM9", "")
+
+    assert len(asked) == 2  # the homepage, then the one product page
+
+
+@pytest.mark.asyncio
+async def test_fractal_fails_when_the_homepage_links_nothing():
+    from src.scrapers.plugins.fractal import FractalAudioScraper as F
+
+    scraper = F()
+    _stub_fetch(scraper, {"https://www.fractalaudio.com/": "<p>hello</p>"})
+
+    assert (await scraper.fetch_device_list()).success is False
+
+
+@pytest.mark.asyncio
+async def test_neural_lists_quad_cortex_and_reads_the_index_once():
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    scraper = N()
+    asked = _stub_fetch(scraper, {N.UPDATES_URL: _neural_index()})
+
+    devices = await scraper.fetch_device_list()
+    await scraper.fetch_firmware_versions("Quad Cortex", "")
+
+    assert [d.name for d in devices.devices] == ["Quad Cortex"]
+    assert len(asked) == 1
+
+
+@pytest.mark.asyncio
+async def test_neural_fails_when_no_release_post_is_found():
+    """An index of development updates and nothing shipped is a changed page.
+
+    Nano and Mini Cortex have their own lines this page does not cover, so an
+    empty read here is not "Neural published nothing".
+    """
+    from src.scrapers.plugins.neural_dsp import NeuralDSPScraper as N
+
+    scraper = N()
+    _stub_fetch(scraper, {N.UPDATES_URL:
+                '<a href="/us/quad-cortex-updates/quad-cortex-development-update-60">x</a>'})
+
+    assert (await scraper.fetch_device_list()).success is False
