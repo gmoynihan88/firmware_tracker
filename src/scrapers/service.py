@@ -129,6 +129,13 @@ def _clean_url(url: Optional[str]) -> Optional[str]:
     `https://tal-software.com../../downloads/plugins/install_TAL-DAC.zip`, which do not
     resolve. Rejecting them here means a bad join cannot be written again, and a
     rescrape clears the ones already stored.
+
+    The scheme check does a second job that matters more than the one it was
+    written for. A stored URL becomes the device page's download button
+    (`<a href>`) and ntfy's click-through link, and HTML escaping does nothing
+    about a `javascript:` URL in an href. Allowing only http and https is what
+    stops a vendor page from planting one. `test_download_urls_can_only_be_web_links`
+    holds that in place.
     """
     if not url:
         return None
