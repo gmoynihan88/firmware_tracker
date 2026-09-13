@@ -216,6 +216,61 @@ class AcmeScraper(BaseScraper):
 Categories map to `DeviceCategory` in `src/devices/models.py`: `guitar_pedal`,
 `audio_interface`, `synthesizer`, `midi_controller`, `vst_plugin`, `other`.
 
+## The shape most recent scrapers actually use
+
+The skeleton above is the simple case: a static list, one fetch per device. Every
+scraper written recently uses a different shape, because it solves three problems at
+once — and a new scraper will usually want this one.
+
+```python
+def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._firmware = None          # name -> [ScrapedFirmware]
+    self._urls = {}
+
+async def _load(self):
+    # Resolve the whole catalogue once. Cached for the run.
+    if self._firmware is not None:
+        return self._firmware
+
+    index = await self.fetch_page(self.INDEX_URL)
+    if not index:
+        return None                # a fetch that broke: fail loudly
+
+    firmware = {}
+    for name, url in self._discover(index):
+        page = await self.fetch_page(url)
+        if not page:
+            continue               # one dead page must not take the run with it
+        versions = self._parse(page)
+        if versions:               # keep only what you could actually read
+            firmware[name] = versions
+            self._urls[name] = url
+
+    if not firmware:
+        return None                # the index loaded and yielded nothing
+    self._firmware = firmware
+    return firmware
+```
+
+`fetch_device_list` then returns `sorted(firmware)`, and `fetch_firmware_versions`
+reads from the dict without fetching anything.
+
+What it buys:
+
+- **No permanent blanks.** Products whose version could not be read are absent
+  rather than reporting nothing forever. Fractal's Axe-Fx II states its firmware in
+  a shape the parser does not match; Teenage Engineering's oplab module splits its
+  version across elements. Neither belongs in the catalogue.
+- **One fetch per page per run**, rather than one in the device pass and another in
+  the firmware pass.
+- **A real failure signal.** An index that loads and yields nothing is a layout
+  change, and saying so beats emptying the vendor out of the catalogue quietly.
+
+The cost is that `fetch_device_list` does all the work, so the per-device budget in
+`ScraperService` does not cover it — only the 900s hard timeout does. For a vendor
+near that ceiling, see the batching section above.
+
 ## The success/failure distinction matters
 
 This is the single most important convention here, because getting it wrong is how
