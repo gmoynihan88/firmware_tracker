@@ -51,9 +51,20 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes -r requirements-dev.txt
 
+      # -n auto runs a worker per CPU, four on a hosted runner. Each worker is its own
+      # process with its own in-memory test database, so tests cannot see each other's
+      # rows; the suite and its coverage totals are identical to a serial run.
       - name: Run tests
         if: ${{ !matrix.coverage }}
-        run: pytest -q
+        run: pytest -q -n auto
+
+      # One serial collection pass before the parallel coverage run. Started cold, four
+      # workers under coverage took 25.2-25.8s on the runner -- no faster than the
+      # serial run at 24.5s -- and 11.9-19.9s after this step, which takes about 4s.
+      # The plain run is no faster for it, so it runs only here.
+      - name: Warm the import cache
+        if: ${{ matrix.coverage }}
+        run: pytest -qq --collect-only
 
       # concurrency = ["greenlet", "thread"] in pyproject is what makes these numbers
       # real. SQLAlchemy bridges async to the sync DBAPI through greenlets, and
@@ -65,7 +76,7 @@ jobs:
       # make the gate look flaky rather than meaningful.
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
-        run: pytest -q --cov=src --cov-report=term
+        run: pytest -q -n auto --cov=src --cov-report=term
 
       # Two gates, because coverage means different things either side of the line.
       #
