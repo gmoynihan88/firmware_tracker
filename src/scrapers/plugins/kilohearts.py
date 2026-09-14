@@ -85,10 +85,10 @@ class KiloheartsScraper(BaseScraper):
         if self._versions is not None:
             return self._versions
 
-        changelog = await self.fetch_page(self.CHANGELOG_URL)
-        if not changelog:
+        page = await self.fetch_page(self.CHANGELOG_URL)
+        if not page:
             return None
-        versions = self._parse_changelog(changelog)
+        versions = self._parse_changelog(page)
         if not versions:
             return None
 
