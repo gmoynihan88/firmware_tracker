@@ -1816,6 +1816,65 @@ def test_unidentifiable_plugins_report_unknown():
     assert scanner.extract_manufacturer("X.vst3", {"CFBundleGetInfoString": "Copyright © 2024"}) == "unknown"
 
 
+def _scanned(name, version="1.0.0", vendor="izotope"):
+    """A scanned plugin, as the scanner builds one from a bundle's plist."""
+    return _scanner().PluginInfo(
+        name=name, version=version, bundle_id=f"com.{vendor}.plugin",
+        manufacturer=vendor, format="VST3", path="/Library/Audio/Plug-Ins/VST3/x.vst3",
+    )
+
+
+def _catalogue_models(*rows):
+    """Device models with their manufacturer attached: (slug, vendor name, model name)."""
+    from types import SimpleNamespace
+
+    return [
+        SimpleNamespace(id=i, name=model, manufacturer=SimpleNamespace(slug=slug, name=vendor))
+        for i, (slug, vendor, model) in enumerate(rows, start=1)
+    ]
+
+
+def test_scanner_matches_a_plugin_only_to_its_own_vendors_products():
+    """iZotope's RX 11 De-reverb once matched Empress's Reverb pedal and asked for 6.50."""
+    scanner = _scanner()
+    models = _catalogue_models(
+        ("empress", "Empress Effects", "Reverb"),
+        ("izotope", "iZotope", "RX 11"),
+        ("gforce", "GForce Software", "M-Tron Pro IV"),
+    )
+
+    assert scanner._match_plugin_to_model(_scanned("RX 11 De-reverb"), models).name == "RX 11"
+    # The bundle id says "gforcesoftware"; the tracker's slug is "gforce". The display name agrees.
+    matched = scanner._match_plugin_to_model(_scanned("M-Tron Pro IV", vendor="gforcesoftware"), models)
+    assert (matched.manufacturer.slug, matched.name) == ("gforce", "M-Tron Pro IV")
+
+
+def test_scanner_matches_part_of_a_name_only_on_whole_words():
+    scanner = _scanner()
+    models = _catalogue_models(("izotope", "iZotope", "RX 1"))
+
+    assert scanner._match_plugin_to_model(_scanned("RX 11 Voice De-noise"), models) is None
+    assert scanner._match_plugin_to_model(_scanned("RX 1 Denoiser"), models).name == "RX 1"
+
+
+def test_scanner_matches_a_vendor_the_tracker_lacks_by_exact_name_only():
+    scanner = _scanner()
+    models = _catalogue_models(("empress", "Empress Effects", "Reverb"))
+
+    assert scanner._match_plugin_to_model(_scanned("Reverb Pro", vendor="waves"), models) is None
+
+
+def test_scanner_compares_versions_as_numbers():
+    """Installed 1.0.2 against the tracker's 1.0.1 is ahead, not an update."""
+    scanner = _scanner()
+
+    assert scanner._update_status("1.0.2", "1.0.1") == "ahead"
+    assert scanner._update_status("1.9", "1.10") == "update"
+    assert scanner._update_status("5.3.4 (R59)", "5.3.4") == "current"
+    assert scanner._update_status("1.0", "1.0.0") == "current"
+    assert scanner._update_status("7.0.20", "7.1.40") == "update"
+
+
 def _izotope_page() -> str:
     """A release-notes page: dated entries, plus OS and host versions to trip a parser."""
     return """
