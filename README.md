@@ -155,10 +155,10 @@ together, or need a vendor the others do not cover.
 ## Usage
 
 **Add devices** from the catalogue at `/catalog`. 971 devices across 46 vendors, so it
-filters: type to narrow by product or vendor, split hardware from software, untick a
-vendor, or hide what you already track. Devices already tracked say so instead of offering to add a second copy.
+filters and pages: type to narrow by product or vendor, split hardware from software,
+pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
-![The catalogue, filtered to five devices by typing "digi"](docs/images/catalog.png)
+![The catalogue, filtered to seven devices by typing "digi"](docs/images/catalog.png)
 
 Or add them in bulk:
 

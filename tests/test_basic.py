@@ -8942,3 +8942,134 @@ async def test_cableguys_fails_loudly_without_a_build_id():
     _stub_fetch(scraper, {CG.PRODUCTS_URL: _cg_page(build=None)})
 
     assert (await scraper.fetch_device_list()).success is False
+
+
+# --- catalog paging ----------------------------------------------------------
+# At 46 vendors and 971 devices the catalog was 52,733 pixels: 46 import cards
+# before the table started, 46 vendor chips, and every row at once.
+
+
+async def _seed_catalog(count, vendor="Pager Co", slug="pagerco", prefix="Unit"):
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=vendor, slug=slug))
+        for i in range(count):
+            await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=f"{prefix} {i:03d}", category=DeviceCategory.OTHER,
+            ))
+
+
+@pytest.mark.asyncio
+async def test_catalog_folds_the_import_panel_away_once_there_are_devices(client):
+    """With nothing to browse, importing is the only thing to do, so it starts open."""
+    import re
+
+    empty = (await client.get("/catalog")).text
+    assert re.search(r'<details class="import-panel"\s+open\s*>', empty)
+
+    await _seed_catalog(1)
+    seeded = (await client.get("/catalog")).text
+    assert re.search(r'<details class="import-panel"\s*>', seeded)
+
+
+@pytest.mark.asyncio
+async def test_catalog_vendor_chips_live_in_a_dropdown(client):
+    import re
+
+    await _seed_catalog(1)
+    html = (await client.get("/catalog")).text
+
+    picker = re.search(r'<details class="vendor-picker" id="vendor-picker">(.*?)</details>', html, re.S)
+    assert picker, "no vendor dropdown"
+    assert 'id="catalog-vendor-filters"' in picker.group(1)
+    assert 'value="pagerco"' in picker.group(1)
+
+
+@pytest.mark.asyncio
+async def test_catalog_pager_stays_hidden_without_the_script(client):
+    """Every row is on the page until the script pages it; a pager that does nothing is worse than none."""
+    import re
+
+    await _seed_catalog(60)
+    html = (await client.get("/catalog")).text
+    css = (await client.get("/static/css/style.css")).text
+
+    assert re.search(r'<nav class="catalog-pager" id="catalog-pager"[^>]*\bhidden\b', html)
+    assert html.count('class="catalog-row"') == 60
+    # The pager is display:flex, which beats the hidden attribute unless told otherwise.
+    assert re.search(r"\.catalog-pager\[hidden\]\s*\{\s*display:\s*none", css)
+
+
+@pytest.mark.asyncio
+async def test_real_chromium_pages_the_catalog(client):
+    """Paging, search across pages and sorting, in a browser. Skipped where Chromium is not installed, as in CI."""
+    from src.scrapers import base
+
+    if not base.PLAYWRIGHT_AVAILABLE:
+        pytest.skip("Playwright not installed")
+    from playwright.async_api import async_playwright
+
+    await _seed_catalog(60)
+    await _seed_catalog(1, vendor="Zed Co", slug="zedco", prefix="Zulu Needle")
+    html = (await client.get("/catalog")).text
+
+    state = """() => ({
+        shown: [...document.querySelectorAll('.catalog-row')]
+            .filter(r => !r.hidden).map(r => r.children[1].textContent.trim()),
+        status: document.getElementById('catalog-pager').hidden
+            ? null : document.getElementById('catalog-page-status').textContent,
+        prev: document.getElementById('catalog-prev').disabled,
+        next: document.getElementById('catalog-next').disabled,
+    })"""
+
+    async with async_playwright() as pw:
+        try:
+            browser = await pw.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"Chromium unavailable: {exc}")
+        try:
+            page = await browser.new_page()
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            await page.set_content(html)
+
+            first = await page.evaluate(state)
+            assert len(first["shown"]) == 50
+            assert first["status"] == "1–50 of 61 · page 1 of 2"
+            assert first["prev"] and not first["next"]
+
+            await page.click("#catalog-next")
+            second = await page.evaluate(state)
+            assert len(second["shown"]) == 11
+            assert not set(first["shown"]) & set(second["shown"])
+            assert second["next"] and not second["prev"]
+
+            # Search reaches every row, not only the current page, and the pager
+            # goes away when one page holds the result.
+            await page.fill("#catalog-search", "needle")
+            found = await page.evaluate(state)
+            assert found["shown"] == ["Zulu Needle 000"]
+            assert found["status"] is None
+
+            await page.fill("#catalog-search", "")
+            assert (await page.evaluate(state))["status"] == "1–50 of 61 · page 1 of 2"
+
+            await page.select_option("#catalog-page-size", "0")
+            assert len((await page.evaluate(state))["shown"]) == 61
+
+            # A new order starts from its first page.
+            await page.select_option("#catalog-page-size", "25")
+            await page.click("#catalog-next")
+            await page.click("th[data-column='1']")
+            await page.click("th[data-column='1']")
+            ordered = await page.evaluate(state)
+            assert ordered["shown"][0] == "Zulu Needle 000"
+            assert len(ordered["shown"]) == 25
+            assert ordered["status"].startswith("1–25 of 61")
+
+            assert errors == []
+        finally:
+            await browser.close()

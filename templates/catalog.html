@@ -11,63 +11,60 @@
 </div>
 
 <section class="catalog-section">
-    <div class="section-header">
-        <h2>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            Import Devices
-        </h2>
-        <p>Click a manufacturer to import their devices and firmware information.</p>
-    </div>
+    {# Collapsed once there is something to browse: 46 vendor cards used to push the
+       table 2,560px down the page, and importing is the rare action here. #}
+    <details class="import-panel" {% if not device_models %}open{% endif %}>
+        <summary class="import-summary">
+            <h2>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Import Devices
+            </h2>
+            <span class="import-hint">{{ available_scrapers | length }} manufacturers &middot; import one to fetch its devices and firmware</span>
+        </summary>
 
-    <div class="scraper-grid">
-        {% for scraper in available_scrapers %}
-        <div class="scraper-card">
-            <div class="scraper-info">
-                <h3>{{ scraper.name }}</h3>
-                <p class="scraper-meta">
-                    {{ scraper.device_count }} device{{ '' if scraper.device_count == 1 else 's' }}
-                    {%- if scraper.last_run %} &middot; scraped {{ scraper.last_run.strftime('%-d %b') }}
-                    {%- else %} &middot; never scraped{% endif %}
-                </p>
-                {% if scraper.website %}
-                <a href="{{ scraper.website }}" target="_blank" rel="noopener" class="external-link">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                        <polyline points="15 3 21 3 21 9"></polyline>
-                        <line x1="10" y1="14" x2="21" y2="3"></line>
-                    </svg>
-                    Website
-                </a>
-                {% endif %}
+        <div class="scraper-grid">
+            {% for scraper in available_scrapers %}
+            <div class="scraper-card">
+                <div class="scraper-info">
+                    <h3>{{ scraper.name }}</h3>
+                    <p class="scraper-meta">
+                        {{ scraper.device_count }} device{{ '' if scraper.device_count == 1 else 's' }}
+                        {%- if scraper.last_run %} &middot; scraped {{ scraper.last_run.strftime('%-d %b') }}
+                        {%- else %} &middot; never scraped{% endif %}
+                    </p>
+                </div>
+                <div class="scraper-actions">
+                    {% if scraper.website %}
+                    <a href="{{ scraper.website }}" target="_blank" rel="noopener" class="external-link"
+                       title="{{ scraper.name }} website" aria-label="{{ scraper.name }} website">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                    </a>
+                    {% endif %}
+                    <button
+                        class="btn btn-primary btn-small"
+                        hx-post="/catalog/scrape/{{ scraper.slug }}"
+                        hx-target="#scrape-result-{{ scraper.slug }}"
+                        hx-indicator="#loading-{{ scraper.slug }}"
+                        hx-swap="innerHTML"
+                    >Import</button>
+                    <span id="loading-{{ scraper.slug }}" class="htmx-indicator">
+                        <span class="spinner"></span>
+                        <span class="visually-hidden">Importing...</span>
+                    </span>
+                </div>
+                <div id="scrape-result-{{ scraper.slug }}" class="scrape-result"></div>
             </div>
-            <div class="scraper-actions">
-                <button
-                    class="btn btn-primary btn-small"
-                    hx-post="/catalog/scrape/{{ scraper.slug }}"
-                    hx-target="#scrape-result-{{ scraper.slug }}"
-                    hx-indicator="#loading-{{ scraper.slug }}"
-                    hx-swap="innerHTML"
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                    Import
-                </button>
-                <span id="loading-{{ scraper.slug }}" class="htmx-indicator">
-                    <span class="spinner"></span>
-                    Importing...
-                </span>
-            </div>
-            <div id="scrape-result-{{ scraper.slug }}" class="scrape-result"></div>
+            {% endfor %}
         </div>
-        {% endfor %}
-    </div>
+    </details>
 </section>
 
 {% if device_models %}
@@ -82,16 +79,11 @@
         </h2>
         <span class="count-badge">{{ device_models | length }}</span>
     </div>
-    <div class="filter-bar">
-        <span class="filter-label">Search:</span>
+
+    <div class="filter-bar catalog-filters">
         <input type="search" id="catalog-search" class="catalog-search"
-               placeholder="Product or vendor" oninput="filterCatalog()"
+               placeholder="Search product or vendor" oninput="filterCatalog()"
                autocomplete="off" aria-label="Filter devices by name">
-        <label class="filter-checkbox">
-            <input type="checkbox" id="hide-tracked" onchange="filterCatalog()">
-            <span class="filter-chip"><span class="chip-box"></span>Hide tracked</span>
-        </label>
-        <span class="filter-label">Type:</span>
         <div class="filter-checkboxes" id="catalog-kind-filters">
             <label class="filter-checkbox">
                 <input type="checkbox" value="hardware" checked onchange="filterCatalog()">
@@ -102,27 +94,35 @@
                 <span class="filter-chip"><span class="chip-box"></span>Software</span>
             </label>
         </div>
+        <label class="filter-checkbox">
+            <input type="checkbox" id="hide-tracked" onchange="filterCatalog()">
+            <span class="filter-chip"><span class="chip-box"></span>Hide tracked</span>
+        </label>
+
+        {# One chip per vendor is 46 chips; as a dropdown it is one control. #}
+        <details class="vendor-picker" id="vendor-picker">
+            <summary class="filter-action-btn">Vendors: <span id="vendor-summary">all</span></summary>
+            <div class="vendor-panel">
+                <div class="filter-actions">
+                    <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', true)">All</button>
+                    <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', false)">None</button>
+                </div>
+                <div class="filter-checkboxes" id="catalog-vendor-filters">
+                    {% for manufacturer in manufacturers %}
+                    <label class="filter-checkbox">
+                        <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterCatalog()">
+                        <span class="filter-chip"><span class="chip-box"></span>{{ manufacturer.name }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </details>
+
         <span class="filter-label" id="catalog-count"></span>
     </div>
 
-    <div class="filter-bar">
-        <span class="filter-label">Vendor:</span>
-        <div class="filter-actions">
-            <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', true)">All</button>
-            <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', false)">None</button>
-        </div>
-        <div class="filter-checkboxes" id="catalog-vendor-filters">
-            {% for manufacturer in manufacturers %}
-            <label class="filter-checkbox">
-                <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterCatalog()">
-                <span class="filter-chip"><span class="chip-box"></span>{{ manufacturer.name }}</span>
-            </label>
-            {% endfor %}
-        </div>
-    </div>
-
     <div class="device-table-wrap">
-        <table class="device-table">
+        <table class="device-table catalog-table">
             <thead>
                 <tr>
                     <th class="sortable" data-column="0" scope="col">Vendor</th>
@@ -182,6 +182,26 @@
             </tbody>
         </table>
     </div>
+
+    <p class="catalog-no-match" id="catalog-no-match" hidden>No devices match these filters.</p>
+
+    {# Hidden until the script runs: without it every row is already on the page,
+       and a pager that does nothing is worse than none. #}
+    <nav class="catalog-pager" id="catalog-pager" aria-label="Catalog pages" hidden>
+        <label class="filter-label" for="catalog-page-size">Per page
+            <select id="catalog-page-size" class="catalog-page-size" onchange="catalogPage = 1; renderCatalogPage()">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="0">All</option>
+            </select>
+        </label>
+        <div class="pager-controls">
+            <button type="button" class="filter-action-btn" id="catalog-prev" onclick="turnCatalogPage(-1)">&lsaquo; Prev</button>
+            <span class="pager-status" id="catalog-page-status" aria-live="polite"></span>
+            <button type="button" class="filter-action-btn" id="catalog-next" onclick="turnCatalogPage(1)">Next &rsaquo;</button>
+        </div>
+    </nav>
 </section>
 {% else %}
 <div class="empty-state">
@@ -202,13 +222,17 @@ function toggleAllCatalog(containerId, checked) {
     filterCatalog();
 }
 
+// --- filtering ---------------------------------------------------------------
+// Filtering marks each row as matching or not; paging then decides which of the
+// matching rows are on screen. Keeping the two apart is what lets a search reach
+// every device rather than only the ones on the current page.
 function filterCatalog() {
     const term = (document.getElementById('catalog-search')?.value || '').trim().toLowerCase();
     const hideTracked = document.getElementById('hide-tracked')?.checked;
 
-    const vendorBoxes = document.querySelectorAll('#catalog-vendor-filters input');
-    const activeVendors = Array.from(vendorBoxes).filter(cb => cb.checked).map(cb => cb.value);
-    const allVendors = Array.from(vendorBoxes).map(cb => cb.value);
+    const vendorBoxes = Array.from(document.querySelectorAll('#catalog-vendor-filters input'));
+    const activeVendors = vendorBoxes.filter(cb => cb.checked).map(cb => cb.value);
+    const allVendors = vendorBoxes.map(cb => cb.value);
 
     const kindBoxes = document.querySelectorAll('#catalog-kind-filters input');
     const activeKinds = Array.from(kindBoxes).filter(cb => cb.checked).map(cb => cb.value);
@@ -223,23 +247,81 @@ function filterCatalog() {
     const kindMatches = value =>
         allKinds.includes(value) ? activeKinds.includes(value) : true;
 
-    let shown = 0;
-    const rows = document.querySelectorAll('.catalog-row');
-    rows.forEach(row => {
-        const visible =
+    document.querySelectorAll('.catalog-row').forEach(row => {
+        const matches =
             vendorMatches(row.dataset.brand) &&
             kindMatches(row.dataset.kind) &&
             (!term || row.dataset.search.includes(term)) &&
             !(hideTracked && row.dataset.tracked === 'yes');
-        row.hidden = !visible;
-        if (visible) shown++;
+        row.dataset.match = matches ? 'yes' : 'no';
     });
+
+    const summary = document.getElementById('vendor-summary');
+    if (summary) {
+        const names = vendorBoxes.filter(cb => cb.checked)
+            .map(cb => cb.nextElementSibling.textContent.trim());
+        summary.textContent =
+            activeVendors.length === allVendors.length ? 'all'
+            : activeVendors.length === 0 ? 'none'
+            : activeVendors.length <= 2 ? names.join(', ')
+            : activeVendors.length + ' of ' + allVendors.length;
+    }
+
+    catalogPage = 1;
+    renderCatalogPage();
+}
+
+// --- paging --------------------------------------------------------------------
+// The DOM order is the sort order, so a page is a slice of the matching rows as
+// they currently sit in the table.
+let catalogPage = 1;
+
+function catalogPageSize() {
+    const size = Number(document.getElementById('catalog-page-size')?.value);
+    return size > 0 ? size : Infinity;
+}
+
+function renderCatalogPage() {
+    const rows = Array.from(document.querySelectorAll('.catalog-row'));
+    const matching = rows.filter(row => row.dataset.match !== 'no');
+    const size = catalogPageSize();
+    const pages = size === Infinity ? 1 : Math.max(1, Math.ceil(matching.length / size));
+    catalogPage = Math.min(Math.max(1, catalogPage), pages);
+
+    const start = size === Infinity ? 0 : (catalogPage - 1) * size;
+    const end = Math.min(start + size, matching.length);
+
+    rows.forEach(row => { row.hidden = true; });
+    matching.slice(start, end).forEach(row => { row.hidden = false; });
 
     const count = document.getElementById('catalog-count');
     if (count) {
-        count.textContent = shown === rows.length
+        count.textContent = matching.length === rows.length
             ? rows.length + ' devices'
-            : shown + ' of ' + rows.length + ' devices';
+            : matching.length + ' of ' + rows.length + ' devices';
+    }
+
+    const noMatch = document.getElementById('catalog-no-match');
+    if (noMatch) noMatch.hidden = matching.length > 0;
+
+    const pager = document.getElementById('catalog-pager');
+    if (!pager) return;
+    // Below the smallest page size there is nothing to page through.
+    pager.hidden = matching.length <= 25;
+    document.getElementById('catalog-page-status').textContent = matching.length
+        ? (start + 1) + '–' + end + ' of ' + matching.length + ' · page ' + catalogPage + ' of ' + pages
+        : '';
+    document.getElementById('catalog-prev').disabled = catalogPage <= 1;
+    document.getElementById('catalog-next').disabled = catalogPage >= pages;
+}
+
+function turnCatalogPage(step) {
+    catalogPage += step;
+    renderCatalogPage();
+    // Paging from the bottom of a long page should land on the top of the new one.
+    const table = document.querySelector('.catalog-table');
+    if (table && table.getBoundingClientRect().top < 0) {
+        table.scrollIntoView({ block: 'start' });
     }
 }
 
@@ -248,7 +330,7 @@ function filterCatalog() {
 // Rows with no version sort last in both directions, which has to sit outside the
 // direction flip or every unreleased device floats to the top when descending.
 const CATALOG_VERSION = /^\d+(\.\d+)*$/;
-const CATALOG_EMPTY = '\u2014';
+const CATALOG_EMPTY = '—';
 
 function catalogCompare(a, b) {
     if (CATALOG_VERSION.test(a) && CATALOG_VERSION.test(b)) {
@@ -280,12 +362,24 @@ function sortCatalog(columnIndex, header) {
         return ascending ? catalogCompare(a, b) : -catalogCompare(a, b);
     });
 
-    // Re-appending preserves each row's hidden state, so sorting does not undo a filter.
     rows.forEach(row => body.appendChild(row));
+    // A new order starts from its first page, or page 3 of it is an arbitrary slice.
+    catalogPage = 1;
+    renderCatalogPage();
 }
 
 document.querySelectorAll('.device-table th.sortable').forEach(header => {
     header.addEventListener('click', () => sortCatalog(Number(header.dataset.column), header));
+});
+
+// The vendor dropdown closes like any other: a click elsewhere, or Escape.
+document.addEventListener('click', event => {
+    const picker = document.getElementById('vendor-picker');
+    if (picker && picker.open && !picker.contains(event.target)) picker.open = false;
+});
+document.addEventListener('keydown', event => {
+    const picker = document.getElementById('vendor-picker');
+    if (event.key === 'Escape' && picker && picker.open) picker.open = false;
 });
 
 filterCatalog();

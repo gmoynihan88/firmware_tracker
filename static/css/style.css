@@ -245,6 +245,12 @@ body {
    MAIN CONTAINER
    ═══════════════════════════════════════════════════════════════ */
 .container {
+    /* body is a flex column, and auto side margins stop a flex item stretching:
+       without a width the page shrinks to its content, so a collapsed panel or a
+       short table narrows every page, and long content pushes past a phone screen. */
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
     max-width: 1400px;
     margin: 0 auto;
     padding: var(--space-2xl);
@@ -2306,3 +2312,210 @@ select:disabled {
     font-size: 0.75rem;
     color: var(--text-secondary, #94a3b8);
 }
+
+/* ───────────────────────────────────────────────────────────────
+   CATALOG, COMPACT
+   At 46 vendors and 971 devices the page was 52,733 pixels: 46 import
+   cards before the table even started, 46 vendor chips, and every row
+   rendered at once. Import folds away, vendors are a dropdown, and the
+   table pages.
+   ─────────────────────────────────────────────────────────────── */
+
+.import-panel {
+    margin-bottom: var(--space-lg);
+    background: var(--surface-700);
+    border: var(--border-subtle);
+    border-radius: var(--radius-lg);
+}
+
+.import-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-md);
+    padding: 0.6rem var(--space-md);
+    cursor: pointer;
+    list-style: none;
+}
+
+.import-summary::-webkit-details-marker { display: none; }
+
+.import-summary::before {
+    content: "\25B8";
+    color: var(--text-tertiary);
+    transition: transform 0.15s ease;
+}
+
+.import-panel[open] > .import-summary::before { transform: rotate(90deg); }
+
+.import-summary h2 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.import-summary h2 svg { color: var(--amber-500); }
+
+.import-hint {
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.import-panel .scraper-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
+    gap: var(--space-xs) var(--space-sm);
+    margin: 0;
+    padding: 0 var(--space-md) var(--space-md);
+}
+
+.import-panel .scraper-card {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-xs) var(--space-sm);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    border-radius: var(--radius-md);
+    background: var(--surface-800);
+    animation: none;
+}
+
+.import-panel .scraper-info { min-width: 0; flex: 1; }
+
+.import-panel .scraper-card h3 {
+    font-size: 0.8125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-panel .scraper-meta { margin: 0; font-size: 0.6875rem; }
+
+.import-panel .scraper-actions {
+    flex-direction: row;
+    width: auto;
+    gap: var(--space-sm);
+}
+
+.import-panel .scraper-card .btn { width: auto; padding: 0.2rem 0.6rem; }
+
+.import-panel .scrape-result { flex-basis: 100%; font-size: 0.75rem; }
+.import-panel .scrape-result:empty { display: none; }
+
+.catalog-filters {
+    gap: var(--space-sm) var(--space-md);
+    padding: 0.5rem 0.75rem;
+    margin-bottom: var(--space-md);
+}
+
+.catalog-filters #catalog-count { margin-left: auto; }
+
+.vendor-picker { position: relative; }
+
+.vendor-picker > summary {
+    list-style: none;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: inherit;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+}
+
+.vendor-picker > summary::-webkit-details-marker { display: none; }
+.vendor-picker > summary::after { content: " \25BE"; }
+.vendor-picker[open] > summary { color: var(--text-primary); }
+
+.vendor-panel {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.4rem);
+    /* The picker sits at the end of the filter bar, so open leftwards. */
+    right: 0;
+    width: min(38rem, 90vw);
+    max-height: 22rem;
+    overflow-y: auto;
+    display: grid;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--surface-700);
+    border: var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.vendor-panel .filter-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+}
+
+.vendor-panel .filter-chip { width: 100%; }
+
+@media (max-width: 768px) {
+    .vendor-panel { position: static; width: 100%; margin-top: var(--space-sm); }
+    .catalog-filters #catalog-count { margin-left: 0; }
+    /* The bar turns into a column here, and the search's flex-basis would become
+       its height. */
+    .catalog-filters .catalog-search { flex: none; width: 100%; max-width: none; box-sizing: border-box; }
+    .catalog-filters .vendor-picker { width: 100%; }
+}
+
+.catalog-table { font-size: 0.8125rem; }
+
+.catalog-table th,
+.catalog-table td { padding: 0.3rem 0.75rem; }
+
+.catalog-table thead th { font-size: 0.6875rem; }
+
+.catalog-table .btn-small { padding: 0.125rem 0.5rem; font-size: 0.6875rem; }
+
+.catalog-no-match {
+    padding: var(--space-md);
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+}
+
+.catalog-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-sm) var(--space-md);
+    margin-top: var(--space-sm);
+}
+
+/* display:flex would otherwise override the hidden attribute. */
+.catalog-pager[hidden] { display: none; }
+
+.pager-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.pager-status {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.catalog-page-size {
+    margin-left: 0.4rem;
+    padding: 0.15rem 0.3rem;
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    background: var(--surface-600);
+    border: var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+.filter-action-btn:disabled { opacity: 0.4; cursor: default; }
