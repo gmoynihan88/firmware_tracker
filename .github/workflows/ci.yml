@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes -r requirements-dev.txt
 
+      - name: Warm the import cache
+        run: pytest -qq --collect-only
+
       # -n auto runs a worker per CPU, four on a hosted runner. Each worker is its own
       # process with its own in-memory test database, so tests cannot see each other's
       # rows; the suite and its coverage totals are identical to a serial run.
@@ -66,28 +69,6 @@ jobs:
       # One version rather than both. Line counts can differ slightly between
       # interpreters, and a threshold that passes on one and fails on the other would
       # make the gate look flaky rather than meaningful.
-      - name: "TEMP: xdist coverage timing"
-        if: ${{ matrix.coverage }}
-        run: |
-          python - <<'PY'
-          import os, subprocess, time
-          print("TIMING cpu_count", os.cpu_count(), "affinity", len(os.sched_getaffinity(0)))
-          runs = [
-              ("cov serial", ["--cov=src"], {}),
-              ("cov -n 2", ["-n", "2", "--cov=src"], {}),
-              ("cov -n 4", ["-n", "4", "--cov=src"], {}),
-              ("plain -n 4", ["-n", "4"], {}),
-              ("cov -n 4 sysmon", ["-n", "4", "--cov=src"], {"COVERAGE_CORE": "sysmon"}),
-          ]
-          for label, args, extra in runs:
-              t = time.time()
-              out = subprocess.run(["pytest", "-q", "-p", "no:cacheprovider", "--cov-report=", *args],
-                                   capture_output=True, text=True, env={**os.environ, **extra})
-              tail = (out.stdout.strip().splitlines() or ["<no output>"])[-1]
-              err = (out.stderr.strip().splitlines() or [""])[-1]
-              print(f"TIMING {label}: {time.time() - t:.1f}s | {tail} | {err[:120]}")
-          PY
-
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
         run: pytest -q -n auto --cov=src --cov-report=term
