@@ -129,7 +129,8 @@
                     <th class="sortable" data-column="1" scope="col">Product</th>
                     <th class="sortable" data-column="2" scope="col">Type</th>
                     <th class="sortable numeric" data-column="3" scope="col">Latest</th>
-                    <th class="sortable" data-column="4" scope="col">Released</th>
+                    <th class="sortable numeric" data-column="4" scope="col">Other versions</th>
+                    <th class="sortable" data-column="5" scope="col">Released</th>
                     <th scope="col"><span class="visually-hidden">Track</span></th>
                 </tr>
             </thead>
@@ -160,6 +161,20 @@
                         —
                         {%- endif -%}
                     </td>
+                    {# Every version but the latest. The history is fetched on click
+                       rather than rendered here: 5,000 versions with their notes. #}
+                    {% set others = version_counts.get(model.id, 0) - (1 if latest else 0) %}
+                    <td class="numeric">
+                        {%- if others > 0 -%}
+                        <button type="button" class="history-link"
+                                data-history-url="/catalog/versions/{{ model.id }}"
+                                onclick="showVersionHistory(this)"
+                                aria-haspopup="dialog"
+                                aria-label="{{ others }} earlier version{{ '' if others == 1 else 's' }} of {{ model.name }}">{{ others }}</button>
+                        {%- else -%}
+                        <span class="muted">0</span>
+                        {%- endif -%}
+                    </td>
                     {# The vendor's own date, never the date we first saw the version. #}
                     <td class="cell-date">
                         {%- if latest and latest.release_date -%}
@@ -187,6 +202,10 @@
 
     {# Hidden until the script runs: without it every row is already on the page,
        and a pager that does nothing is worse than none. #}
+    <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
+        <div class="history-body" id="history-body"></div>
+    </dialog>
+
     <nav class="catalog-pager" id="catalog-pager" aria-label="Catalog pages" hidden>
         <label class="filter-label" for="catalog-page-size">Per page
             <select id="catalog-page-size" class="catalog-page-size" onchange="catalogPage = 1; renderCatalogPage()">
@@ -370,6 +389,39 @@ function sortCatalog(columnIndex, header) {
 
 document.querySelectorAll('.device-table th.sortable').forEach(header => {
     header.addEventListener('click', () => sortCatalog(Number(header.dataset.column), header));
+});
+
+// --- version history -------------------------------------------------------
+// Plain fetch rather than htmx, so the popup does not depend on a script served
+// from a CDN. The partial is rendered and escaped by the server -- release notes
+// are scraped text -- so it is inserted as it arrives.
+let historyRequest = 0;
+
+async function showVersionHistory(button) {
+    const dialog = document.getElementById('history-dialog');
+    const body = document.getElementById('history-body');
+    const request = ++historyRequest;
+
+    body.innerHTML = '<p class="history-status" id="history-title">Loading version history…</p>';
+    if (!dialog.open) dialog.showModal();
+
+    let html;
+    try {
+        const response = await fetch(button.dataset.historyUrl, { headers: { Accept: 'text/html' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        html = await response.text();
+    } catch (error) {
+        html = '<p class="history-status" id="history-title">Could not load the version history.</p>'
+            + '<form method="dialog"><button class="filter-action-btn">Close</button></form>';
+    }
+    // A slower earlier click must not overwrite the product asked for last.
+    if (request === historyRequest) body.innerHTML = html;
+}
+
+// A click on the backdrop closes it, as Escape already does. The dialog has no
+// padding of its own, so only the backdrop reports the dialog as the target.
+document.getElementById('history-dialog')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
 });
 
 // The vendor dropdown closes like any other: a click elsewhere, or Escape.

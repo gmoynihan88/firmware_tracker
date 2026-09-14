@@ -328,6 +328,19 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
         ).all()
     }
 
+    # How many versions each model has, so the table can offer the ones behind the
+    # latest. Only the count: the histories run to 5,000 versions with their notes,
+    # and each is fetched when someone asks for it.
+    version_counts = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(FirmwareVersion.device_model_id, func.count(FirmwareVersion.id))
+                .group_by(FirmwareVersion.device_model_id)
+            )
+        ).all()
+    }
+
     return templates.TemplateResponse(
         request,
         name="catalog.html",
@@ -337,8 +350,36 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
             "available_scrapers": available_scrapers,
             "tracked_model_ids": tracked_model_ids,
             "latest_versions": latest_versions,
+            "version_counts": version_counts,
             "unread_count": unread_count,
         },
+    )
+
+
+@router.get("/catalog/versions/{model_id}", response_class=HTMLResponse)
+async def catalog_version_history(
+    request: Request, model_id: int, db: AsyncSession = Depends(get_db)
+):
+    """Every version of a product except the latest, for the catalog's history popup."""
+    names = (
+        await db.execute(
+            select(DeviceModel.name, Manufacturer.name)
+            .join(Manufacturer, DeviceModel.manufacturer_id == Manufacturer.id)
+            .where(DeviceModel.id == model_id)
+        )
+    ).first()
+    if names is None:
+        raise HTTPException(status_code=404, detail="Device model not found")
+
+    # Highest version first, compared as numbers -- the order the device page uses.
+    versions = [
+        fw for fw in await device_service.get_firmware_versions(db, model_id)
+        if not fw.is_latest
+    ]
+    return templates.TemplateResponse(
+        request,
+        name="partials/version_history.html",
+        context={"product": names[0], "vendor": names[1], "versions": versions},
     )
 
 
