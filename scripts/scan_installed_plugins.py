@@ -308,6 +308,36 @@ def _normalize_version(v: str) -> str:
     return re.match(r"[\d.]+", v).group() if re.match(r"[\d.]+", v) else v
 
 
+def _version_key(version: str) -> tuple | None:
+    """'5.3.4 (R59)' → (5, 3, 4), with trailing zeros dropped so 1.0 equals 1.0.0.
+
+    None when the version has no leading number to compare.
+    """
+    matched = re.match(r"\d+(?:\.\d+)*", (version or "").strip())
+    if not matched:
+        return None
+    parts = [int(part) for part in matched.group().split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def _update_status(installed: str, latest: str) -> str:
+    """'current', 'update' when the tracker knows a newer version, or 'ahead'.
+
+    Compared as numbers. The previous check was string inequality, so an installed
+    M-Tron Pro IV 1.0.2 was reported as needing the tracker's 1.0.1 -- any difference
+    read as an update, in either direction. Installed-and-newer means the vendor has
+    released something its scraper has not picked up.
+    """
+    installed_key, latest_key = _version_key(installed), _version_key(latest)
+    if installed_key is None or latest_key is None:
+        return "current" if _normalize_version(installed) == _normalize_version(latest) else "update"
+    if installed_key == latest_key:
+        return "current"
+    return "update" if installed_key < latest_key else "ahead"
+
+
 def compare_with_db(plugins: list[PluginInfo]) -> None:
     """Compare installed versions with firmware tracker database."""
     import asyncio
@@ -331,6 +361,7 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
             matched = 0
             up_to_date = 0
             outdated = []
+            ahead = []
 
             for p in plugins:
                 dm = _match_plugin_to_model(p, device_models)
@@ -343,20 +374,25 @@ def compare_with_db(plugins: list[PluginInfo]) -> None:
                 if not latest:
                     continue
 
-                installed_norm = _normalize_version(p.version)
-                latest_norm = _normalize_version(latest.version)
-                if installed_norm == latest_norm:
+                status = _update_status(p.version, latest.version)
+                if status == "current":
                     up_to_date += 1
                     print(f"  ✓ {p.name:<30} v{p.version} (up to date)")
-                else:
+                elif status == "update":
                     outdated.append((p, latest))
                     print(f"  ✗ {p.name:<30} v{p.version} → v{latest.version} available")
+                else:
+                    ahead.append((p, latest))
+                    print(f"  ↑ {p.name:<30} v{p.version} (newer than the tracker's v{latest.version}; its scraper may be behind)")
 
             if not matched:
                 print("  No installed plugins matched devices in the tracker.")
                 print("  Run scrapers to populate the database first.")
             else:
-                print(f"\n  {matched} matched, {up_to_date} up to date, {len(outdated)} with updates available")
+                print(
+                    f"\n  {matched} matched, {up_to_date} up to date, {len(outdated)} with updates available, "
+                    f"{len(ahead)} newer than the tracker"
+                )
             print(f"\n{'=' * 70}")
 
     asyncio.run(_compare())
@@ -385,9 +421,39 @@ def _extract_major_version(version: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _key(text: str | None) -> str:
+    """Letters and digits only: 'native-instruments' and 'Native Instruments' agree."""
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def _same_vendor(plugin: PluginInfo, device_model) -> bool:
+    """The plugin's vendor -- bundle-id slug or display name -- against the model's manufacturer."""
+    manufacturer = getattr(device_model, "manufacturer", None)
+    if manufacturer is None:
+        return False
+    return (
+        _key(plugin.manufacturer) == _key(manufacturer.slug)
+        or _key(plugin.display_manufacturer) == _key(manufacturer.name)
+    )
+
+
+def _contains_words(haystack: str, needle: str) -> bool:
+    """Whether needle appears in haystack as whole words: 'rx 1' is not in 'rx 11 de-noise'."""
+    return re.search(rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])", haystack) is not None
+
+
 def _match_plugin_to_model(plugin: PluginInfo, device_models) -> object | None:
-    """Find a DB device model matching a scanned plugin."""
-    import re
+    """Find a DB device model matching a scanned plugin.
+
+    Only the plugin's own vendor's products are candidates. Matching across vendors
+    let iZotope's "RX 11 De-reverb" fall to Empress's "Reverb" pedal -- both names
+    are inside it, and the pedal's was closer in length -- which reported an installed
+    11.4.0 as needing the pedal's 6.50. A plugin whose vendor the tracker does not know
+    is matched by exact name only, never by part of one.
+    """
+    own = [dm for dm in device_models if _same_vendor(plugin, dm)]
+    pool = own or list(device_models)
+    allow_partial = bool(own)
 
     alias = PLIST_NAME_ALIASES.get(plugin.name)
     names_to_try = [plugin.name.lower()]
@@ -396,7 +462,7 @@ def _match_plugin_to_model(plugin: PluginInfo, device_models) -> object | None:
 
     for name_lower in names_to_try:
         # 1. Exact match
-        for dm in device_models:
+        for dm in pool:
             if name_lower == dm.name.lower():
                 return dm
 
@@ -405,17 +471,18 @@ def _match_plugin_to_model(plugin: PluginInfo, device_models) -> object | None:
         major = _extract_major_version(plugin.version)
         if major and not re.search(r"\d", name_lower):
             versioned = f"{name_lower} {major}"
-            for dm in device_models:
+            for dm in pool:
                 if versioned == dm.name.lower():
                     return dm
 
-        # 3. Substring match — collect all candidates, pick closest
-        candidates = []
-        for dm in device_models:
-            dm_lower = dm.name.lower()
-            if name_lower in dm_lower or dm_lower in name_lower:
-                candidates.append(dm)
+        if not allow_partial:
+            continue
 
+        # 3. Whole-word containment either way round, within the vendor; pick closest
+        candidates = [
+            dm for dm in pool
+            if _contains_words(dm.name.lower(), name_lower) or _contains_words(name_lower, dm.name.lower())
+        ]
         if not candidates:
             continue
         if len(candidates) == 1:
