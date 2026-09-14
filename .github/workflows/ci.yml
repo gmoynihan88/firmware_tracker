@@ -58,6 +58,14 @@ jobs:
         if: ${{ !matrix.coverage }}
         run: pytest -q -n auto
 
+      # One serial collection pass before the parallel coverage run. Started cold, four
+      # workers under coverage took 25.2-25.8s on the runner -- no faster than the
+      # serial run at 24.5s -- and 11.9-19.9s after this step, which takes about 4s.
+      # The plain run is no faster for it, so it runs only here.
+      - name: Warm the import cache
+        if: ${{ matrix.coverage }}
+        run: pytest -qq --collect-only
+
       # concurrency = ["greenlet", "thread"] in pyproject is what makes these numbers
       # real. SQLAlchemy bridges async to the sync DBAPI through greenlets, and
       # without it coverage stops tracing at each handler's first `await` into the
