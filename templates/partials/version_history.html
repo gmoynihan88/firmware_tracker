@@ -1,0 +1,44 @@
+{# The catalog's history popup: every version of one product but the latest.
+   Release notes are scraped from vendor pages, so they are only ever autoescaped
+   text here -- never marked safe. #}
+<header class="history-header">
+    <div>
+        <h3 id="history-title">{{ product }}</h3>
+        <p class="history-meta">{{ vendor }} &middot; {{ versions | length }} earlier version{{ '' if versions | length == 1 else 's' }}</p>
+    </div>
+    <form method="dialog">
+        <button class="filter-action-btn" aria-label="Close version history">Close</button>
+    </form>
+</header>
+
+{% if versions %}
+<div class="device-table-wrap">
+    <table class="device-table catalog-table history-table">
+        <thead>
+            <tr>
+                <th scope="col">Version</th>
+                <th scope="col">Released</th>
+                <th scope="col">Release notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fw in versions %}
+            <tr class="history-row">
+                <td class="numeric">{{ fw.version }}</td>
+                {# The vendor's own date, never when this tracker first saw it. #}
+                <td class="cell-date">{{ fw.release_date.strftime('%Y-%m-%d') if fw.release_date else '—' }}</td>
+                <td class="history-notes">
+                    {%- if fw.changelog_raw -%}
+                    <div class="history-notes-text">{{ fw.changelog_raw }}</div>
+                    {%- else -%}
+                    <span class="muted" title="No release notes were recorded for this version">—</span>
+                    {%- endif -%}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="history-status">No earlier versions recorded.</p>
+{% endif %}

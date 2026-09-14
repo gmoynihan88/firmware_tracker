@@ -4330,7 +4330,7 @@ async def test_catalog_shows_the_vendor_s_release_date(client):
     html = (await client.get("/catalog")).text
 
     headers = re.findall(r"<th[^>]*>(?:<span[^>]*>)?([A-Za-z]+)", html)
-    assert headers[:5] == ["Vendor", "Product", "Type", "Latest", "Released"]
+    assert headers[:6] == ["Vendor", "Product", "Type", "Latest", "Other", "Released"]
 
     dated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Dated Box.*?</tr>", html, re.S)
     assert dated_row and "2024-11-19" in dated_row.group(0)
@@ -9034,6 +9034,7 @@ async def test_real_chromium_pages_the_catalog(client):
             page = await browser.new_page()
             errors = []
             page.on("pageerror", lambda exc: errors.append(str(exc)))
+            await page.route("**/*", lambda route: route.abort())  # no network, htmx CDN included
             await page.set_content(html)
 
             first = await page.evaluate(state)
@@ -9069,6 +9070,152 @@ async def test_real_chromium_pages_the_catalog(client):
             assert ordered["shown"][0] == "Zulu Needle 000"
             assert len(ordered["shown"]) == 25
             assert ordered["status"].startswith("1–25 of 61")
+
+            assert errors == []
+        finally:
+            await browser.close()
+
+
+# --- catalog version history -------------------------------------------------
+
+
+async def _seed_history():
+    """One product with four versions, one with only its latest, one with none."""
+    from datetime import datetime
+
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name="History Co", slug="historyco"))
+        box, single, _empty = [
+            await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.SYNTHESIZER,
+            ))
+            for name in ("History Box", "Single Box", "Empty Box")
+        ]
+        for version, released, notes, latest in (
+            ("1.0.0", datetime(2024, 1, 5), "First release.", False),
+            ("1.10.0", None, "Fixed <script>alert(1)</script> in the name field.", False),
+            ("2.0.0", datetime(2026, 2, 1), "Current release notes.", True),
+            ("1.9.0", datetime(2025, 3, 2), None, False),
+        ):
+            await ds.create_firmware_version(db, FirmwareVersionCreate(
+                device_model_id=box.id, version=version, release_date=released,
+                changelog_raw=notes, is_latest=latest,
+            ))
+        await ds.create_firmware_version(db, FirmwareVersionCreate(
+            device_model_id=single.id, version="3.0.0", is_latest=True,
+        ))
+        return box.id
+
+
+@pytest.mark.asyncio
+async def test_catalog_counts_the_versions_behind_the_latest(client):
+    import re
+
+    box_id = await _seed_history()
+    html = (await client.get("/catalog")).text
+
+    def row(product):
+        found = re.search(rf"<tr[^>]*>(?:(?!</tr>).)*{product}.*?</tr>", html, re.S)
+        assert found, f"{product} missing from the table"
+        return found.group(0)
+
+    history = row("History Box")
+    assert f'data-history-url="/catalog/versions/{box_id}"' in history
+    assert re.search(r'class="history-link"[^>]*>3</button>', history)
+
+    # Only the latest, or nothing at all: a plain zero with nothing to open.
+    for product in ("Single Box", "Empty Box"):
+        assert "history-link" not in row(product)
+        assert '<span class="muted">0</span>' in row(product)
+
+
+@pytest.mark.asyncio
+async def test_version_history_lists_every_version_but_the_latest(client):
+    box_id = await _seed_history()
+    response = await client.get(f"/catalog/versions/{box_id}")
+    html = response.text
+
+    assert response.status_code == 200
+    assert '<h3 id="history-title">History Box</h3>' in html
+    assert "History Co &middot; 3 earlier versions" in html
+    assert "2.0.0" not in html and "Current release notes." not in html
+    # Highest first, as numbers: 1.10.0 is newer than 1.9.0.
+    assert html.index("1.10.0") < html.index("1.9.0") < html.index("1.0.0")
+    assert "2024-01-05" in html and "First release." in html
+
+
+@pytest.mark.asyncio
+async def test_version_history_escapes_scraped_release_notes(client):
+    """Release notes come from vendor pages, and the popup inserts the partial as HTML."""
+    box_id = await _seed_history()
+    html = (await client.get(f"/catalog/versions/{box_id}")).text
+
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+@pytest.mark.asyncio
+async def test_version_history_of_an_unknown_product_is_a_404(client):
+    assert (await client.get("/catalog/versions/999999")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_real_chromium_opens_the_version_history(client):
+    """Click the count, see the history, close it. Skipped where Chromium is not installed, as in CI."""
+    from src.scrapers import base
+
+    if not base.PLAYWRIGHT_AVAILABLE:
+        pytest.skip("Playwright not installed")
+    from playwright.async_api import async_playwright
+
+    box_id = await _seed_history()
+    origin = "http://catalog.test"
+
+    async def serve(route):
+        # The app answers its own paths through the test client; nothing else loads.
+        url = route.request.url
+        if not url.startswith(origin + "/"):
+            await route.abort()
+            return
+        response = await client.get(url[len(origin):])
+        await route.fulfill(status=response.status_code, body=response.text,
+                           content_type=response.headers.get("content-type", "text/html"))
+
+    async with async_playwright() as pw:
+        try:
+            browser = await pw.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"Chromium unavailable: {exc}")
+        try:
+            page = await browser.new_page()
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            await page.route("**/*", serve)
+            await page.goto(origin + "/catalog")
+
+            await page.click(f'button[data-history-url="/catalog/versions/{box_id}"]')
+            await page.wait_for_selector("#history-dialog[open] .history-row")
+
+            rows = await page.eval_on_selector_all(
+                "#history-dialog .history-row",
+                "rows => rows.map(r => [...r.children].map(c => c.textContent.trim()))",
+            )
+            assert [r[0] for r in rows] == ["1.10.0", "1.9.0", "1.0.0"]
+            assert rows[0][2] == "Fixed <script>alert(1)</script> in the name field."
+            assert rows[1][1:] == ["2025-03-02", "—"]
+
+            await page.click("#history-dialog button:text('Close')")
+            assert not await page.evaluate("document.getElementById('history-dialog').open")
+
+            # The backdrop closes it too.
+            await page.click(f'button[data-history-url="/catalog/versions/{box_id}"]')
+            await page.wait_for_selector("#history-dialog[open] .history-row")
+            await page.mouse.click(5, 5)
+            assert not await page.evaluate("document.getElementById('history-dialog').open")
 
             assert errors == []
         finally:
