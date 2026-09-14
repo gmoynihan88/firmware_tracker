@@ -46,7 +46,7 @@ python scripts/scan_installed_plugins.py
 <details>
 <summary>Running it without Docker</summary>
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ```bash
 pip install --require-hashes -r requirements-dev.txt
@@ -427,8 +427,8 @@ docker-compose.yml     # Volumes, log caps
   so versions would need a completely different mechanism.
 - Scrapers send a **browser User-Agent**, because some vendors reject anything else. The
   trade-off is that a vendor cannot tell who is calling or ask you to stop.
-- The web app itself runs anywhere on Python 3.11+. Linux is CI-verified across 3.11,
-  3.12 and 3.13; macOS is the development platform; Windows is untested.
+- The web app itself runs anywhere on Python 3.12+. Linux is CI-verified on 3.12, the
+  Docker image's version, and 3.13; macOS is the development platform; Windows is untested.
 - **Release dates are missing for about a sixth of current versions** — 416 of 507 have
   one. That is what the vendor publishes, not what the scraper managed to read: some
   list a version with no date anywhere on the page. The catalogue shows an em-dash

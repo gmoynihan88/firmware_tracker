@@ -8,7 +8,7 @@ Firmware Tracker is a FastAPI web app that scrapes manufacturer websites for fir
 
 ## Commands
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ```bash
 # Install from the hashed lock (runtime, Playwright, test and audit tools)
