@@ -1130,10 +1130,11 @@ async def test_gforce_resolves_a_renamed_product():
 
 
 @pytest.mark.asyncio
-async def test_gforce_superseded_product_is_not_a_failure():
-    """M-Tron Pro is superseded and has no releases of its own.
+async def test_gforce_lists_only_products_with_releases_on_the_page():
+    """M-Tron Pro used to be listed with no releases, so its row would not look broken.
 
-    Reporting it as failed would be wrong; the absence is a fact about the product.
+    Its product page now redirects to M-Tron Pro IV, so it is not listed at all -- and
+    a name that is not on the page fails rather than reporting an empty history.
     """
     from src.scrapers.plugins.gforce import GForceScraper
 
@@ -1144,13 +1145,11 @@ async def test_gforce_superseded_product_is_not_a_failure():
 
     scraper.fetch_page_js = _page
 
-    superseded = await scraper.fetch_firmware_versions("M-Tron Pro", scraper.RELEASES_URL)
-    assert superseded.success is True
-    assert superseded.firmware_versions == []
+    listing = await scraper.fetch_device_list()
+    assert sorted(d.name for d in listing.devices) == ["Oberheim OB-E", "VSM IV"]
 
-    # Something genuinely unlisted still fails.
-    unknown = await scraper.fetch_firmware_versions("Not A Product", scraper.RELEASES_URL)
-    assert unknown.success is False
+    for name in ("M-Tron Pro", "Not A Product"):
+        assert (await scraper.fetch_firmware_versions(name, scraper.RELEASES_URL)).success is False
 
 
 def _moog_update_page() -> str:

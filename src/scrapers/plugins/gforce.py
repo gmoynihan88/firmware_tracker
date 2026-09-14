@@ -16,6 +16,22 @@ class GForceScraper(BaseScraper):
 
     The previous /products/<slug>/ URLs were wrong in two ways: the path is singular
     (/product/), and several slugs have changed.
+
+    **The page is all there is, and it holds 48 entries.** On 2026-09-14 it showed
+    releases from 06/30/2026 back to 01/25/2022; `/page/2/` and `/page/99/` return
+    the same 48, and there is no JSON behind it. A product whose every release falls
+    off the end would stop being listed, though its rows and stored history stay.
+
+    **Not every release is on it.** M-Tron Pro IV 1.0.2 is installed on the
+    development machine -- plug-in bundles modified 2023-11-20 -- but the page lists
+    only 1.0 and 1.0.1, the product page states no version, and the app carries no
+    update-check address. The scraper reports 1.0.1 because that is what GForce
+    publishes; the installed version is not a source. The plug-in scanner shows the
+    installed copy as newer than the tracker instead of as needing an update.
+
+    M-Tron Pro, the product IV replaced, used to be listed with no releases so its row
+    would not look broken. Its product page now redirects to M-Tron Pro IV, so it is
+    no longer listed at all.
     """
 
     manufacturer_name = "GForce Software"
@@ -34,11 +50,6 @@ class GForceScraper(BaseScraper):
     RENAMED = {
         "Virtual String Machine": "VSM IV",
     }
-
-    # Listed on the site but with no releases of their own: superseded by a later
-    # product that is tracked. Reported as having no firmware rather than as a
-    # failure, since the absence is a fact about the product.
-    SUPERSEDED = {"M-Tron Pro"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -120,7 +131,7 @@ class GForceScraper(BaseScraper):
         return self._releases
 
     async def fetch_device_list(self) -> ScraperResult:
-        """Discover products from the releases page, keeping superseded ones listed."""
+        """Discover products from the releases page."""
         releases = await self._get_releases()
         if releases is None:
             return ScraperResult(
@@ -138,18 +149,6 @@ class GForceScraper(BaseScraper):
             for product, items in releases.items()
         ]
 
-        # Keep products that have no releases of their own, so their existing rows do
-        # not become orphans failing every scrape.
-        for name in sorted(self.SUPERSEDED):
-            devices.append(
-                ScrapedDevice(
-                    name=name,
-                    category="vst_plugin",
-                    firmware_page_url=self.RELEASES_URL,
-                    product_url=self.manufacturer_website,
-                )
-            )
-
         return ScraperResult(success=True, devices=devices)
 
     async def fetch_firmware_versions(
@@ -161,10 +160,6 @@ class GForceScraper(BaseScraper):
                 success=False,
                 error=f"Could not read the GForce releases page at {self.RELEASES_URL}",
             )
-
-        if device_name in self.SUPERSEDED:
-            # Superseded by a later product; GForce lists no releases for it.
-            return ScraperResult(success=True, firmware_versions=[])
 
         lookup = self.RENAMED.get(device_name, device_name)
         found = releases.get(lookup)
