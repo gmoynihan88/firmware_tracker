@@ -51,9 +51,6 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes -r requirements-dev.txt
 
-      - name: Warm the import cache
-        run: pytest -qq --collect-only
-
       # -n auto runs a worker per CPU, four on a hosted runner. Each worker is its own
       # process with its own in-memory test database, so tests cannot see each other's
       # rows; the suite and its coverage totals are identical to a serial run.
