@@ -370,6 +370,16 @@ a new vendor's page before believing an extraction.
   heading paired every version with nothing, on a page where every entry is dated.
 - **Page-level "last updated" stamps are not release dates.** Neither is "Revised
   06/07/2017" against an instructions section.
+- **A hand-written log writes dates as many ways as it had authors.** Soundtoys'
+  release log has "June 20th, 2024", "October, 20, 2021" and "June 2, 2016:", and
+  some releases open with a note before their date. A pattern fitted to the newest
+  entry left five releases undated; four had a date all along. Print every entry the
+  extraction leaves undated and read the markup behind each one.
+- **A news page is history, not the current version.** Klanghelm's news page dates
+  paid releases, but its newest visible SDRR entry was 2.2.1 from 2019, while a
+  commented-out draft in the same file announced 2.5.5 -- a "latest" taken from it
+  would have been wrong. Check the newest entry against something current first, and
+  never read commented-out markup: the vendor has not published it.
 - **Never leave a hardcoded version table as a silent fallback.**
 
 ## Survey sources are untrusted too
