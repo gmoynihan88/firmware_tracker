@@ -29,6 +29,9 @@ uvicorn src.main:app --reload
 # Run all tests
 pytest
 
+# Run all tests in parallel, one worker per CPU (what CI does)
+pytest -n auto
+
 # Run a single test
 pytest tests/test_basic.py::test_dashboard
 

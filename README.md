@@ -371,8 +371,9 @@ source rather than a parsing error.
 ## Development
 
 ```bash
-pytest                                   # 329 tests
-pytest --cov=src                         # 79% overall, 83% outside the scrapers
+pytest                                   # 442 tests
+pytest -n auto                           # the same in parallel, one worker per CPU, as CI runs
+pytest --cov=src                         # 84% overall, 88% outside the scrapers
 pytest tests/test_basic.py::test_dashboard
 
 coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs
