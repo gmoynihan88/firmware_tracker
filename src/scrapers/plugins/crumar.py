@@ -1,178 +1,180 @@
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class CrumarScraper(BaseScraper):
-    """Scraper for Crumar keyboard instruments."""
+    """Crumar keyboards, read from the firmware downloads on each support page.
+
+    The support index (`/?a=support`) links one page per product, and each page is a
+    table of that product's downloads:
+
+        <a href="/?a=dl&b=140"
+           title=" Crumar_Mojo61_Update_v1.53.zip - November 27, 2024 ">
+          Mojo 61 - Firmware Update v.1.53</a>
+
+    The version is in the file name and the link text, and the `title` carries the
+    date the file was posted. Only the current file is offered, so each product has
+    one version, not a history.
+
+    **Every page repeats a set of shared downloads** under the product's own: eleven
+    sample expansions, "Crumar Midi USB multi-client Windows driver v.2.0.0.0" and the
+    EULA. The driver's version is not any keyboard's firmware, and neither is "Mojo 61
+    - Piano Update", a sample set. A link counts only when its text says Firmware.
+
+    **The catalogue is the products with a firmware link**: Seven, Mojo 61, Mojo
+    Classic/Suitcase, Sorrento and DK61 on 2026-09-15. Eleven, Seventeen, Parsifal,
+    MojoPedals and Burn offer manuals only, and Performer is a plug-in whose installers
+    are not firmware. Listing those would add rows that report nothing on every run.
+
+    Until 2026-09-15 this scraper read a hand-kept list of four from product pages
+    that no longer exist (`/seven/`, `/mojo-61/`), and found nothing for any of them.
+    D9-X, a GMLAB board with no version published anywhere, had an unverified value
+    labelled as such; Mojo Desktop has no support page. Neither is on the index, so
+    both left the listing and keep their rows.
+    """
 
     manufacturer_name = "Crumar"
     manufacturer_slug = "crumar"
     manufacturer_website = "https://www.crumar.it"
 
-    # No public version source exists for the D9-X. The GitHub repository holds
-    # hardware design files (PCB, Eagle, 3D) with no releases, no tags and no
-    # version string in the sketch, and https://www.crumar.it/downloads/ returns
-    # 404. This value is therefore unverifiable rather than merely unchecked, and
-    # says so in its changelog so it is not mistaken for a real lookup.
-    UNVERIFIED_FIRMWARE = {
-        "D9-X": [
-            (
-                "1.0.0",
-                "2019-03-21",
-                "Unverified: no public version source. The GMLAB D9X repository "
-                "publishes no releases or tags and Crumar's downloads page is gone.",
-            ),
-        ],
-    }
+    SUPPORT_INDEX = "https://www.crumar.it/?a=support"
+    SUPPORT_LINK = re.compile(r"[?&]a=support&b=(\d+)")
+    DOWNLOAD_LINK = re.compile(r"[?&]a=dl&b=\d+")
 
-    # Known Crumar products
-    KNOWN_PRODUCTS = [
-        ("D9-X", "midi_controller", "https://github.com/ZioGuido/GMLAB_D9X"),
-        ("Seven", "synthesizer", "https://www.crumar.it/seven/"),
-        ("Mojo 61", "synthesizer", "https://www.crumar.it/mojo-61/"),
-        ("Mojo Desktop", "synthesizer", "https://www.crumar.it/mojo-desktop/"),
-    ]
+    # The index's name -> the database's.
+    RENAMES = {"MOJO61": "Mojo 61"}
 
-    # Note: the old /downloads/ path now 404s; product pages are the only route.
-    DOWNLOADS_URL = "https://www.crumar.it/"
+    # " Crumar_Mojo61_Update_v1.53.zip - November 27, 2024 "
+    TITLE = re.compile(
+        r"^\s*(?P<file>\S.*?)\s+-\s+(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+(?P<year>\d{4})\s*$"
+    )
+    MONTHS = {m: i for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun",
+         "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+
+    # The file name is the artefact, so its version wins -- but only when it is
+    # dotted. DK61's file is "Crumar_DK61_Updater_V101.zip", which says 1.0.1 only
+    # to someone who already knows; its link text, "Firmware updater v.1.0.1", does
+    # not need decoding.
+    FILE_VERSION = re.compile(r"[Vv]\.?(\d+(?:\.\d+)+)(?=\D*$)")
+    # "Firmware Update v.1.53", "Firmware v.1.37", "Firmware 1.13", "Firmware updater v.1.0.1"
+    TEXT_VERSION = re.compile(r"\bFirmware\b.*?\b[Vv]?\.?\s*(\d+(?:\.\d+)+)\s*$", re.I)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._catalogue: Optional[Dict[str, dict]] = None
+
+    def _parse_index(self, html: str) -> Dict[str, str]:
+        """Product name -> support page, in the index's order."""
+        pages: Dict[str, str] = {}
+        for anchor in self.parse_html(html).find_all("a", href=self.SUPPORT_LINK):
+            name = anchor.get_text(" ", strip=True)
+            if name:
+                pages.setdefault(self.RENAMES.get(name, name), urljoin(self.SUPPORT_INDEX, anchor["href"]))
+        return pages
+
+    def _release_date(self, match) -> Optional[datetime]:
+        try:
+            return datetime(
+                int(match.group("year")),
+                self.MONTHS[match.group("month")[:3].lower()],
+                int(match.group("day")),
+            )
+        except (ValueError, KeyError):
+            return None
+
+    def _parse_firmware(self, html: str) -> List[ScrapedFirmware]:
+        """The firmware download on one support page, if it offers one."""
+        versions: List[ScrapedFirmware] = []
+        seen = set()
+
+        for anchor in self.parse_html(html).find_all("a", href=self.DOWNLOAD_LINK):
+            text = anchor.get_text(" ", strip=True)
+            text_version = self.TEXT_VERSION.search(text)
+            if not text_version:
+                continue
+
+            title = self.TITLE.match(anchor.get("title") or "")
+            file_version = self.FILE_VERSION.search(title.group("file")) if title else None
+            version = file_version.group(1) if file_version else text_version.group(1)
+            if version in seen:
+                continue
+            seen.add(version)
+
+            versions.append(
+                ScrapedFirmware(
+                    version=version,
+                    release_date=self._release_date(title) if title else None,
+                    download_url=urljoin(self.manufacturer_website, anchor["href"]),
+                    changelog=text,
+                )
+            )
+
+        return versions
+
+    async def _load(self) -> Optional[Dict[str, dict]]:
+        """Every product with a firmware download, read once per scrape."""
+        if self._catalogue is not None:
+            return self._catalogue
+
+        index = await self.fetch_page(self.SUPPORT_INDEX)
+        if not index:
+            return None
+        pages = self._parse_index(index)
+        if not pages:
+            return None
+
+        catalogue: Dict[str, dict] = {}
+        for name, url in pages.items():
+            html = await self.fetch_page(url)
+            if not html:
+                # A page that fails to load would silently drop its product from the
+                # catalogue, which is indistinguishable from one with no firmware.
+                return None
+            firmware = self._parse_firmware(html)
+            if firmware:
+                catalogue[name] = {"url": url, "firmware": firmware}
+
+        self._catalogue = catalogue
+        return catalogue
 
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Crumar products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url,
+        catalogue = await self._load()
+        if catalogue is None:
+            return ScraperResult(
+                success=False,
+                error=f"Could not read Crumar's support pages from {self.SUPPORT_INDEX}",
             )
-            for name, category, url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    # Everything Crumar publishes firmware for is a keyboard.
+                    name=name,
+                    category="synthesizer",
+                    firmware_page_url=entry["url"],
+                    product_url=entry["url"].replace("a=support", "a=showproduct"),
+                )
+                for name, entry in catalogue.items()
+            ],
+        )
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        """Fetch firmware versions from Crumar pages."""
-        # Use known firmware data for GitHub-hosted projects
-        if device_name in self.UNVERIFIED_FIRMWARE:
-            firmware_versions = []
-            for version, date_str, changelog in self.UNVERIFIED_FIRMWARE[device_name]:
-                try:
-                    release_date = datetime.strptime(date_str, "%Y-%m-%d")
-                except ValueError:
-                    release_date = None
-                firmware_versions.append(
-                    ScrapedFirmware(
-                        version=version,
-                        release_date=release_date,
-                        download_url=firmware_page_url,
-                        changelog=changelog,
-                    )
-                )
-            return ScraperResult(success=True, firmware_versions=firmware_versions)
-
-        # Try product page
-        html = await self.fetch_page(firmware_page_url)
-
-        # Also try downloads page
-        downloads_html = await self.fetch_page(self.DOWNLOADS_URL)
-
-        if not html and not downloads_html:
+        catalogue = await self._load()
+        if catalogue is None:
             return ScraperResult(
-                success=False, error=f"Failed to fetch firmware info"
+                success=False,
+                error=f"Could not read Crumar's support pages from {self.SUPPORT_INDEX}",
             )
 
-        firmware_versions = []
-
-        for page_html in [html, downloads_html]:
-            if not page_html:
-                continue
-
-            soup = self.parse_html(page_html)
-            all_text = soup.get_text()
-
-            # Crumar versions look like "v1.0.0" or "Version 1.0" or "OS 1.0"
-            version_pattern = r"(?:[Vv](?:ersion)?|OS)\s*\.?\s*(\d+\.\d+(?:\.\d+)?)"
-
-            # Look for download/firmware sections
-            sections = soup.find_all(
-                ["div", "section", "article", "li", "td", "p"],
-                class_=re.compile(r"download|firmware|update|software|version", re.I)
-            )
-
-            # Also look for links
-            download_links = soup.find_all("a", href=re.compile(r"\.(zip|exe|bin|syx)", re.I))
-
-            for section in sections:
-                text = section.get_text()
-
-                # Check if relevant to device
-                device_pattern = device_name.lower().replace("-", "").replace(" ", "")
-                if device_pattern not in text.lower().replace("-", "").replace(" ", ""):
-                    continue
-
-                version_match = re.search(version_pattern, text)
-
-                if version_match:
-                    version = version_match.group(1)
-
-                    # Find download link
-                    download_link = section.find("a", href=re.compile(r"\.(zip|exe|bin|syx)", re.I))
-                    download_url = download_link["href"] if download_link else None
-                    if download_url and not download_url.startswith("http"):
-                        download_url = f"https://www.crumar.it{download_url}"
-
-                    # Look for date
-                    date_pattern = r"(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2}|\w+\s+\d{1,2},?\s+\d{4})"
-                    date_match = re.search(date_pattern, text)
-                    release_date = None
-                    if date_match:
-                        date_str = date_match.group(1)
-                        for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%B %d, %Y", "%B %d %Y"]:
-                            try:
-                                release_date = datetime.strptime(date_str.replace(",", ""), fmt)
-                                break
-                            except ValueError:
-                                continue
-
-                    firmware_versions.append(
-                        ScrapedFirmware(
-                            version=version,
-                            release_date=release_date,
-                            download_url=download_url,
-                        )
-                    )
-
-            # Check download links
-            for link in download_links:
-                href = link.get("href", "")
-                text = link.get_text() + " " + (link.get("title", "") or "")
-                parent_text = link.parent.get_text() if link.parent else ""
-
-                device_pattern = device_name.lower().replace("-", "").replace(" ", "")
-                combined = (text + " " + parent_text + " " + href).lower().replace("-", "").replace(" ", "")
-
-                if device_pattern in combined:
-                    version_match = re.search(version_pattern, text + " " + parent_text)
-                    if version_match:
-                        version = version_match.group(1)
-                        if not any(fw.version == version for fw in firmware_versions):
-                            download_url = href
-                            if not download_url.startswith("http"):
-                                download_url = f"https://www.crumar.it{download_url}"
-                            firmware_versions.append(
-                                ScrapedFirmware(version=version, download_url=download_url)
-                            )
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for fw in firmware_versions:
-            if fw.version not in seen:
-                seen.add(fw.version)
-                unique.append(fw)
-
-        return ScraperResult(success=True, firmware_versions=unique)
+        entry = catalogue.get(device_name)
+        # D9-X and Mojo Desktop keep rows from before the list came from the index,
+        # and Crumar offers no firmware download for either.
+        return ScraperResult(success=True, firmware_versions=entry["firmware"] if entry else [])
