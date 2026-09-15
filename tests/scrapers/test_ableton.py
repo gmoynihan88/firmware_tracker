@@ -275,3 +275,51 @@ async def test_ableton_reads_the_current_major_from_the_index_without_fetching_i
     assert result.success is True
     assert "12.4.5" in {fw.version for fw in result.firmware_versions}
     assert requested == [scraper.RELEASE_NOTES_INDEX]
+
+
+def test_ableton_keeps_each_note_on_its_own_line():
+    """As served for 11.3.40: section headings, and a list nested inside an item.
+
+    The notes were one run-on line, cut at 500 characters.
+    """
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    page = """
+    <h2 class="">
+            11.3.40
+            Release Notes
+          </h2>
+    <div class="release_note_text"><h4>January 24, 2025</h4><h3>New features and improvements:</h3><ul><li>The plug-in Noisy2 from Expressive-E now starts in MPE mode by default.</li></ul><h3>Bugfixes:</h3><ul><li>Fixed the following issues with note repeat:
+    	<ul><li>Sending polyphonic aftertouch of 0 for a playing note no longer "freezes" the pressure value for that note at 0.</li><li>The All Notes Off event is no longer ignored for notes with a current polyphonic aftertouch or channel pressure of 0.</li></ul></li><li>Compressors's gain reduction meter now once again shows negative Gain Reduction values as a blue bar in the Expand mode.</li></ul></div>
+    """
+
+    release = AbletonScraper()._parse_releases(page)[0]
+
+    assert release.release_date.strftime("%Y-%m-%d") == "2025-01-24"
+    assert release.changelog == (
+        "New features and improvements:\n"
+        "- The plug-in Noisy2 from Expressive-E now starts in MPE mode by default.\n"
+        "Bugfixes:\n"
+        "- Fixed the following issues with note repeat:\n"
+        '  - Sending polyphonic aftertouch of 0 for a playing note no longer "freezes" the pressure value for that note at 0.\n'
+        "  - The All Notes Off event is no longer ignored for notes with a current polyphonic aftertouch or channel pressure of 0.\n"
+        "- Compressors's gain reduction meter now once again shows negative Gain Reduction values as a blue bar in the Expand mode."
+    )
+
+
+def test_ableton_push_keeps_each_note_on_its_own_line():
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    page = """
+    <h1>Push 2.4.6 with Live 12.4.6</h1>
+    <p>September 15, 2026</p>
+    <p data-local-id="5986534167a7" data-renderer-start-pos="44" id="New-Features-and-Improvements" tabindex="-1">No specific updates for Push.</p>
+    <p data-local-id="5986534167a7" data-renderer-start-pos="44" tabindex="-1"></p>
+    """ + _ableton_push_page()
+
+    versions = {fw.version: fw for fw in AbletonScraper()._parse_push_releases(page)}
+
+    assert versions["2.4.6"].changelog == "No specific updates for Push."
+    assert versions["2.4.5"].changelog == (
+        "New Features and Improvements\nMax for Live\n- Added Control Surface support."
+    )

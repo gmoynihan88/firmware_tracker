@@ -191,3 +191,48 @@ def test_allenheath_orders_versions_numerically():
     body = "<h3>V1.9 - April 2019</h3><p>a</p><h3>V1.10 - May 2020</h3><p>b</p>"
 
     assert [fw.version for fw in _parse(body)] == ["1.10", "1.9"]
+
+
+# As served for Avantis: section headings below the version, notes in bare paragraphs
+# and in divs, words split across spans, non-breaking-space spacers.
+AVANTIS_LIVE = """<hr><h1 id="h_1">Current Version Release Notes</h1><h2 id="h_2">V2.01 - Maintenance Release. May 2026</h2><h3 class="wysiwyg-text-align-justify" id="h_3">Fixes</h3><p class="wysiwyg-text-align-justify">ID4380 - On some units, 2 or more of the RackUltra FX slots could sometimes fail to pass audio at first boot or subsequent boots.</p><p class="wysiwyg-text-align-justify">ID4277 - Fixed some instances of UI crash at shutdown.</p><p class="wysiwyg-text-align-justify"> </p><h3 class="wysiwyg-text-align-justify" id="h_4">Known Issues</h3><div><p><span data-ogsc="black">ID3150 - Pinch control of PEQ bandwidth does not work reliably on macOS.</span></p></div><div>
+<p><span data-ogsc="black">ID2306 - MIDI Softkeys in Director send both their ‘on press’ and ‘on</span><span data-ogsc="black"> </span><span data-ogsc="black" data-markjs="true">release</span><span data-ogsc="black">’ events on press.</span></p>
+</div><div><p> </p></div><hr><h1 class="wysiwyg-text-align-justify" id="h_5">Previous Version Release Notes</h1><h2 id="h_6">V2.0 - Feature Release. April 2026</h2><div>
+<h3 id="h_7">New dPack Features*</h3>
+<ul>
+<li data-list-item-id="e5a3">
+<span data-ogsc="black">Increased</span><span data-ogsc="black"> channel count to 96 input channels</span></li>
+<li data-list-item-id="e5a4">Added CompStortion DEEP compressor model</li>
+</ul></div>"""
+
+
+def test_allenheath_keeps_each_note_on_its_own_line():
+    """The notes were one run-on line, and cut at 500 characters."""
+    versions = {fw.version: fw for fw in _parse(AVANTIS_LIVE)}
+
+    assert versions["2.01"].changelog == (
+        "Fixes\n"
+        "ID4380 - On some units, 2 or more of the RackUltra FX slots could sometimes fail to pass audio at first boot or subsequent boots.\n"
+        "ID4277 - Fixed some instances of UI crash at shutdown.\n"
+        "Known Issues\n"
+        "ID3150 - Pinch control of PEQ bandwidth does not work reliably on macOS.\n"
+        "ID2306 - MIDI Softkeys in Director send both their ‘on press’ and ‘on release’ events on press."
+    )
+    # "Previous Version Release Notes" is the article's heading, not a note.
+    assert versions["2.0"].changelog == (
+        "New dPack Features*\n"
+        "- Increased channel count to 96 input channels\n"
+        "- Added CompStortion DEEP compressor model"
+    )
+    assert versions["2.01"].release_date.strftime("%Y-%m") == "2026-05"
+
+
+def test_allenheath_leaves_the_article_s_sections_and_the_date_out_of_the_notes():
+    """SQ puts versions in h3 under h2 "Previous Versions", and the month in an h4."""
+    versions = {fw.version: fw for fw in _parse(SQ_BODY)}
+
+    assert versions["1.6.3"].changelog == "- ID-2358: Failure to automatically update firmware of some expanders"
+    assert versions["1.6.3"].release_date.strftime("%Y-%m") == "2026-02"
+    assert versions["1.6.2"].changelog == (
+        "SQ-Drive:\n- Support for AR/AB hardware following component changes\nMarch 2024"
+    )

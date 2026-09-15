@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.notes import BLOCKS, join_notes, note_lines
 
 
 class AllenHeathScraper(BaseScraper):
@@ -95,25 +96,34 @@ class AllenHeathScraper(BaseScraper):
             release_date = self._month(match.group("rest"))
             stop = headings[index + 1] if index + 1 < len(headings) else None
 
-            notes: List[str] = []
+            elements = []
             for element in heading.next_elements:
                 if element is stop:
                     break
-                if getattr(element, "name", None) not in self.NOTE_BLOCKS:
-                    continue
-                text = self._text(element)
-                if not text:
-                    continue
-                if release_date is None and not notes and self.MONTH_YEAR.fullmatch(text):
-                    release_date = self._month(text)
-                    continue
-                notes.append(text)
+                elements.append(element)
+
+            # Headings at the version's level or above are the article's own sections
+            # ("Previous Versions"); the ones below it ("Fixes", "Known Issues") are notes.
+            blocks = [b for b in BLOCKS if not (b.startswith("h") and b <= heading.name)]
+            lines = note_lines(elements, blocks)
+
+            # The month only counts as the first line of text, not counting section
+            # headings -- the rule this parser has always dated by.
+            first = next(
+                (text for text in (self._text(e) for e in elements
+                                   if getattr(e, "name", None) in self.NOTE_BLOCKS) if text),
+                None,
+            )
+            if release_date is None and first and self.MONTH_YEAR.fullmatch(first):
+                release_date = self._month(first)
+                if first in lines:
+                    lines.remove(first)
 
             if version not in releases:
                 releases[version] = ScrapedFirmware(
                     version=version,
                     release_date=release_date,
-                    changelog=" ".join(notes)[:500] or None,
+                    changelog=join_notes(lines),
                 )
 
         return sorted(releases.values(), key=lambda fw: self._version_key(fw.version), reverse=True)
