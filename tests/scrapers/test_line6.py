@@ -101,3 +101,95 @@ async def test_line6_maps_device_names_to_their_release_names():
     # A product genuinely absent from the listing is a failure, not an empty success.
     missing = await scraper.fetch_firmware_versions("Nonexistent Pedal", scraper.FIRMWARE_URL)
     assert missing.success is False
+
+
+def _sidebar_entry(version, released, products):
+    """One release as the live page writes it."""
+    works_with = "".join(f"<b>{p}</b><br/>" for p in products)
+    return f"""
+      <div class="release-details">
+        <div class="sidebar">
+<b>Version {version}</b><br/>
+<b>Released {released}</b><br/><br/>
+            Works with:<br/>
+{works_with}
+        </div>
+        <div class="description">Release notes.</div>
+      </div>"""
+
+
+def _scraper_on(html):
+    from src.scrapers.plugins.line6 import Line6Scraper
+
+    scraper = Line6Scraper()
+
+    async def _page(*_args, **_kwargs):
+        return html
+
+    scraper.fetch_page_js = _page
+    return scraper
+
+
+@pytest.mark.asyncio
+async def test_line6_lists_every_product_the_firmware_page_names():
+    """The catalogue is the page's products, not a list kept by hand.
+
+    It was 17 products while the page named 131.
+    """
+    scraper = _scraper_on(_line6_firmware_page() + _sidebar_entry("2.10", "4/2/12", ["PODxt Live", "Bass PODxt Live"]))
+
+    result = await scraper.fetch_device_list()
+
+    assert result.success is True
+    names = [d.name for d in result.devices]
+    # Back catalogue products are listed like current ones.
+    assert "PODxt Live" in names and "Bass PODxt Live" in names
+    assert names.count("HX Stomp") == 1
+
+
+@pytest.mark.asyncio
+async def test_line6_lists_products_under_the_names_the_database_has():
+    """The transmitter keeps its catalogued name, and Helix Floor keeps its row."""
+    scraper = _scraper_on(_line6_firmware_page())
+
+    names = [d.name for d in (await scraper.fetch_device_list()).devices]
+
+    assert "Relay G10II" in names
+    assert "Relay G10TII Transmitter" not in names
+    # Helix Floor reads Helix's releases; Helix keeps its own row as well.
+    assert "Helix" in names and "Helix Floor" in names
+
+    floor = await scraper.fetch_firmware_versions("Helix Floor", scraper.FIRMWARE_URL)
+    assert [fw.version for fw in floor.firmware_versions] == ["3.80.0", "3.15.0"]
+
+
+@pytest.mark.asyncio
+async def test_line6_files_amps_wireless_and_controllers_apart_from_processors():
+    scraper = _scraper_on(_sidebar_entry("1.0", "1/1/20", [
+        "HX Stomp", "AMPLIFi FX100", "AMPLIFi 75", "Firehawk FX", "Firehawk 1500",
+        "Spider V 60 MkII", "XD-V75 Handheld", "James Tyler Variax", "FBV3",
+        "Mobile Keys 49", "TonePort UX8", "Pocket POD",
+    ]))
+
+    categories = {d.name: d.category for d in (await scraper.fetch_device_list()).devices}
+
+    assert categories == {
+        "HX Stomp": "guitar_pedal",
+        "AMPLIFi FX100": "guitar_pedal",
+        "AMPLIFi 75": "other",
+        "Firehawk FX": "guitar_pedal",
+        "Firehawk 1500": "other",
+        "Spider V 60 MkII": "other",
+        "XD-V75 Handheld": "other",
+        "James Tyler Variax": "other",
+        "FBV3": "midi_controller",
+        "Mobile Keys 49": "midi_controller",
+        "TonePort UX8": "audio_interface",
+        "Pocket POD": "guitar_pedal",
+    }
+
+
+@pytest.mark.asyncio
+async def test_line6_listing_fails_when_the_firmware_page_is_unreadable():
+    assert (await _scraper_on(None).fetch_device_list()).success is False
+    assert (await _scraper_on("<html><body>Sorry, we could not find that!</body></html>").fetch_device_list()).success is False
