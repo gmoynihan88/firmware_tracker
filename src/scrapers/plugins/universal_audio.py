@@ -139,6 +139,7 @@ class UniversalAudioScraper(BaseScraper):
     # "OX Firmware v1.2 — November 12, 2019", both halves in one heading.
     OX_ENTRY = re.compile(r"OX\s+Firmware\s+v([\d.]+)\s*[—–-]\s*(.+)$", re.I)
     LONG_DATE = re.compile(r"^([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})$")
+    NOTES_LIMIT = 4000
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -161,8 +162,60 @@ class UniversalAudioScraper(BaseScraper):
         except ValueError:
             return None
 
+    @staticmethod
+    def _inline_text(node) -> str:
+        """An element's text on one line, without a gap where the markup has none.
+
+        UA's editor splits sentences across spans mid-word -- "(t</span><span>o reduce"
+        -- so joining text nodes with a space wrote "(t o reduce". A <br> is a space.
+        """
+        def raw(element) -> str:
+            # Whitespace is collapsed once, at the end: collapsing inside each child
+            # dropped the space in "or in </span><a>UAFX Control" and wrote "inUAFX".
+            parts = []
+            for child in element.children:
+                name = getattr(child, "name", None)
+                if name in ("ul", "ol"):
+                    continue
+                if name == "br":
+                    parts.append(" ")
+                elif name:
+                    parts.append(raw(child))
+                else:
+                    parts.append(str(child))
+            return "".join(parts)
+
+        return " ".join(raw(node).split())
+
+    def _list_lines(self, items, depth: int = 0) -> List[str]:
+        lines = []
+        for item in items.find_all("li", recursive=False):
+            text = self._inline_text(item)
+            if text:
+                lines.append("  " * depth + "- " + text)
+            for nested in item.find_all(["ul", "ol"], recursive=False):
+                lines.extend(self._list_lines(nested, depth + 1))
+        return lines
+
+    def _format_notes(self, nodes) -> Optional[str]:
+        """One line per paragraph and per list item, nested items indented.
+
+        A release can hold several labelled groups -- UAFX 2.0.0 has four, "All Amp
+        pedals" and the rest, each with its own list -- and a footnote after them.
+        Reading only the first list dropped the other three.
+        """
+        lines: List[str] = []
+        for node in nodes:
+            if node.name in ("ul", "ol"):
+                lines.extend(self._list_lines(node))
+            else:
+                text = self._inline_text(node)
+                if text:
+                    lines.append(text)
+        return "\n".join(lines)[: self.NOTES_LIMIT] or None
+
     def _parse_uafx(self, body: str) -> List[ScrapedFirmware]:
-        """Version in an h2, date in the h4 below it, changes in the list after."""
+        """Version in an h2, date in the h4 below it, changes in what follows."""
         soup = self.parse_html(body)
         versions: List[ScrapedFirmware] = []
         seen = set()
@@ -174,23 +227,22 @@ class UniversalAudioScraper(BaseScraper):
             seen.add(match.group(1))
 
             release_date = None
-            changelog = None
+            notes = []
             for sibling in heading.find_next_siblings():
-                text = sibling.get_text(" ", strip=True)
-                if release_date is None and self.LONG_DATE.match(text):
-                    release_date = self._parse_long_date(text)
-                    continue
-                if sibling.name == "ul":
-                    changelog = text[:500] or None
-                    break
                 if sibling.name in ("h2", "h3"):
                     break
+                text = sibling.get_text(" ", strip=True)
+                if release_date is None and self.LONG_DATE.match(text):
+                    # An h4 on recent releases, a plain paragraph on 1.0.x.
+                    release_date = self._parse_long_date(text)
+                    continue
+                notes.append(sibling)
 
             versions.append(
                 ScrapedFirmware(
                     version=match.group(1),
                     release_date=release_date,
-                    changelog=changelog,
+                    changelog=self._format_notes(notes),
                 )
             )
         return versions
@@ -212,12 +264,16 @@ class UniversalAudioScraper(BaseScraper):
                 continue
             seen.add(version)
 
-            body_node = heading.find_next_sibling()
+            notes = []
+            for sibling in heading.find_next_siblings():
+                if sibling.name in ("h1", "h2", "h3", "h4"):
+                    break
+                notes.append(sibling)
             versions.append(
                 ScrapedFirmware(
                     version=version,
                     release_date=release_date,
-                    changelog=body_node.get_text(" ", strip=True)[:500] if body_node else None,
+                    changelog=self._format_notes(notes),
                 )
             )
         return versions
