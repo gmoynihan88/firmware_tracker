@@ -335,7 +335,7 @@ cleared.
 ## Wire-up checklist
 
 1. Add the slug assertion in `tests/test_basic.py::test_api_scrapers`.
-2. Add offline parser tests against a fixture string — never hit the network in tests.
+2. Add offline parser tests in `tests/scrapers/test_<module>.py`, against a fixture string — never hit the network in tests.
    `test_tal_pairs_each_version_with_its_own_date` is a good model.
 3. Run every product through the scraper live before opening a PR (command in the
    `debug-scraper` skill, step 6).
