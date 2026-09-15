@@ -132,6 +132,11 @@ The same probe shows the other reason to read the output rather than trust the h
 count: Bitwig's download page yields `['6.1.1', '24.04', '24.04']`, and the last two
 are Ubuntu 24.04 -- an OS requirement, not a release.
 
+**Read the sentence around a hit before writing the verdict down.** A survey recorded
+"Expressive E -- product page names firmware 2.6"; the 2.6 was Noisy 2.6, a plug-in's
+generation name in a homepage banner. Expressive E numbers no firmware anywhere, and
+the note cost the build step an hour looking for a source the survey had "found".
+
 **A JS shell is not a verdict.** Akai returned an empty shell on a guessed URL and
 turned out to serve Gatsby `page-data` JSON; Arturia and Novation both looked dead
 and both had clean APIs. Three vendors now where the first impression was wrong, so
@@ -162,6 +167,8 @@ Most vendors are one of these. Recognising the shape early saves the whole searc
 | One page per product | no listing carries versions | Korg (164 pages — needs batching) |
 | Releases are news posts | product pages carry a dated "related news" strip; titles like "Update: CDJ-3000 Firmware Ver. 3.20", and since 2020 often no version -- open the post | Pioneer DJ |
 | App Store app | `itunes.apple.com/lookup?id=<app id>` answers without a key: current version, date, notes -- current only | Apple (Logic Pro, MainStage) |
+| Firmware repository with no releases | the download link points into a GitHub repo whose releases and tags APIs return `[]`; the history is a `changelog.txt` committed beside the binary | Dirtywave |
+| Dated by announcement posts | versions sit in file names or a table with no dates, and the blog (`/blog-feed.xml` on Wix, `/wp-json/wp/v2/posts` on WordPress) titles a post "Leviasynth firmware v1.2 is now available" -- date only the version a title names | ASM, Oberheim |
 | Publishes nothing | every version on the page belongs to an editor app | Focusrite, Keith McMillen |
 
 **Check the one-page shape before designing anything per-device.** It is the
@@ -197,6 +204,10 @@ both of which have shipped wrong here:
 **Resolve once.** One fetch in a `_load()` that caches on the instance, with both
 `fetch_device_list` and `fetch_firmware_versions` reading from it. Thirteen of the
 last sixteen use this shape.
+
+**Name the module as an identifier.** The registry imports each file by name and so do
+the tests, so 1010music's plugin is `tenten_music.py`. The slug comes from
+`manufacturer_slug`, not the file name, and stays `1010music`.
 
 **List only products whose version you could actually read.** Fractal's homepage
 links Axe-Fx II, whose page states its firmware in a shape none of the patterns
@@ -366,9 +377,18 @@ One line each. The detail is in `debug-scraper`; this is the checklist to run ag
 a new vendor's page before believing an extraction.
 
 - **Most versions on a support page are not the product's** — editor apps, drivers,
-  transfer tools, manual revisions.
+  transfer tools, manual revisions. An editor that installs the firmware still keeps its
+  own number: Mooer's GE1000 editor download is V3.1.1 while the firmware is 3.1.0, and
+  SSL's updater package V1.5 carries SSL 2 MKII firmware V1.16.
 - **The vendor's own link text goes stale.** Zoom's F6 link says 2.00 and points at
-  `F6_v2.20E.zip`. Prefer the artefact over the prose describing it.
+  `F6_v2.20E.zip`. Prefer the artefact over the prose describing it. It is common, not
+  rare: in one batch SSL's AutoEQ row said v1.0.41 beside a v1.0.43 installer, and
+  1010music's tangerine said 1.2.8 beside `NANOTANG1228.zip` -- 1.2.28, since a dotless
+  file name decodes only against the label's leading parts.
+- **A page can hold two copies of its list, and they can disagree.** Wix renders a
+  desktop and a mobile layout into the same HTML; ASM's downloads page links Leviasynth
+  firmware 1.2.0 in one and 1.1.1 in the other. Read every copy and keep the newest,
+  not the first match.
 - **One product, several downloads** — Windows and macOS builds of one firmware.
   Key on the product, keep the highest version. They do not always share a version:
   Valhalla's Windows builds lag the Mac ones on five of ten plug-ins, so take the
@@ -396,6 +416,8 @@ a new vendor's page before believing an extraction.
   entry left five releases undated; four had a date all along. Print every entry the
   extraction leaves undated and read the markup behind each one. REAPER's three were
   February spelled "Feburary" and "Februrary": read a month by its first three letters.
+  An ISO-looking date is not safe either: Dirtywave's four oldest entries are day-first
+  ("2020-23-09"), and a middle part over 12 is the day.
 - **A news page is history, not the current version.** Klanghelm's news page dates
   paid releases, but its newest visible SDRR entry was 2.2.1 from 2019, while a
   commented-out draft in the same file announced 2.5.5 -- a "latest" taken from it
