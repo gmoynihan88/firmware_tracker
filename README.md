@@ -77,7 +77,9 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 ## Unknown versions are reported as unknown
 
 Not every vendor publishes a version number, and a scraper that fills the gap with a
-plausible guess is worse than one that reports nothing.
+plausible guess is worse than one that reports nothing. [docs/vendor-data-feedback.md](docs/vendor-data-feedback.md)
+lists which vendors publish no version or no dates, errors found on vendor pages, and the
+sources worth copying.
 
 Universal Audio publishes no per-plugin versions: not on their site, not in their
 release notes (which list changes by month with no version numbers), and their
