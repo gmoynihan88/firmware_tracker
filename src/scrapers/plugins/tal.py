@@ -1,12 +1,39 @@
 import re
 from datetime import datetime
-from typing import List
+from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class TALScraper(BaseScraper):
-    """Scraper for TAL Software (Togu Audio Line) virtual instruments."""
+    """Scraper for TAL Software (Togu Audio Line) virtual instruments and effects.
+
+    The products are the cards on /products, each a `div.productbox` whose `h6` is
+    the plug-in's name. Three cards are bundles ("Analog Bundle", "FX Bundle") that
+    link to a member's page and are skipped, and the U-NO-LX appears twice, once on
+    its own card and once through its bundle.
+
+    Each card's page is rendered once, while listing, and only plug-ins whose page
+    states a version are listed. TAL still offers four legacy freebies -- TAL-BassLine,
+    TAL-Dub's, TAL-Effects, TAL-U-NO-62 -- whose pages carry no version at all, and a
+    row for each would report nothing forever. The rendered pages are kept, so
+    fetching versions afterwards costs nothing.
+
+    "No version" alone does not identify those four: a current product page that
+    renders without its content states no version either, and TAL-Drum vanished from
+    a live listing that way. The freebies are recognised by what they do show -- a
+    "Downloads" list and no `#changelog` section -- and any other page without a
+    version fails the listing.
+
+    Until 2026-09-15 the products were a hand-kept list of nine; the page listed
+    eighteen with versions, among them TAL-J-8X, TAL-Pha, TAL-EQ, TAL-G-Verb,
+    TAL-Dub-X and five free effects.
+
+    **A page that fails to render fails the listing**, rather than quietly dropping
+    that plug-in for the day. TAL's pages have been slow enough to time out for a
+    few minutes at a time; the price of a loud failure then is one missed day.
+    """
 
     manufacturer_name = "TAL Software"
     manufacturer_slug = "tal"
@@ -76,31 +103,93 @@ class TALScraper(BaseScraper):
         ],
     }
 
-    # Known TAL products
-    KNOWN_PRODUCTS = [
-        ("TAL-U-NO-LX-V2", "vst_plugin", "https://tal-software.com/products/tal-u-no-lx"),
-        ("TAL-J-8", "vst_plugin", "https://tal-software.com/products/tal-j-8"),
-        ("TAL-Sampler", "vst_plugin", "https://tal-software.com/products/tal-sampler"),
-        ("TAL-MOD", "vst_plugin", "https://tal-software.com/products/tal-mod"),
-        ("TAL-DAC", "vst_plugin", "https://tal-software.com/products/tal-dac"),
-        ("TAL-Drum", "vst_plugin", "https://tal-software.com/products/tal-drum"),
-        ("TAL-BassLine-101", "vst_plugin", "https://tal-software.com/products/tal-bassline-101"),
-        ("TAL-NoiseMaker", "vst_plugin", "https://tal-software.com/products/tal-noisemaker"),
-        ("TAL-Reverb-4", "vst_plugin", "https://tal-software.com/products/tal-reverb-4"),
-    ]
+    PRODUCTS_URL = "https://tal-software.com/products"
+
+    # The card's name -> the database's.
+    RENAMES = {
+        "TAL-U-NO-LX": "TAL-U-NO-LX-V2",
+        "TAL-Mod": "TAL-MOD",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._catalogue: Optional[Dict[str, dict]] = None
+
+    def _parse_index(self, html: str) -> Dict[str, str]:
+        """Plug-in name -> product page, from the index's product cards."""
+        products: Dict[str, str] = {}
+        for card in self.parse_html(html).select("div.productbox"):
+            title = card.find("h6")
+            link = card.find("a", href=re.compile(r"/products/[a-z0-9-]+$"))
+            if not title or not link:
+                continue
+            name = title.get_text(" ", strip=True)
+            # A bundle's card links to one member's page, which has its own card.
+            if name.lower().endswith("bundle"):
+                continue
+            products[self.RENAMES.get(name, name)] = urljoin(self.PRODUCTS_URL, link["href"])
+        return products
+
+    async def _load(self) -> Optional[Dict[str, dict]]:
+        """Every plug-in whose page states a version, rendered once per scrape."""
+        if self._catalogue is not None:
+            return self._catalogue
+
+        # TAL blocks plain HTTP fetches, so the rendered page is the only route in.
+        index = await self.fetch_page_js(self.PRODUCTS_URL, wait_for_timeout=20000)
+        products = self._parse_index(index) if index else {}
+        if not products:
+            return None
+
+        catalogue: Dict[str, dict] = {}
+        for name, url in products.items():
+            html = await self.fetch_page_js(url, wait_for_timeout=20000)
+            if not html:
+                return None
+            versions = self._parse_changelog(html)
+            if versions:
+                catalogue[name] = {"url": url, "versions": versions}
+            elif not self._is_versionless_legacy_page(html):
+                # A current product page that rendered without its content. TAL-Drum
+                # came back this way once on 2026-09-15 and, before this check, was
+                # dropped from the listing as though it had no version.
+                return None
+
+        self._catalogue = catalogue
+        return catalogue
+
+    def _is_versionless_legacy_page(self, html: str) -> bool:
+        """Whether a page that states no version is one of TAL's old freebies.
+
+        Those pages render a "Downloads" list of archives and have no change log. A
+        current product page has a `#changelog` section, so one that yields no
+        version did not finish rendering -- and neither did a page with no "Downloads"
+        at all, which is the app shell.
+        """
+        soup = self.parse_html(html)
+        if soup.find(id="changelog"):
+            return False
+        return any(line.strip() == "Downloads" for line in soup.get_text("\n").splitlines())
 
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known TAL products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url,
+        catalogue = await self._load()
+        if catalogue is None:
+            return ScraperResult(
+                success=False,
+                error=f"Could not read TAL's products from {self.PRODUCTS_URL}",
             )
-            for name, category, url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+        return ScraperResult(
+            success=True,
+            devices=[
+                ScrapedDevice(
+                    name=name,
+                    category="vst_plugin",
+                    firmware_page_url=entry["url"],
+                    product_url=entry["url"],
+                )
+                for name, entry in catalogue.items()
+            ],
+        )
 
     # TAL lists the shipping version on its own in the download block ("v5.1.3")
     # and the history as dated entries ("Version 5.1.2 / 03.11.2025") followed by
@@ -181,10 +270,18 @@ class TALScraper(BaseScraper):
         history -- TAL trims its changelog over time, and those entries were
         transcribed from this same page.
         """
-        # TAL blocks plain HTTP fetches, so the rendered page is the only route in.
-        html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=20000)
-
-        versions = self._parse_changelog(html) if html else []
+        catalogue = self._catalogue or {}
+        if device_name in catalogue:
+            versions = [
+                ScrapedFirmware(
+                    version=fw.version, release_date=fw.release_date, changelog=fw.changelog
+                )
+                for fw in catalogue[device_name]["versions"]
+            ]
+        else:
+            # A row the index no longer lists, or a scrape that did not list first.
+            html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=20000)
+            versions = self._parse_changelog(html) if html else []
 
         if not versions and device_name not in self.KNOWN_FIRMWARE:
             return ScraperResult(
