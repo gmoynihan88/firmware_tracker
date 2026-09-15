@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 83 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 84 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,7 +62,7 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 83 manufacturers** — 1010music, Ableton, Akai, Apple (Logic Pro,
+- **Scrapes 84 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
   MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Cockos
   (REAPER), Conductive Labs, Dirtywave, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
@@ -162,7 +162,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,901 devices across 83 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,911 devices across 84 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -319,38 +319,39 @@ likely to touch:
 |---|---|
 | 1010music | Ableton (Live) |
 | Akai Professional | Apple (Logic Pro, MainStage) |
-| Arturia\* | Avid (Pro Tools) |
-| ASM | Bitwig (Studio) |
-| Audient | Cableguys |
-| Boss | Cockos (REAPER) |
-| Conductive Labs | FabFilter |
-| Crumar | GForce Software |
-| Dirtywave | Goodhertz |
-| Elektron | IK Multimedia |
-| Empress Effects | Image-Line (FL Studio) |
-| Engine DJ (Denon DJ, Numark, Rane) | iZotope |
-| Eventide\* | Kilohearts |
-| Fender | Klanghelm |
-| Focusrite | Modartt (Pianoteq) |
-| Fractal Audio | Moog |
-| HeadRush | MOTU (Digital Performer) |
-| Hotone | Native Instruments |
-| iConnectivity | OBS Project (OBS Studio) |
-| Keith McMillen | oeksound |
-| Kemper | PreSonus (Fender Studio, Notion) |
-| Korg | PSPaudioware |
-| Line 6 | Serato |
-| Mooer | Soundtoys |
-| Neural DSP | Steinberg |
-| Nord | TAL Software |
-| Novation | Tokyo Dawn Labs |
-| Oberheim | Toontrack |
-| OXI Instruments | u-he |
-| Peterson | Universal Audio |
-| Pioneer DJ | Valhalla DSP |
-| Polyend | Waves |
-| Positive Grid\* | Xfer Records |
-| QSC | XLN Audio |
+| Allen & Heath | Avid (Pro Tools) |
+| Arturia\* | Bitwig (Studio) |
+| ASM | Cableguys |
+| Audient | Cockos (REAPER) |
+| Boss | FabFilter |
+| Conductive Labs | GForce Software |
+| Crumar | Goodhertz |
+| Dirtywave | IK Multimedia |
+| Elektron | Image-Line (FL Studio) |
+| Empress Effects | iZotope |
+| Engine DJ (Denon DJ, Numark, Rane) | Kilohearts |
+| Eventide\* | Klanghelm |
+| Fender | Modartt (Pianoteq) |
+| Focusrite | Moog |
+| Fractal Audio | MOTU (Digital Performer) |
+| HeadRush | Native Instruments |
+| Hotone | OBS Project (OBS Studio) |
+| iConnectivity | oeksound |
+| Keith McMillen | PreSonus (Fender Studio, Notion) |
+| Kemper | PSPaudioware |
+| Korg | Serato |
+| Line 6 | Soundtoys |
+| Mooer | Steinberg |
+| Neural DSP | TAL Software |
+| Nord | Tokyo Dawn Labs |
+| Novation | Toontrack |
+| Oberheim | u-he |
+| OXI Instruments | Universal Audio |
+| Peterson | Valhalla DSP |
+| Pioneer DJ | Waves |
+| Polyend | Xfer Records |
+| Positive Grid\* | XLN Audio |
+| QSC |  |
 | RME |  |
 | Roland |  |
 | Sequential |  |
@@ -443,7 +444,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (83 scrapers)
+    plugins/           # One file per manufacturer (84 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
