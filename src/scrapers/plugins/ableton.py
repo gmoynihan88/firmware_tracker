@@ -33,12 +33,14 @@ class AbletonScraper(BaseScraper):
     "Ableton Live" row would mean 11.3.43 and 12.4.5 competing to be the latest, and
     the newer would always win, which is wrong for anyone who has not paid to upgrade.
 
-    **Live 11 and 12 only.** Pages exist for Live 9 and Live 10 and parse fine, with
-    34 and 28 releases. They are left out because neither will ever gain another: the
-    catalogue would carry 62 frozen rows whose only function is to report a version
-    that cannot change. The same reasoning keeps Korg's discontinued products and
-    Eventide's legacy line out. Adding them later is one line each if that judgement
-    turns out wrong.
+    **The products are the majors the release-notes index links.** On 2026-09-15 that
+    is Live 12 and Push. A new major gets a new page and, going by how 12 arrived, a
+    link from the index, so it is listed without a code change. Live 11 has a page
+    that nothing links any more; its row keeps being read from the page it stores,
+    and so would a Live 12 row once 13 displaces it. Pages for Live 9 and 10 exist
+    too (the sitemap names them) and are left out as before -- neither will gain
+    another release, and 62 frozen rows would only ever report what they already say.
+    Until then the list was three hand-kept slugs.
 
     **Push is on the same site with a different layout.** Its page was nearly missed:
     `/en/release-notes/push/` and `/push-3/` are both 404s, and concluding from two
@@ -65,16 +67,19 @@ class AbletonScraper(BaseScraper):
     manufacturer_slug = "ableton"
     manufacturer_website = "https://www.ableton.com"
 
-    RELEASE_NOTES = "https://www.ableton.com/en/release-notes/{slug}/"
+    RELEASE_NOTES_INDEX = "https://www.ableton.com/en/release-notes/"
 
-    # Product name -> the slug in its release-notes URL. Current major first.
-    PRODUCTS = {
-        "Live 12": "live-12",
-        "Live 11": "live-11",
-        "Push": "push-12",
-    }
+    # "https://www.ableton.com/en/release-notes/live-12/". The index also links its
+    # German and Japanese copies and a login page carrying the same URL in its query
+    # string; those name the same pages again, and since the URL is rebuilt from the
+    # English index they collapse onto the same products rather than adding any.
+    PRODUCT_LINK = re.compile(
+        r"^(?:https://www\.ableton\.com)?/en/release-notes/(?P<product>live|push)-(?P<major>\d+)/$"
+    )
 
-    # Products whose page uses the Push layout rather than the Live one.
+    # Products whose page uses the Push layout rather than the Live one. Push's page
+    # is numbered for the Live major it ships with ("push-12"), but the device is one
+    # product whichever that is.
     PUSH_PRODUCTS = {"Push"}
 
     # "12.4.5\n        Release Notes" -- the version leads the heading.
@@ -234,15 +239,33 @@ class AbletonScraper(BaseScraper):
 
         return sorted(versions, key=lambda fw: self._version_key(fw.version), reverse=True)
 
-    async def _load(self, product: str) -> Optional[List[ScrapedFirmware]]:
-        if product in self._releases:
-            return self._releases[product]
+    def _parse_index(self, html: str) -> Dict[str, str]:
+        """Product name -> release-notes page, from the index's links.
 
-        slug = self.PRODUCTS.get(product)
-        if slug is None:
-            return None
+        The index is the current Live major's own page rather than a list of pages,
+        so that major is named only by the page's English alternate in its head --
+        `<link rel="alternate" hreflang="en" href=".../live-12/">` -- while Push is an
+        ordinary link in the body. Both are read.
+        """
+        products: Dict[str, tuple] = {}
+        for anchor in self.parse_html(html).find_all(["a", "link"], href=True):
+            match = self.PRODUCT_LINK.match(anchor["href"])
+            if not match:
+                continue
+            major = int(match.group("major"))
+            name = "Push" if match.group("product") == "push" else f"Live {major}"
+            url = f"{self.RELEASE_NOTES_INDEX}{match.group('product')}-{major}/"
+            # Push's page may be renumbered for the next Live; keep the newest.
+            if name not in products or products[name][0] < major:
+                products[name] = (major, url)
+        ordered = sorted(products.items(), key=lambda item: (item[0] in self.PUSH_PRODUCTS, -item[1][0]))
+        return {name: url for name, (_major, url) in ordered}
 
-        html = await self.fetch_page(self.RELEASE_NOTES.format(slug=slug))
+    async def _load(self, product: str, url: str) -> Optional[List[ScrapedFirmware]]:
+        if url in self._releases:
+            return self._releases[url]
+
+        html = await self.fetch_page(url)
         if not html:
             return None
 
@@ -252,10 +275,34 @@ class AbletonScraper(BaseScraper):
         )
         if not releases:
             return None
-        self._releases[product] = releases
+        self._releases[url] = releases
         return releases
 
+    def _seed_from_index(self, html: str) -> None:
+        """Keep the current major's releases from the index, which is that page.
+
+        Fetching live-12 again would cost a request and return the same bytes, which
+        the scrape summary then reports as two URLs serving one page -- the tell of a
+        dead URL shape, and a false alarm on every run here.
+        """
+        alternate = self.parse_html(html).find("link", rel="alternate", hreflang="en", href=True)
+        match = self.PRODUCT_LINK.match(alternate["href"]) if alternate else None
+        if not match or match.group("product") != "live":
+            return
+        releases = self._parse_releases(html)
+        if releases:
+            self._releases[f"{self.RELEASE_NOTES_INDEX}live-{int(match.group('major'))}/"] = releases
+
     async def fetch_device_list(self) -> ScraperResult:
+        html = await self.fetch_page(self.RELEASE_NOTES_INDEX)
+        products = self._parse_index(html) if html else {}
+        if not products:
+            return ScraperResult(
+                success=False,
+                error=f"No release notes linked from {self.RELEASE_NOTES_INDEX}",
+            )
+        self._seed_from_index(html)
+
         return ScraperResult(
             success=True,
             devices=[
@@ -263,17 +310,17 @@ class AbletonScraper(BaseScraper):
                     name=name,
                     # Push is a physical instrument; Live is not.
                     category="midi_controller" if name in self.PUSH_PRODUCTS else "vst_plugin",
-                    firmware_page_url=self.RELEASE_NOTES.format(slug=slug),
-                    product_url=self.RELEASE_NOTES.format(slug=slug),
+                    firmware_page_url=url,
+                    product_url=url,
                 )
-                for name, slug in self.PRODUCTS.items()
+                for name, url in products.items()
             ],
         )
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        releases = await self._load(device_name)
+        releases = await self._load(device_name, firmware_page_url)
         if releases is None:
             return ScraperResult(
                 success=False,
