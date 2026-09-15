@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
@@ -15,6 +16,10 @@ class SoundForceScraper(BaseScraper):
 
     Sound-Force has since moved two products' notes onto a Notion site, which the
     Support page links to alongside the rest.
+
+    The controllers themselves come from the same links. They were a hand-kept list
+    of six until 2026-09-15, which matched the page exactly -- so nothing was being
+    missed yet, but a seventh controller would have been.
     """
 
     manufacturer_name = "Sound-Force"
@@ -39,25 +44,38 @@ class SoundForceScraper(BaseScraper):
     # releases were parsed with no date at all -- the date was sitting one line up.
     DATE_LINE = re.compile(r"^[\u2013\u2014-]?\s*(\d{2})/(\d{2})/(\d{4}):?\s*$")
 
-    # (device name, category, the Support page's link text)
-    # Device names are kept as they already exist in the database. Sound-Force titles
-    # its pages by hardware revision -- "SFC-60 V3 updates" -- and adopting those
-    # names wholesale would orphan the rows users' devices are attached to.
-    PRODUCTS = [
-        ("SFC-60", "midi_controller", "SFC-60 V3 updates"),
-        ("SFC-5", "midi_controller", "SFC-5 V2 updates"),
-        ("SFC-Mini", "midi_controller", "SFC-Mini V3 updates"),
-        ("SFC-Mini V4", "midi_controller", "SFC-Mini V4 updates"),
-        ("SFC-OB", "midi_controller", "SFC-OB updates"),
-        ("SFC-8", "midi_controller", "SFC-8 updates"),
-    ]
+    # The Support page links one "<controller> updates" page per controller, current
+    # and legacy alike, and that list is the catalogue: a controller Sound-Force adds
+    # is picked up from its link.
+    UPDATES_LINK = re.compile(r"^(?P<name>.+?)\s+updates$", re.I)
+
+    # Sound-Force titles its pages by hardware revision -- "SFC-60 V3 updates" -- and
+    # these three were catalogued without it. Adopting the page's names would orphan
+    # the rows users' devices are attached to. Not a rule for stripping revisions:
+    # "SFC-Mini V4" is a different controller from "SFC-Mini" and keeps its V4.
+    RENAMES = {
+        "SFC-60 V3": "SFC-60",
+        "SFC-5 V2": "SFC-5",
+        "SFC-Mini V3": "SFC-Mini",
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._update_pages: Optional[Dict[str, str]] = None
 
+    def _parse_update_links(self, html: str) -> Dict[str, str]:
+        """Controller name -> its update page, in the Support page's order."""
+        links: Dict[str, str] = {}
+        for anchor in self.parse_html(html).find_all("a", href=True):
+            match = self.UPDATES_LINK.match(anchor.get_text(" ", strip=True))
+            if not match:
+                continue
+            name = self.RENAMES.get(match.group("name"), match.group("name"))
+            links.setdefault(name, urljoin(self.SUPPORT_URL, anchor["href"]))
+        return links
+
     async def _get_update_pages(self) -> Optional[Dict[str, str]]:
-        """Map each Support page link to its update page, fetched once per scrape."""
+        """The Support page's update links, fetched once per scrape."""
         if self._update_pages is not None:
             return self._update_pages
 
@@ -65,13 +83,7 @@ class SoundForceScraper(BaseScraper):
         if not html:
             return None
 
-        soup = self.parse_html(html)
-        links = {}
-        for anchor in soup.find_all("a", href=True):
-            text = anchor.get_text(strip=True)
-            if text.lower().endswith("updates"):
-                links[text] = anchor["href"]
-
+        links = self._parse_update_links(html)
         if not links:
             return None
 
@@ -127,52 +139,41 @@ class SoundForceScraper(BaseScraper):
         )
 
     async def fetch_device_list(self) -> ScraperResult:
+        pages = await self._get_update_pages()
+        if pages is None:
+            return ScraperResult(
+                success=False,
+                error=f"No update pages linked from the Sound-Force support page at {self.SUPPORT_URL}",
+            )
+
         return ScraperResult(
             success=True,
             devices=[
                 ScrapedDevice(
+                    # Sound-Force makes nothing but MIDI controllers.
                     name=name,
-                    category=category,
-                    firmware_page_url=self.SUPPORT_URL,
+                    category="midi_controller",
+                    firmware_page_url=url,
                     product_url=self.SUPPORT_URL,
                 )
-                for name, category, _link in self.PRODUCTS
+                for name, url in pages.items()
             ],
         )
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
     ) -> ScraperResult:
-        pages = await self._get_update_pages()
-        if pages is None:
-            return ScraperResult(
-                success=False,
-                error=f"Could not read the Sound-Force support page at {self.SUPPORT_URL}",
-            )
-
-        link_text = next(
-            (link for name, _c, link in self.PRODUCTS if name == device_name), None
-        )
-        if not link_text or link_text not in pages:
-            return ScraperResult(
-                success=False,
-                error=(
-                    f"No update page linked for {device_name} "
-                    f"(looked for {link_text!r} on the support page)"
-                ),
-            )
-
-        html = await self.fetch_page_js(pages[link_text], wait_for_timeout=25000)
+        html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=25000)
         if not html:
             return ScraperResult(
-                success=False, error=f"Failed to fetch {pages[link_text]}"
+                success=False, error=f"Failed to fetch {firmware_page_url}"
             )
 
         versions = self._parse_updates(html)
         if not versions:
             return ScraperResult(
                 success=False,
-                error=f"No versions found for {device_name} at {pages[link_text]}",
+                error=f"No versions found for {device_name} at {firmware_page_url}",
             )
 
         return ScraperResult(success=True, firmware_versions=versions)
