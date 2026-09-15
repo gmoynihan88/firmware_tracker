@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 53 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 54 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,12 +62,12 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 53 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys, Cockos
+- **Scrapes 54 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys, Cockos
   (REAPER), Elektron, Eventide, Empress, FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
-  Klanghelm, Korg, Moog, Native Instruments, Neural DSP, Novation, Positive Grid, RME,
-  Soundtoys, Steinberg, Strymon, Teenage Engineering, Tokyo Dawn Labs, u-he, Universal
-  Audio, Valhalla DSP, Xfer Records, Zoom and more
+  Klanghelm, Korg, Moog, Native Instruments, Neural DSP, Novation, OBS Project (OBS
+  Studio), Positive Grid, RME, Soundtoys, Steinberg, Strymon, Teenage Engineering, Tokyo
+  Dawn Labs, u-he, Universal Audio, Valhalla DSP, Xfer Records, Zoom and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -155,7 +155,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,036 devices across 53 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,037 devices across 54 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -325,16 +325,16 @@ likely to touch:
 | Kemper | Modartt (Pianoteq) |
 | Korg | Moog |
 | Line 6 | Native Instruments |
-| Neural DSP | PSPaudioware |
-| Novation | Soundtoys |
-| Peterson | Steinberg |
-| Positive Grid\* | TAL Software |
-| QSC | Tokyo Dawn Labs |
-| RME | u-he |
-| Roland | Universal Audio |
-| Sound-Force | Valhalla DSP |
-| Strymon | Xfer Records |
-| TC Electronic |  |
+| Neural DSP | OBS Project (OBS Studio) |
+| Novation | PSPaudioware |
+| Peterson | Soundtoys |
+| Positive Grid\* | Steinberg |
+| QSC | TAL Software |
+| RME | Tokyo Dawn Labs |
+| Roland | u-he |
+| Sound-Force | Universal Audio |
+| Strymon | Valhalla DSP |
+| TC Electronic | Xfer Records |
 | Tascam |  |
 | Teenage Engineering |  |
 | Yamaha |  |
@@ -416,7 +416,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (53 scrapers)
+    plugins/           # One file per manufacturer (54 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
