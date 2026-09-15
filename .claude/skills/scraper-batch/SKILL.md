@@ -137,11 +137,18 @@ are Ubuntu 24.04 -- an OS requirement, not a release.
 generation name in a homepage banner. Expressive E numbers no firmware anywhere, and
 the note cost the build step an hour looking for a source the survey had "found".
 
+**A site that shows nothing may be the wrong site.** squarp.com rendered no firmware
+links even in a browser; Squarp's firmware pages are on squarp.net, static and dated.
+Check the domain the product's manuals and downloads actually link to before calling a
+shell a verdict.
+
 **A JS shell is not a verdict.** Akai returned an empty shell on a guessed URL and
 turned out to serve Gatsby `page-data` JSON; Arturia and Novation both looked dead
 and both had clean APIs. Three vendors now where the first impression was wrong, so
 `none` requires having tried the support platform and the browser network capture,
-not just a fetch.
+not just a fetch. Try the documentation host too: Torso's support pages render
+client-side and name no version, while docs.torsoelectronics.com carries a static,
+dated changelog per product.
 
 **A hardware `none` is not a vendor `none`.** PreSonus publishes no StudioLive
 firmware version and MOTU only driver installers, but both publish dated software
@@ -169,6 +176,8 @@ Most vendors are one of these. Recognising the shape early saves the whole searc
 | App Store app | `itunes.apple.com/lookup?id=<app id>` answers without a key: current version, date, notes -- current only | Apple (Logic Pro, MainStage) |
 | Firmware repository with no releases | the download link points into a GitHub repo whose releases and tags APIs return `[]`; the history is a `changelog.txt` committed beside the binary | Dirtywave |
 | Dated by announcement posts | versions sit in file names or a table with no dates, and the blog (`/blog-feed.xml` on Wix, `/wp-json/wp/v2/posts` on WordPress) titles a post "Leviasynth firmware v1.2 is now available" -- date only the version a title names | ASM, Oberheim |
+| Release feed the page's own script reads | the printed versions sit in `data-role` hooks and are stale; the page's script fills them from `api.github.com/repos/…/releases/latest` or `gitlab.com/api/v4/projects/<id>/releases/permalink/latest` -- read the whole feed instead | OXI Instruments, Synthstrom |
+| Documentation-site changelog | the shop or support page is client-rendered; the manual lives on a static docs host (`<meta name="generator" content="Docusaurus">`) with a `/<product>/changelog/` page | Torso |
 | Publishes nothing | every version on the page belongs to an editor app | Focusrite, Keith McMillen |
 
 **Check the one-page shape before designing anything per-device.** It is the
@@ -396,6 +405,15 @@ a new vendor's page before believing an extraction.
   it is.
 - **Suffixes are not all revisions.** `H2n_v3.00E` is 3.00 with a language marker;
   `H6_v2.50a` is a real 2.50a.
+- **A release feed is not a list of releases.** OXI publishes betas as ordinary GitHub
+  and GitLab releases -- only the file (`OXI_ONE_MKII_0_14_5.BETA.syx`) or a name like
+  "v2.9b20" or "3.5.9 BETA" says so -- and its tags lag the names (tag 0.16.6 is release
+  0.16.7). Read the version from the name, fall back to the tag only when the name is
+  empty, and skip what the file or the name calls a beta. Synthstrom writes one naming
+  scheme as three tag shapes.
+- **A version pattern that accepts `.` or `_` swallows the next number.**
+  `MRCC_1.1.095_09-10-2025.zip` read as 1.1.095.09. Match dotted and underscored versions
+  as separate alternatives, one separator throughout.
 - **A vendor writes the same thing two ways**, and a filter fitted to one drops the
   other silently. Zoom: "Firmware" and "System Version". Fractal: three wordings.
   **This applies to hosts as well as words** -- PSPaudioware serves the same
@@ -438,7 +456,9 @@ a new vendor's page before believing an extraction.
   support section launched. Drop a day shared by several releases of one product, then
   keep the largest set of the remaining dates that rises with the version. Walking down
   from the newest and dropping anything later cost two real Superior Drummer dates for
-  one bad one. Where two choices keep as many dates, keep the newer release's.
+  one bad one. Where two choices keep as many dates, keep the newer release's. The same
+  rule handles dates out of order for other reasons: Synthstrom's 1.0.0 was re-published
+  on GitHub a day after 1.0.1, and Torso typed T-1 v2.0.2 three weeks before v2.0.1.
 
 ## Survey sources are untrusted too
 
