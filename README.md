@@ -102,15 +102,15 @@ parse that broke, `devices_without_firmware` is a product the vendor publishes n
 for, and `devices_not_checked` is the time budget running out. Collapsing the first two
 would either hide a real breakage or report one every run.
 
-**Products that will never report a version say so.** 95 of them publish nothing, and
-for 62 a scraper has established why — the catalogue shows `not published` where the
+**Products that will never report a version say so.** 122 of them have no version, and
+for 92 a scraper has established why — the catalogue shows `not published` where the
 vendor publishes no version anywhere, and `no firmware` where the product takes no
-updates at all. The other 33 stay an em-dash, because nobody has checked and guessing
+updates at all. The other 30 stay an em-dash, because nobody has checked and guessing
 is the thing this avoids.
 
 That split is what makes the absence list usable. `devices_without_firmware` carries
-95 entries on every sweep, so a product that goes silent tomorrow joins a crowd nobody
-reads; `devices_unexplained` holds only the ones with no recorded reason, and it is the
+over a hundred entries on every sweep, so a product that goes silent tomorrow joins a
+crowd nobody reads; `devices_unexplained` holds only the ones with no recorded reason, and it is the
 list that should be shrinking.
 
 ## Scraping load
@@ -120,8 +120,8 @@ request volume low.
 
 - One request per second per manufacturer, and a daily check rather than hourly.
 - Conditional requests (`If-None-Match` / `If-Modified-Since`), so an unchanged page
-  returns `304` with no body. Five of the 36 vendors send validators; for those it
-  saves the full page on every run.
+  returns `304` with no body. Not every vendor sends validators; for those that do,
+  it saves the full page on every run.
 - `SCRAPE_CACHE=1` serves repeat requests from disk during development. Working on a
   scraper means fetching the same page dozens of times, and a cached run is 35× faster
   as well as 35× less traffic.
@@ -131,6 +131,12 @@ request volume low.
   are sorted and strided into five batches of 33, picked by day of year, so a run
   costs ~160s and every product is seen within five days. `KORG_FULL_SWEEP=1` does
   all five in one run, for a first import or a catch-up.
+- **Roland and Boss do the same.** Their Updates & Drivers indexes list every product
+  (580 and 126), and only each product's own listing says whether it takes firmware,
+  so a full Roland pass measured 1,945s. Roland reads a sixth of its index per run
+  (~217s) and Boss half (~107s). `ROLAND_FULL_SWEEP=1` and `BOSS_FULL_SWEEP=1` read
+  everything at once; Roland's takes longer than the scheduler's hard timeout, so it
+  is for a manual catch-up only.
 
 These are worth keeping if you fork it. Every instance scrapes independently, so the
 load scales with the number of people running it.
@@ -455,8 +461,9 @@ docker-compose.yml     # Volumes, log caps
   trade-off is that a vendor cannot tell who is calling or ask you to stop.
 - The web app itself runs anywhere on Python 3.12+. Linux is CI-verified on 3.12, the
   Docker image's version, and 3.13; macOS is the development platform; Windows is untested.
-- **Release dates are missing for about a sixth of current versions** — 416 of 507 have
-  one. That is what the vendor publishes, not what the scraper managed to read: some
+- **Release dates are missing for over a quarter of current versions** — 1,287 of 1,779
+  have one. That is what the vendor publishes, not what the scraper managed to read:
+  some
   list a version with no date anywhere on the page. The catalogue shows an em-dash
   rather than substituting the date the version was first seen, which would read as a
   release date and would be wrong.
