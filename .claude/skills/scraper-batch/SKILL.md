@@ -152,6 +152,8 @@ Most vendors are one of these. Recognising the shape early saves the whole searc
 | One page covers the range | a single `/firmware/` or `/downloads/` listing every product | Zoom, Line 6, GForce, Empress |
 | JS-rendered page | plain fetch returns shell; Playwright returns content | Kemper, Empress |
 | One page per product | no listing carries versions | Korg (164 pages — needs batching) |
+| Releases are news posts | product pages carry a dated "related news" strip; titles like "Update: CDJ-3000 Firmware Ver. 3.20", and since 2020 often no version -- open the post | Pioneer DJ |
+| App Store app | `itunes.apple.com/lookup?id=<app id>` answers without a key: current version, date, notes -- current only | Apple (Logic Pro, MainStage) |
 | Publishes nothing | every version on the page belongs to an editor app | Focusrite, Keith McMillen |
 
 **Check the one-page shape before designing anything per-device.** It is the
@@ -220,6 +222,12 @@ cp /tmp/v.bak src/scrapers/plugins/VENDOR.py
 ```
 
 Expect `1 failed` then all passed. If the sabotage passes, the test is decoration.
+
+**Build the fixture from the live markup, not from what the markup means.** Avid's
+fixture put each release heading beside its notes; the live page wraps every heading
+alone in a div with its notes in the next one. The sibling walk passed six tests and
+read nothing live -- every release came back with empty notes. Copy the element
+structure (wrappers, classes that matter) out of the scratch script's dump.
 
 **When a sabotage passes, check the fixture before the test.** Three Xfer tests
 survived their sabotage in one sitting, and none was asserting nothing: the fixture
@@ -382,6 +390,15 @@ a new vendor's page before believing an extraction.
   would have been wrong. Check the newest entry against something current first, and
   never read commented-out markup: the vendor has not published it.
 - **Never leave a hardcoded version table as a silent fallback.**
+- **Bot protection can switch on while you probe.** Waves served its release notes to
+  plain fetches for a morning, then a 212-byte Imperva challenge script -- HTTP 200,
+  so only the body size gives it away. A browser fetch passed. Fall back to
+  `fetch_page_js` when the plain answer lacks the data, rather than trusting a fetch
+  that worked yesterday.
+- **A title without a version is not a release without one.** Pioneer DJ's news
+  titles stopped naming versions around 2020, and for 20 products the newest firmware
+  post was versionless; reading titles alone reported them years stale. The post
+  itself states the version.
 
 ## Survey sources are untrusted too
 
