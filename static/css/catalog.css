@@ -1,0 +1,529 @@
+/* ═══════════════════════════════════════════════════════════════
+   CATALOG PAGE
+   ═══════════════════════════════════════════════════════════════ */
+.catalog-section {
+    margin-bottom: var(--space-2xl);
+}
+
+.catalog-section > h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.catalog-section > h2::before {
+    content: '';
+    width: 4px;
+    height: 1em;
+    background: var(--amber-500);
+    border-radius: 2px;
+}
+
+.catalog-section > p {
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+    margin-bottom: var(--space-lg);
+}
+
+/* Scraper grid - Import controls */
+.scraper-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-md);
+    margin-bottom: var(--space-xl);
+}
+
+.scraper-card {
+    background: var(--surface-700);
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    text-align: center;
+    transition: var(--transition-base);
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.scraper-card:hover {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--surface-600);
+}
+
+.scraper-card h3 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.scraper-card .btn {
+    width: 100%;
+}
+
+/* Catalog & Manufacturer grids */
+.catalog-grid, .manufacturer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-md);
+}
+
+.catalog-card, .manufacturer-card {
+    background: var(--surface-700);
+    padding: var(--space-lg);
+    border-radius: var(--radius-md);
+    border: var(--border-subtle);
+    transition: var(--transition-base);
+}
+
+.catalog-card:hover, .manufacturer-card:hover {
+    background: var(--surface-600);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.catalog-card h3, .manufacturer-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+
+.catalog-card .manufacturer {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.catalog-card .category {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CATALOG CARDS ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.catalog-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+
+.catalog-card-header h3 {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.category-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.125rem 0.5rem;
+    background: var(--surface-600);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+}
+
+.manufacturer-name {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    margin-bottom: var(--space-md);
+}
+
+.catalog-card-actions {
+    margin-top: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCRAPER CARD ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.scraper-info {
+    flex: 1;
+}
+
+.scraper-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+}
+
+.spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--text-tertiary);
+    border-top-color: var(--amber-500);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CATALOG
+   The catalogue used to render all 397 devices as two-per-row cards:
+   38,177 pixels, forty-two screens, and no way to search it. It reuses
+   the dashboard's table now, so the two pages behave the same way.
+   ═══════════════════════════════════════════════════════════════ */
+
+.catalog-search {
+    flex: 1 1 16rem;
+    max-width: 22rem;
+    padding: 0.35rem 0.7rem;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: var(--surface-800, #14181f);
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.18));
+    border-radius: 8px;
+}
+
+.catalog-search:focus {
+    outline: 2px solid var(--accent, #f5a524);
+    outline-offset: 1px;
+}
+
+/* The vendor a device belongs to, and its category, are context rather than the
+   thing being scanned for -- the product name is. */
+.device-table .muted {
+    color: var(--text-secondary, #94a3b8);
+}
+
+.device-table .device-name {
+    font-weight: 600;
+}
+
+.device-table .row-action {
+    text-align: right;
+}
+
+.tracked-flag {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #94a3b8);
+    white-space: nowrap;
+}
+
+/* Device count and last scrape on each vendor card, so the card says something
+   about the vendor rather than only offering to run it again. */
+.scraper-meta {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #94a3b8);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   CATALOG, COMPACT
+   At 46 vendors and 971 devices the page was 52,733 pixels: 46 import
+   cards before the table even started, 46 vendor chips, and every row
+   rendered at once. Import folds away, vendors are a dropdown, and the
+   table pages.
+   ─────────────────────────────────────────────────────────────── */
+
+.import-panel {
+    margin-bottom: var(--space-lg);
+    background: var(--surface-700);
+    border: var(--border-subtle);
+    border-radius: var(--radius-lg);
+}
+
+.import-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-md);
+    padding: 0.6rem var(--space-md);
+    cursor: pointer;
+    list-style: none;
+}
+
+.import-summary::-webkit-details-marker { display: none; }
+
+.import-summary::before {
+    content: "\25B8";
+    color: var(--text-tertiary);
+    transition: transform 0.15s ease;
+}
+
+.import-panel[open] > .import-summary::before { transform: rotate(90deg); }
+
+.import-summary h2 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.import-summary h2 svg { color: var(--amber-500); }
+
+.import-hint {
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.import-panel .scraper-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
+    gap: var(--space-xs) var(--space-sm);
+    margin: 0;
+    padding: 0 var(--space-md) var(--space-md);
+}
+
+.import-panel .scraper-card {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-xs) var(--space-sm);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    border-radius: var(--radius-md);
+    background: var(--surface-800);
+    animation: none;
+}
+
+.import-panel .scraper-info { min-width: 0; flex: 1; }
+
+.import-panel .scraper-card h3 {
+    font-size: 0.8125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-panel .scraper-meta { margin: 0; font-size: 0.6875rem; }
+
+.import-panel .scraper-actions {
+    flex-direction: row;
+    width: auto;
+    gap: var(--space-sm);
+}
+
+.import-panel .scraper-card .btn { width: auto; padding: 0.2rem 0.6rem; }
+
+.import-panel .scrape-result { flex-basis: 100%; font-size: 0.75rem; }
+.import-panel .scrape-result:empty { display: none; }
+
+.catalog-filters {
+    gap: var(--space-sm) var(--space-md);
+    padding: 0.5rem 0.75rem;
+    margin-bottom: var(--space-md);
+}
+
+.catalog-filters #catalog-count { margin-left: auto; }
+
+.vendor-picker { position: relative; }
+
+.vendor-picker > summary {
+    list-style: none;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: inherit;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+}
+
+.vendor-picker > summary::-webkit-details-marker { display: none; }
+.vendor-picker > summary::after { content: " \25BE"; }
+.vendor-picker[open] > summary { color: var(--text-primary); }
+
+.vendor-panel {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.4rem);
+    /* The picker sits at the end of the filter bar, so open leftwards. */
+    right: 0;
+    width: min(38rem, 90vw);
+    max-height: 22rem;
+    overflow-y: auto;
+    display: grid;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--surface-700);
+    border: var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.vendor-panel .filter-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+}
+
+.vendor-panel .filter-chip { width: 100%; }
+
+@media (max-width: 768px) {
+    .vendor-panel { position: static; width: 100%; margin-top: var(--space-sm); }
+    .catalog-filters #catalog-count { margin-left: 0; }
+    /* The bar turns into a column here, and the search's flex-basis would become
+       its height. */
+    .catalog-filters .catalog-search { flex: none; width: 100%; max-width: none; box-sizing: border-box; }
+    .catalog-filters .vendor-picker { width: 100%; }
+}
+
+.catalog-table { font-size: 0.8125rem; }
+
+.catalog-table th,
+.catalog-table td { padding: 0.3rem 0.75rem; }
+
+.catalog-table thead th { font-size: 0.6875rem; }
+
+.catalog-table .btn-small { padding: 0.125rem 0.5rem; font-size: 0.6875rem; }
+
+.catalog-no-match {
+    padding: var(--space-md);
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+}
+
+.catalog-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-sm) var(--space-md);
+    margin-top: var(--space-sm);
+}
+
+/* display:flex would otherwise override the hidden attribute. */
+.catalog-pager[hidden] { display: none; }
+
+.pager-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.pager-status {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.catalog-page-size {
+    margin-left: 0.4rem;
+    padding: 0.15rem 0.3rem;
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    background: var(--surface-600);
+    border: var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+.filter-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ───────────────────────────────────────────────────────────────
+   CATALOG VERSION HISTORY
+   The "Other versions" count opens every earlier version of a product,
+   with its release notes, in a modal dialog.
+   ─────────────────────────────────────────────────────────────── */
+
+.history-link {
+    padding: 0;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    color: var(--signal-blue);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+}
+
+.history-link:hover { color: var(--text-primary); }
+
+.history-link:focus-visible {
+    outline: 2px solid var(--signal-blue);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.history-dialog {
+    /* The reset at the top of this file zeroes every margin, and a modal dialog
+       centres itself with auto margins. */
+    margin: auto;
+    width: min(56rem, calc(100vw - 2rem));
+    max-height: min(80vh, 48rem);
+    /* No padding on the dialog itself: a click that lands on it, rather than on
+       its contents, is then always a click on the backdrop. */
+    padding: 0;
+    color: var(--text-primary);
+    background: var(--surface-700);
+    border: var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.history-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+.history-body { padding: var(--space-md) var(--space-lg) var(--space-lg); }
+
+.history-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.history-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.history-meta,
+.history-status {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.history-table td { vertical-align: top; }
+
+.history-table .history-notes {
+    min-width: 18rem;
+    white-space: normal;
+}
+
+.history-notes-text {
+    max-height: 12rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+/* On a phone three columns leave the notes a hundred pixels. Stack each version
+   instead: number and date on one line, its notes underneath. */
+@media (max-width: 600px) {
+    .history-body { padding: var(--space-md); }
+    .history-table thead { display: none; }
+    .history-table,
+    .history-table tbody,
+    .history-table tr { display: block; }
+    .history-table tr { padding: 0.35rem 0; }
+    .history-table td { display: inline-block; padding: 0.1rem 0.6rem; }
+    .history-table .history-notes { display: block; min-width: 0; }
+}

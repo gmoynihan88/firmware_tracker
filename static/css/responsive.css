@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE ADJUSTMENTS
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .container {
+        padding: var(--space-lg);
+    }
+
+    .navbar {
+        padding: var(--space-md);
+        flex-wrap: wrap;
+        gap: var(--space-md);
+    }
+
+    .nav-links {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-md);
+    }
+
+    .device-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .scraper-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .notification-item {
+        flex-direction: column;
+    }
+
+    .notification-actions {
+        width: 100%;
+    }
+
+    .notification-actions .btn {
+        flex: 1;
+    }
+}

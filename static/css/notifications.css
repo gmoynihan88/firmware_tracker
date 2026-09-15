@@ -1,0 +1,116 @@
+/* ═══════════════════════════════════════════════════════════════
+   NOTIFICATIONS
+   ═══════════════════════════════════════════════════════════════ */
+.notification-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.notification-item {
+    background: var(--surface-700);
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-lg);
+    transition: var(--transition-base);
+}
+
+.notification-item:hover {
+    background: var(--surface-600);
+}
+
+.notification-item.unread {
+    border-left: 3px solid var(--signal-blue);
+    background: rgba(59, 130, 246, 0.05);
+    box-shadow: -4px 0 20px var(--signal-blue-glow);
+}
+
+.notification-content h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+
+.notification-content p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-sm);
+    line-height: 1.5;
+}
+
+.notification-date {
+    font-size: 0.6875rem;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+}
+
+.notification-actions {
+    display: flex;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NOTIFICATION ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.notification-indicator {
+    flex-shrink: 0;
+    width: 12px;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 0.375rem;
+}
+
+.unread-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--signal-blue);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--signal-blue), 0 0 16px var(--signal-blue-glow);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Without flex:1 the content block shrinks to its own text, so every card's title
+   starts at a different x and the timestamps never line up. min-width:0 lets a long
+   message wrap instead of forcing the row wider. */
+.notification-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-md);
+    margin-bottom: var(--space-xs);
+}
+
+.notification-date {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.notification-header h3 {
+    margin: 0;
+}
+
+.notification-message {
+    margin: 0;
+}
+
+.btn-ghost {
+    background: transparent;
+    border: var(--border-subtle);
+    color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+    background: var(--surface-600);
+    color: var(--text-primary);
+}

@@ -1,0 +1,358 @@
+/*
+ * FIRMWARE TRACKER - "Studio Rack" Theme
+ * A dark, professional aesthetic inspired by high-end audio equipment
+ * Warm amber accents reminiscent of vintage VU meters and LED indicators
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   CSS VARIABLES - The Soul of Studio Rack
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+    /* Core palette - Dark metallic surfaces */
+    --surface-900: #0a0a0b;
+    --surface-800: #121214;
+    --surface-700: #1a1a1d;
+    --surface-600: #232328;
+    --surface-500: #2d2d33;
+    --surface-400: #3d3d44;
+
+    /* Text hierarchy */
+    --text-primary: #f5f5f7;
+    --text-secondary: #a1a1a6;
+    --text-tertiary: #6e6e73;
+
+    /* Accent - Warm amber (VU meter inspired) */
+    --amber-500: #f59e0b;
+    --amber-400: #fbbf24;
+    --amber-300: #fcd34d;
+    --amber-glow: rgba(245, 158, 11, 0.15);
+    --amber-glow-strong: rgba(245, 158, 11, 0.3);
+
+    /* Signal colors */
+    --signal-green: #22c55e;
+    --signal-green-glow: rgba(34, 197, 94, 0.2);
+    --signal-red: #ef4444;
+    --signal-red-glow: rgba(239, 68, 68, 0.2);
+    --signal-blue: #3b82f6;
+    --signal-blue-glow: rgba(59, 130, 246, 0.15);
+
+    /* Typography */
+    --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+    /* Spacing rhythm */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+    --space-3xl: 4rem;
+
+    /* Borders & Effects */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+
+    --border-subtle: 1px solid rgba(255, 255, 255, 0.06);
+    --border-medium: 1px solid rgba(255, 255, 255, 0.1);
+
+    /* Shadows - subtle depth */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --shadow-glow-amber: 0 0 20px var(--amber-glow);
+    --shadow-glow-green: 0 0 20px var(--signal-green-glow);
+
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESET & BASE
+   ═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    scroll-behavior: smooth;
+    /* Keep the scrollbar's width reserved at all times. Without this, filtering
+       down to zero rows makes the page short enough to drop its scrollbar, the
+       viewport gains ~15px, and .container's `margin: 0 auto` re-centres every
+       element 7.5px to the right.
+
+       overflow-y does the work, because it is supported everywhere; Safari only
+       gained scrollbar-gutter in 18.2, which is why the gutter alone did not fix
+       this. The gutter stays for browsers that honour it -- where overflow-y is
+       already forcing a scrollbar the two reserve the same space, not two lots.
+
+       Neither costs anything under macOS overlay scrollbars, which take no width
+       and so never caused the shift. */
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: var(--font-display);
+    font-weight: 400;
+    background: var(--surface-900);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+
+    /* Subtle texture overlay */
+    background-image:
+        radial-gradient(ellipse at top, rgba(245, 158, 11, 0.03) 0%, transparent 50%),
+        linear-gradient(180deg, var(--surface-900) 0%, var(--surface-800) 100%);
+    background-attachment: fixed;
+}
+
+/* Selection styling */
+::selection {
+    background: var(--amber-500);
+    color: var(--surface-900);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN CONTAINER
+   ═══════════════════════════════════════════════════════════════ */
+.container {
+    /* body is a flex column, and auto side margins stop a flex item stretching:
+       without a width the page shrinks to its content, so a collapsed panel or a
+       short table narrows every page, and long content pushes past a phone screen. */
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--space-2xl);
+    flex: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE HEADERS
+   ═══════════════════════════════════════════════════════════════ */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: var(--border-subtle);
+}
+
+.page-header h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+
+    /* Subtle text gradient */
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.header-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HTMX INDICATORS
+   ═══════════════════════════════════════════════════════════════ */
+.htmx-indicator {
+    display: none;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.htmx-indicator::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--text-tertiary);
+    border-top-color: var(--amber-500);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOOTER
+   ═══════════════════════════════════════════════════════════════ */
+.footer {
+    background: var(--surface-800);
+    border-top: var(--border-subtle);
+    padding: var(--space-lg) var(--space-xl);
+    text-align: center;
+    margin-top: auto;
+}
+
+.footer p {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+.no-data {
+    color: var(--text-tertiary);
+    font-style: italic;
+    font-size: 0.875rem;
+}
+
+.external-link {
+    color: var(--amber-400);
+    font-size: 0.8125rem;
+    text-decoration: none;
+    transition: var(--transition-fast);
+}
+
+.external-link:hover {
+    color: var(--amber-300);
+    text-decoration: underline;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBAR STYLING
+   ═══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--surface-800);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--surface-500);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--surface-400);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS - Page Load Sequence
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.page-header {
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.device-card,
+.catalog-card,
+.scraper-card,
+.notification-item,
+.firmware-item {
+    animation: fadeInUp 0.5s ease-out backwards;
+}
+
+.device-card:nth-child(1) { animation-delay: 0.1s; }
+.device-card:nth-child(2) { animation-delay: 0.15s; }
+.device-card:nth-child(3) { animation-delay: 0.2s; }
+.device-card:nth-child(4) { animation-delay: 0.25s; }
+.device-card:nth-child(5) { animation-delay: 0.3s; }
+.device-card:nth-child(6) { animation-delay: 0.35s; }
+
+.scraper-card:nth-child(1) { animation-delay: 0.05s; }
+.scraper-card:nth-child(2) { animation-delay: 0.1s; }
+.scraper-card:nth-child(3) { animation-delay: 0.15s; }
+.scraper-card:nth-child(4) { animation-delay: 0.2s; }
+.scraper-card:nth-child(5) { animation-delay: 0.25s; }
+.scraper-card:nth-child(6) { animation-delay: 0.3s; }
+.scraper-card:nth-child(7) { animation-delay: 0.35s; }
+.scraper-card:nth-child(8) { animation-delay: 0.4s; }
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE HEADER ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.header-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.header-subtitle {
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+    font-family: var(--font-mono);
+}
+
+/* Breadcrumbs */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.8125rem;
+    margin-bottom: var(--space-xs);
+}
+
+.breadcrumb a {
+    color: var(--text-tertiary);
+    text-decoration: none;
+    transition: var(--transition-fast);
+}
+
+.breadcrumb a:hover {
+    color: var(--amber-400);
+}
+
+.breadcrumb span {
+    color: var(--text-secondary);
+}
+
+.breadcrumb svg {
+    color: var(--text-tertiary);
+    opacity: 0.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXTERNAL LINKS
+   ═══════════════════════════════════════════════════════════════ */
+.external-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
