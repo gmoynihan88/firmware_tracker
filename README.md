@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 89 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 90 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,7 +62,7 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 89 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
+- **Scrapes 90 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
   MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Casio, Cockos
   (REAPER), Conductive Labs, DiGiCo, Dirtywave, Dreadbox, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
@@ -164,7 +164,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,996 devices across 89 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 2,027 devices across 90 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -373,6 +373,7 @@ likely to touch:
 | Torso Electronics |  |
 | Waldorf |  |
 | Yamaha |  |
+| Yamaha Pro Audio |  |
 | Zoom |  |
 
 \*Arturia, Eventide and Positive Grid are on both sides: Arturia 116 instruments and
@@ -451,7 +452,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (89 scrapers)
+    plugins/           # One file per manufacturer (90 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
