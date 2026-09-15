@@ -99,9 +99,18 @@ def check_unreachable() -> int:
     test_src = "\n".join(path.read_text() for path in sorted(TESTS.rglob("*.py")))
     findings = []
 
+    # Shared modules beside the plugins call into them: roland_group's mixin calls
+    # each brand's _category and reads its INDEX_URL, so a method only it uses is not
+    # unreachable.
+    shared_used = set()
+    for path in sorted(PLUGINS.parent.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Attribute):
+                shared_used.add(node.attr)
+
     for path, source in plugin_sources():
         tree = ast.parse(source)
-        used = set()
+        used = set(shared_used)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
                 used.add(node.attr)
