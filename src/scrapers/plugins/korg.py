@@ -107,10 +107,13 @@ class KorgScraper(BaseScraper):
 
     SOFTWARE_SECTION = "Software"
 
-    # "System Updater", "Operating System Update 1.08", "Piano System Updater 1.04".
-    # Deliberately not just "update": every Manuals entry for an updater matches that,
-    # and so does "Update Guide".
-    UPDATER = re.compile(r"\bsystem\s+updat(?:er|e)\b", re.I)
+    # "System Updater", "Operating System Update 1.08", "Piano System Updater 1.04",
+    # and the Pa arrangers' bare "Pa4X/Operating System" with its version in the next
+    # heading. Deliberately not just "update": every Manuals entry for an updater
+    # matches that, and so does "Update Guide". The bare form is anchored to the end of
+    # the name, so the Pa4X's "Operating System version 2.0 UPD divided version (for
+    # slow connections)" -- five 512MB parts of an old release, headed "1/5" -- is not.
+    UPDATER = re.compile(r"\bsystem\s+updat(?:er|e)\b|/operating\s+system$", re.I)
 
     # A version in the entry name, for the products that put it there.
     NAME_VERSION = re.compile(r"(\d+(?:\.\d+)+)\s*$")
@@ -247,6 +250,10 @@ class KorgScraper(BaseScraper):
     def _version_key(version: str) -> tuple:
         return tuple(int(part) for part in re.findall(r"\d+", version)) or (0,)
 
+    # Most product pages answer in about 5s, but a few stream far slower: the Pa4X's
+    # page takes 31s, one over the default 30s limit, and was dropped on every run.
+    PRODUCT_PAGE_TIMEOUT = 90
+
     async def fetch_device_list(self) -> ScraperResult:
         if self._firmware is not None:
             return self._device_result()
@@ -276,8 +283,10 @@ class KorgScraper(BaseScraper):
         categories: Dict[str, str] = {}
 
         for name, url, category in batch:
-            page = await self.fetch_page(url)
+            page = await self.fetch_page(url, timeout=self.PRODUCT_PAGE_TIMEOUT)
             if not page:
+                # Left out, not failed: one dead page must not take the whole run with
+                # it. The fetch itself is recorded, and reaches the scrape summary.
                 continue
             versions = self._parse_product(page)
             if not versions:

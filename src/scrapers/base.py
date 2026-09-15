@@ -77,6 +77,10 @@ class BaseScraper(ABC):
         # url -> fingerprint of what it returned. Read after a scrape to catch a URL
         # shape that has stopped selecting anything; see identical_pages().
         self._page_fingerprints: Dict[str, str] = {}
+        # "url: reason" for every fetch that broke outright this run -- a timeout, a
+        # dropped connection, a 5xx. Read by the service after a scrape; see
+        # fetch_failures().
+        self._fetch_failures: List[str] = []
         self._session: Optional[aiohttp.ClientSession] = None
         self._playwright = None
         self._browser: Optional["Browser"] = None
@@ -169,6 +173,20 @@ class BaseScraper(ABC):
             by_fingerprint.setdefault(fingerprint, []).append(url)
         return [sorted(urls) for urls in by_fingerprint.values() if len(urls) > 1]
 
+    def _record_fetch_failure(self, url: str, reason: str) -> None:
+        self._fetch_failures.append(f"{url}: {reason}")
+
+    def fetch_failures(self) -> List[str]:
+        """Fetches that broke outright this run, as "url: reason".
+
+        A scraper that skips a product whose page did not load reports success with
+        that product absent, and nothing in its result says so: Korg's Pa4X page takes
+        31s against the 30s limit and was missing from every sweep that read "ok".
+        404s are not recorded -- scrapers probe URLs that are allowed to be missing, and
+        counting them would bury the pages that should have loaded.
+        """
+        return list(self._fetch_failures)
+
     async def _rate_limit(self):
         """Enforce rate limiting between requests."""
         if self._last_request_time is not None:
@@ -177,8 +195,12 @@ class BaseScraper(ABC):
                 await asyncio.sleep(self.settings.rate_limit_delay - elapsed)
         self._last_request_time = asyncio.get_event_loop().time()
 
-    async def fetch_page(self, url: str) -> Optional[str]:
-        """Fetch a page with rate limiting (static HTML only)."""
+    async def fetch_page(self, url: str, timeout: Optional[float] = None) -> Optional[str]:
+        """Fetch a page with rate limiting (static HTML only).
+
+        `timeout` overrides the session's `request_timeout` for this request, for the
+        vendor page that is reliably slower than the rest rather than broken.
+        """
         if self._serve_from_cache and self._cache:
             cached = self._cache.get("GET", url)
             if cached is not None:
@@ -195,8 +217,9 @@ class BaseScraper(ABC):
         logger.debug("GET %s%s", url, " (conditional)" if headers else "")
         await self._rate_limit()
         session = await self._get_session()
+        request_options = {"timeout": aiohttp.ClientTimeout(total=timeout)} if timeout else {}
         try:
-            async with session.get(url, headers=headers) as response:
+            async with session.get(url, headers=headers, **request_options) as response:
                 # 304: the page is unchanged and carries no body, so reuse the one
                 # we already have. Only reachable when a validator was sent, and
                 # conditional_headers only sends one when a body exists.
@@ -219,9 +242,12 @@ class BaseScraper(ABC):
                             last_modified=response.headers.get("Last-Modified"),
                         )
                     return body
+                if response.status >= 500:
+                    self._record_fetch_failure(url, f"HTTP {response.status}")
                 return None
         except Exception as e:
             logger.warning("Fetch failed for %s: %s", url, str(e) or type(e).__name__)
+            self._record_fetch_failure(url, type(e).__name__)
             return None
 
     async def fetch_json(
@@ -261,6 +287,8 @@ class BaseScraper(ABC):
                     except ValueError:
                         return None
                 if response.status != 200:
+                    if response.status >= 500:
+                        self._record_fetch_failure(url, f"HTTP {response.status}")
                     return None
                 text = await netguard.read_text_capped(
                     response, self.settings.max_response_bytes
@@ -269,6 +297,7 @@ class BaseScraper(ABC):
                 last_modified = response.headers.get("Last-Modified")
         except Exception as e:
             logger.warning("Fetch failed for %s: %s", url, str(e) or type(e).__name__)
+            self._record_fetch_failure(url, type(e).__name__)
             return None
 
         try:
@@ -337,8 +366,18 @@ class BaseScraper(ABC):
                 # everything its scripts go on to request.
                 await page.route("**/*", self._guard_browser_request)
                 # Use domcontentloaded instead of networkidle to avoid
-                # hanging on pages with long-polling or streaming connections
-                await page.goto(url, wait_until="domcontentloaded", timeout=wait_for_timeout)
+                # hanging on pages with long-polling or streaming connections.
+                # A navigation timeout is tried once more: TAL's pages were slow for a
+                # few minutes and fine after, and failed a whole sweep over it. Only a
+                # timeout -- a refused or blocked navigation will not change on retry.
+                for attempt in (1, 2):
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=wait_for_timeout)
+                        break
+                    except Exception as exc:
+                        if attempt == 2 or type(exc).__name__ != "TimeoutError":
+                            raise
+                        logger.info("Rendered fetch of %s timed out, trying once more", url)
 
                 # Click element if specified (e.g., to expand a tab or section)
                 if click_selector:
@@ -363,6 +402,7 @@ class BaseScraper(ABC):
                 await page.close()
         except Exception as e:
             logger.warning("Rendered fetch failed for %s: %s", url, e)
+            self._record_fetch_failure(url, type(e).__name__)
             return None
 
     async def _guard_browser_request(self, route) -> None:

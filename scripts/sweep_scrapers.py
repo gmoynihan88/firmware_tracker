@@ -15,7 +15,9 @@ loses the network, and thirty scrapers then fail in under a second each, which r
 as mass breakage rather than a sleeping laptop.
 
 Read `created` as well as `ok`: devices created for a vendor already in the database
-mean its product names stopped matching, and the old rows are now orphans.
+mean its product names stopped matching, and the old rows are now orphans. Read
+`fetches_failed` too: a page that timed out or answered 5xx, which a scraper may have
+worked around by leaving that product out -- still `ok`, but a product may be missing.
 
 Exits 1 when any scraper is not ok, so it can gate a release.
 """
@@ -44,6 +46,7 @@ class Outcome:
     devices: Optional[int] = None
     created: int = 0
     failed: int = 0
+    fetches_failed: int = 0
     detail: str = ""
 
 
@@ -59,13 +62,16 @@ def outcome_from(slug: str, seconds: float, result: dict) -> Outcome:
         devices=synced.get("total"),
         created=synced.get("created") or 0,
         failed=len(failed),
+        fetches_failed=len(result.get("fetches_failed") or []),
         detail="" if ok else str(result.get("error") or failed)[:150],
     )
 
 
 def format_line(outcome: Outcome) -> str:
+    fetches = f" fetches_failed={outcome.fetches_failed}" if outcome.fetches_failed else ""
     return (f"{outcome.slug:<20} {outcome.seconds:>5.0f}s {'ok  ' if outcome.ok else 'FAIL'} "
-            f"devices={outcome.devices} created={outcome.created} failed={outcome.failed} {outcome.detail}").rstrip()
+            f"devices={outcome.devices} created={outcome.created} failed={outcome.failed}{fetches} "
+            f"{outcome.detail}").rstrip()
 
 
 async def run_sweep(
@@ -133,9 +139,12 @@ def main(argv: List[str]) -> int:
     outcomes = asyncio.run(sweep())
     bad = [o.slug for o in outcomes if not o.ok]
     created = [f"{o.slug} ({o.created})" for o in outcomes if o.created]
+    fetches = [f"{o.slug} ({o.fetches_failed})" for o in outcomes if o.fetches_failed]
     print(f"\n{len(outcomes)} scrapers in {time.monotonic() - started:.0f}s; not ok: {', '.join(bad) or 'none'}")
     if created:
         print(f"created devices -- new products, or names that stopped matching: {', '.join(created)}")
+    if fetches:
+        print(f"failed fetches -- a product may be missing, see the log: {', '.join(fetches)}")
     return 1 if bad else 0
 
 
