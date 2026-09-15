@@ -38,6 +38,10 @@ pytest tests/test_basic.py::test_dashboard
 # Run tests with coverage
 pytest --cov=src tests/
 
+# Scraper upkeep: a live uncached sweep of every scraper, and the README/CLAUDE.md counts
+python scripts/sweep_scrapers.py
+python scripts/update_readme_counts.py        # --check to only report
+
 # Database migrations (note: alembic.ini uses sync sqlite:/// URL, not the async one from config)
 alembic upgrade head
 alembic revision --autogenerate -m "description"
@@ -77,7 +81,8 @@ a new plugin, `debug-scraper` for diagnosing one that returns nothing or reports
 that does not match the vendor, and `scraper-batch` for working through several
 vendors at once (surveying candidates, and the order the work goes in). The debugging
 ladder is worth reading before rewriting a parser: the failure is usually a dead URL
-or a moved data source.
+or a moved data source. A fourth, `verify-ui-change`, proves a CSS or template
+change leaves every page looking the same (`scripts/compare_css.py`).
 
 **To add a new manufacturer scraper:** Create a new file in `src/scrapers/plugins/`, define a class inheriting `BaseScraper` with the required class attributes and abstract methods. It will be auto-registered. After adding a new scraper, add an assertion for its slug in `tests/test_basic.py::test_api_scrapers`.
 
