@@ -31,16 +31,24 @@ async def test_sweep_reports_every_scraper_and_survives_one_blowing_up(monkeypat
             await asyncio.sleep(1)
         if slug == "partial":
             return {"success": True, "devices_synced": {"total": 3, "created": 0}, "devices_failed": ["X"]}
+        if slug == "dropped":
+            return {"success": True, "devices_synced": {"total": 4, "created": 0}, "devices_failed": [],
+                    "fetches_failed": ["https://v.example/p: TimeoutError"]}
         return {"success": True, "devices_synced": {"total": 5, "created": 2}, "devices_failed": []}
 
     lines = []
-    outcomes = await sweep.run_sweep(["crashes", "fine", "hangs", "partial"], scrape, lines.append)
+    outcomes = await sweep.run_sweep(["crashes", "fine", "hangs", "partial", "dropped"], scrape, lines.append)
 
-    assert [(o.slug, o.ok) for o in outcomes] == [("crashes", False), ("fine", True), ("hangs", False), ("partial", False)]
+    assert [(o.slug, o.ok) for o in outcomes] == [
+        ("crashes", False), ("fine", True), ("hangs", False), ("partial", False), ("dropped", True),
+    ]
     assert "RuntimeError: boom" in outcomes[0].detail
     assert "TimeoutError" in outcomes[2].detail
     assert outcomes[1].created == 2 and outcomes[3].failed == 1
-    assert len(lines) == 4 and lines[1].startswith("fine") and " ok " in lines[1]
+    assert len(lines) == 5 and lines[1].startswith("fine") and " ok " in lines[1]
+    # A failed fetch is shown, but does not turn a working scraper into a failed one.
+    assert outcomes[4].fetches_failed == 1 and "fetches_failed=1" in lines[4]
+    assert "fetches_failed" not in lines[1]
 
 
 def test_sweep_selects_slugs_and_refuses_unknown_ones():

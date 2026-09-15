@@ -36,10 +36,13 @@ async def check_firmware_updates():
             total_unchecked = sum(
                 len(r.get("devices_not_checked") or []) for r in results if r.get("success")
             )
+            total_fetches_failed = sum(
+                len(r.get("fetches_failed") or []) for r in results if r.get("success")
+            )
             logger.info(
                 f"Firmware check complete. New versions: {total_new}, "
                 f"Notifications: {total_notifications}, Devices failed: {total_failed}, "
-                f"Not checked (budget): {total_unchecked}"
+                f"Not checked (budget): {total_unchecked}, Fetches failed: {total_fetches_failed}"
             )
 
             # Revalidation keeps every fetched body on disk, so the store needs a

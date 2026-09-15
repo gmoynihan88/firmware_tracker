@@ -54,6 +54,44 @@ async def test_scrape_summary_reports_devices_without_firmware():
         ScraperRegistry._scrapers.pop("stubaudio", None)
 
 
+
+@pytest.mark.asyncio
+async def test_scrape_summary_reports_fetches_that_failed_even_when_every_device_succeeds():
+    """A product whose page never loaded is simply absent, and the run reads as clean.
+
+    Korg's Pa4X page takes 31s against a 30s limit. Korg leaves a product it could not
+    load out of the catalogue, so every sweep reported "ok" with the Pa4X missing.
+    """
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+
+    class _DroppingScraper(BaseScraper):
+        manufacturer_name = "Dropping Audio"
+        manufacturer_slug = "droppingaudio"
+        manufacturer_website = "https://dropping.example.com"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            # What a scraper does after fetch_page returned None for one product page.
+            self._record_fetch_failure("https://dropping.example.com/slow", "TimeoutError")
+            return ScraperResult(success=True, devices=[
+                ScrapedDevice("Loaded", "synthesizer", "https://dropping.example.com/loaded"),
+            ])
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[ScrapedFirmware("1.0")])
+
+    ScraperRegistry.register(_DroppingScraper)
+    try:
+        async with test_session_maker() as db:
+            result = await scraper_service.scrape_manufacturer(db, "droppingaudio")
+
+        assert result["success"] is True
+        assert result["devices_failed"] == []
+        assert result["fetches_failed"] == ["https://dropping.example.com/slow: TimeoutError"]
+    finally:
+        ScraperRegistry._scrapers.pop("droppingaudio", None)
+
 def test_scrape_budget_scales_with_device_count():
     """A fixed budget measures nothing; a 40-device scraper needs more than a 3-device one.
 

@@ -497,6 +497,17 @@ async def scrape_manufacturer(
                 "%s reported no firmware and no reason for: %s",
                 scraper.manufacturer_name, ", ".join(devices_unexplained),
             )
+        # Fetches that broke outright -- a timeout, a dropped connection, a 5xx. A
+        # scraper that skips a product whose page did not load reports success with
+        # that product simply absent: Korg's Pa4X page takes 31s against a 30s limit
+        # and never reached the catalogue while every sweep read "ok". This is the
+        # record that makes such an absence visible without changing each scraper.
+        fetches_failed = scraper.fetch_failures()
+        if fetches_failed:
+            logger.warning(
+                "%s fetches that failed: %s",
+                scraper.manufacturer_name, "; ".join(fetches_failed[:10]),
+            )
 
         summary = {
             "success": True,
@@ -509,6 +520,7 @@ async def scrape_manufacturer(
             "devices_failed": devices_failed,
             "devices_not_checked": devices_not_checked,
             "identical_pages": duplicate_pages,
+            "fetches_failed": fetches_failed,
         }
         await record_scrape_run(
             db, scraper_type, started_at, time.monotonic() - started,

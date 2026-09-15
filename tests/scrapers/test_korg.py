@@ -100,6 +100,43 @@ def test_korg_falls_back_to_a_version_in_the_name():
     assert versions[0].release_date.strftime("%Y-%m-%d") == "2013-06-04"
 
 
+
+def test_korg_reads_a_pa_arrangers_bare_operating_system_entry():
+    """The Pa4X names its firmware "Operating System", with no "update" in it.
+
+    The page loaded only after the timeout was raised, and then yielded nothing: the
+    updater pattern needed "system updater" or "system update". The split download of
+    OS 2.0, headed "1/5", and the SongBook Editor beside it are not firmware releases.
+    """
+    from src.scrapers.plugins.korg import KorgScraper
+
+    page = """
+    <div class="com_contents">
+      <h3>Software</h3>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>Pa4X/Pa80 Card Converter</h3><h3>1.10</h3><small>2017.01.20 / ZIP : 3.7MB</small>
+      </div></a>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>Pa4X/Operating System version 2.0 UPD divided version (for slow connections)</h3><h3>1/5</h3>
+        <small>2017.06.30 / ZIP : 512.0MB</small>
+      </div></a>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>Pa4X/Operating System version 2.0 PKG Full version (for fast connections)</h3><h3></h3>
+        <small>2017/06/30</small>
+      </div></a>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>Pa4X/Operating System</h3><h3>3.1.0</h3><small>2019.07.10 / ZIP : 184.9MB</small>
+      </div></a>
+      <a class="tr"><div class="td dlFileTitle">
+        <h3>Pa4X/SongBook Editor v.3.0</h3><h3>3.0</h3><small>2018.12.10 / ZIP : 6.6MB</small>
+      </div></a>
+    </div>
+    """
+
+    versions = KorgScraper()._parse_product(page)
+
+    assert [(fw.version, fw.release_date.strftime("%Y-%m-%d")) for fw in versions] == [("3.1.0", "2019-07-10")]
+
 def test_korg_index_skips_discontinued_and_untracked_categories():
     """The index is a flat run of headings, so the walk has to track its own state."""
     from src.scrapers.plugins.korg import KorgScraper
@@ -352,6 +389,28 @@ async def test_korg_skips_a_product_page_that_fails_to_load():
     assert result.success is True
     assert [d.name for d in result.devices] == ["Good"]
 
+
+
+@pytest.mark.asyncio
+async def test_korg_gives_product_pages_longer_than_the_default_timeout():
+    """The Pa4X's page takes 31s, one over the 30s default, and was dropped every run."""
+    from src.scrapers.plugins.korg import KorgScraper
+
+    scraper = KorgScraper()
+    scraper.BATCHES = 1
+    calls = []
+
+    async def fake_fetch(url, **kwargs):
+        calls.append((url, kwargs.get("timeout")))
+        if url == KorgScraper.INDEX_URL:
+            return _korg_index("Slow Page")
+        return _korg_product_page()
+
+    scraper.fetch_page = fake_fetch
+    await scraper.fetch_device_list()
+
+    assert calls[0] == (KorgScraper.INDEX_URL, None)
+    assert calls[1][1] == KorgScraper.PRODUCT_PAGE_TIMEOUT > 31
 
 @pytest.mark.asyncio
 async def test_korg_firmware_lookup_loads_the_catalogue_if_asked_first():
