@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 54 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 55 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,7 +62,8 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 54 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys, Cockos
+- **Scrapes 55 manufacturers** — Ableton, Akai, Arturia, Avid (Pro
+  Tools), Bitwig, Boss, Cableguys, Cockos
   (REAPER), Elektron, Eventide, Empress, FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
   Klanghelm, Korg, Moog, Native Instruments, Neural DSP, Novation, OBS Project (OBS
@@ -155,7 +156,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,073 devices across 54 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,074 devices across 55 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -311,31 +312,31 @@ likely to touch:
 | Hardware | Plugins |
 |---|---|
 | Akai Professional | Ableton (Live) |
-| Arturia\* | Bitwig (Studio) |
-| Boss | Cableguys |
-| Crumar | Cockos (REAPER) |
-| Elektron | FabFilter |
-| Empress Effects | GForce Software |
-| Eventide\* | Goodhertz |
-| Fender | IK Multimedia |
-| Focusrite | Image-Line (FL Studio) |
-| Fractal Audio | iZotope |
-| iConnectivity | Kilohearts |
-| Keith McMillen | Klanghelm |
-| Kemper | Modartt (Pianoteq) |
-| Korg | Moog |
-| Line 6 | Native Instruments |
-| Neural DSP | OBS Project (OBS Studio) |
-| Novation | PSPaudioware |
-| Peterson | Soundtoys |
-| Positive Grid\* | Steinberg |
-| QSC | TAL Software |
-| RME | Tokyo Dawn Labs |
-| Roland | u-he |
-| Sound-Force | Universal Audio |
-| Strymon | Valhalla DSP |
-| TC Electronic | Xfer Records |
-| Tascam |  |
+| Arturia\* | Avid (Pro Tools) |
+| Boss | Bitwig (Studio) |
+| Crumar | Cableguys |
+| Elektron | Cockos (REAPER) |
+| Empress Effects | FabFilter |
+| Eventide\* | GForce Software |
+| Fender | Goodhertz |
+| Focusrite | IK Multimedia |
+| Fractal Audio | Image-Line (FL Studio) |
+| iConnectivity | iZotope |
+| Keith McMillen | Kilohearts |
+| Kemper | Klanghelm |
+| Korg | Modartt (Pianoteq) |
+| Line 6 | Moog |
+| Neural DSP | Native Instruments |
+| Novation | OBS Project (OBS Studio) |
+| Peterson | PSPaudioware |
+| Positive Grid\* | Soundtoys |
+| QSC | Steinberg |
+| RME | TAL Software |
+| Roland | Tokyo Dawn Labs |
+| Sound-Force | u-he |
+| Strymon | Universal Audio |
+| TC Electronic | Valhalla DSP |
+| Tascam | Xfer Records |
 | Teenage Engineering |  |
 | Yamaha |  |
 | Zoom |  |
@@ -416,7 +417,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (54 scrapers)
+    plugins/           # One file per manufacturer (55 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
