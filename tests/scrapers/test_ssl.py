@@ -87,6 +87,19 @@ INTERFACES = (
 
 HC = "https://support.solidstatelogic.com/hc/en-gb/articles"
 
+SOLSA_LINK = "https://support.download.solidstatelogic.com/Live/SOLSA%20Installers/Live%20SOLSA%20V{}.zip"
+
+# As served: one button per release. V5.2.18's item carries a second, empty span
+# pointing at the older V5.1.14 installer.
+SOLSA = (
+    '<h3>Remote Control &amp; Offline Setup Software</h3><p>SOLSA is a standalone version of Live console software.</p><ul>\n'
+    '<li class="wysiwyg-list-color" data-list-item-id="e261"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("6.2.14") + '">V6.2.14 SOLSA Installer and Documentation</span></span></li>\n'
+    '<li data-list-item-id="eecb">\n<span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("5.2.18") + '">V5.2.18 SOLSA Installer and Documentation</span></span><span style="color: #000000;"><span class="btn btn-one wysiwyg-text-align-left" style="color: #0000CC;" data-link="' + SOLSA_LINK.format("5.1.14") + '"></span></span>\n</li>\n'
+    '<li class="wysiwyg-list-color" data-list-item-id="e549"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("5.1.14") + '">V5.1.14 SOLSA Installer and Documentation</span></span></li>\n'
+    '<li class="wysiwyg-list-color" data-list-item-id="e523">\n<span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("4.10.17") + '">V4.10.17 SOLSA Installer and Documentation</span></span><br>\xa0</li>\n'
+    '</ul><h3>\n<br><span style="color: #990000;">Requirements</span>\n</h3><p>Microsoft Windows 10 64-bit or Windows 11.</p>'
+)
+
 
 def _search(*articles):
     return json.dumps({"count": len(articles), "results": [
@@ -146,6 +159,7 @@ async def test_ssl_takes_each_article_by_its_exact_title():
                                                (S.RELEASE_NOTES, RELEASE_NOTES)),
         S.search_url(S.PLUGINS): _search(("Legacy plugin downloads", _plugin_row("Blitzer V1.0.5*")), (S.PLUGINS, PLUGINS)),
         S.search_url(S.INTERFACES): _search((S.INTERFACES, INTERFACES)),
+        S.search_url(S.SOLSA): _search(("Live Operational and Install Guides", "<p>V9.9.9 SOLSA Installer</p>"), (S.SOLSA, SOLSA)),
     })
 
     devices = {d.name: (d.category, d.firmware_page_url) for d in (await scraper.fetch_device_list()).devices}
@@ -153,9 +167,12 @@ async def test_ssl_takes_each_article_by_its_exact_title():
 
     assert devices["SSL 360°"] == ("other", f"{HC}/1-SSL-360°-Downloads-and-Release-Notes")
     assert devices["AutoEQ"][0] == "vst_plugin" and devices["BiG SiX"][0] == "audio_interface"
-    assert "Blitzer" not in devices and len(devices) == 13
+    assert "Blitzer" not in devices and len(devices) == 14
+    assert devices["SOLSA"] == ("other", f"{HC}/1-Live-SOLSA-Downloads")
     assert app.firmware_versions[0].version == "2.1.12"
-    assert len(asked) == 3
+    solsa = await scraper.fetch_firmware_versions("SOLSA", devices["SOLSA"][1])
+    assert solsa.firmware_versions[0].version == "6.2.14", "read the install guide's version"
+    assert len(asked) == 4
 
 
 @pytest.mark.asyncio
@@ -167,6 +184,29 @@ async def test_ssl_fails_loudly_when_any_article_is_missing():
         S.search_url(S.RELEASE_NOTES): _search((S.RELEASE_NOTES, RELEASE_NOTES)),
         S.search_url(S.PLUGINS): _search(("SSL Download Manager - Getting Started", "<p>Install it.</p>")),
         S.search_url(S.INTERFACES): _search((S.INTERFACES, INTERFACES)),
+        S.search_url(S.SOLSA): _search((S.SOLSA, SOLSA)),
     })
 
     assert (await scraper.fetch_device_list()).success is False
+
+    scraper = S()
+    _stub_fetch(scraper, {
+        S.search_url(S.RELEASE_NOTES): _search((S.RELEASE_NOTES, RELEASE_NOTES)),
+        S.search_url(S.PLUGINS): _search((S.PLUGINS, PLUGINS)),
+        S.search_url(S.INTERFACES): _search((S.INTERFACES, INTERFACES)),
+        S.search_url(S.SOLSA): _search(("Live Operational and Install Guides", "<p>Guides.</p>")),
+    })
+
+    assert (await scraper.fetch_device_list()).success is False
+
+
+def test_ssl_reads_solsa_releases_from_their_download_buttons():
+    """Each button's own text, not the empty span beside V5.2.18 that links V5.1.14."""
+    from src.scrapers.plugins.ssl import SSLScraper
+
+    releases = SSLScraper()._parse_solsa(SOLSA)
+
+    assert [(r.version, r.release_date) for r in releases] == [
+        ("6.2.14", None), ("5.2.18", None), ("5.1.14", None), ("4.10.17", None),
+    ]
+    assert releases[1].download_url == SOLSA_LINK.format("5.2.18")

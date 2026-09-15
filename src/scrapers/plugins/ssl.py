@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class SSLScraper(BaseScraper):
-    """Solid State Logic -- SSL 360°, its plug-ins and the USB interfaces' firmware, from three help-centre articles.
+    """Solid State Logic -- SSL 360°, its plug-ins, the USB interfaces' firmware and SOLSA, from four help-centre articles.
 
     solidstatelogic.com's downloads page holds no versions; support.solidstatelogic.com
-    (Zendesk) does, in three articles found by exact title through the search API:
+    (Zendesk) does, in four articles found by exact title through the search API:
 
     **"SSL 360° Downloads and Release Notes"** -- one ``<h2>V2.1.12</h2>`` per release of
     the SSL 360° app, and under it a release line written four ways: "Released: 11th
@@ -44,11 +44,22 @@ class SSLScraper(BaseScraper):
     gives its current firmware. The BiG SiX, PureDrive and SSL 2/2+ MKI articles carry the
     same history, word for word. Undated.
 
+    **"Live SOLSA Downloads"** -- SOLSA, the offline setup and remote-control application
+    for the SSL Live consoles, one download button per release, newest first:
+
+        <li><span class="btn" data-link=".../Live%20SOLSA%20V6.2.14.zip">V6.2.14 SOLSA Installer and Documentation</span></li>
+
+    SOLSA is listed as itself, not as the consoles' firmware. SSL calls it "a standalone
+    version of Live console software", but the console software is not downloadable and
+    nothing public states that a console runs the same number, so a console row would
+    be a guess. Undated. One button carries a second, empty span pointing at an older
+    installer; versions are read from the button text, not the links.
+
     Not read, checked 2026-09-15: Alpha-Link, Delta-Link and X-Rack firmware articles --
     discontinued units whose last firmware shipped by 2011. SSL 12, SSL 18, UF8, UF1 and
     UC1 firmware ships inside SSL 360° and is not numbered anywhere.
 
-    Any of the three articles missing fails the scrape, since the products it covers would
+    Any of the four articles missing fails the scrape, since the products it covers would
     otherwise silently stop updating.
     """
 
@@ -60,7 +71,10 @@ class SSLScraper(BaseScraper):
     RELEASE_NOTES = "SSL 360° Downloads and Release Notes"
     PLUGINS = "SSL Plug-in Downloads"
     INTERFACES = "SSL 2/2+ MKII Firmware Update"
+    SOLSA = "Live SOLSA Downloads"
     APP_NAME = "SSL 360°"
+    SOLSA_NAME = "SOLSA"
+    SOLSA_ENTRY = re.compile(r"^V(?P<version>\d+(?:\.\d+)+)\s+SOLSA\s+Installer\b", re.I)
 
     RELEASE_HEADING = re.compile(r"^V(?P<version>\d+(?:\.\d+)+)$")
     RELEASED = re.compile(
@@ -132,6 +146,17 @@ class SSLScraper(BaseScraper):
                                             changelog="\n".join(lines)[: self.NOTES_LIMIT] or None))
         return releases
 
+    def _parse_solsa(self, html: str) -> List[ScrapedFirmware]:
+        """One download button per SOLSA release, "V6.2.14 SOLSA Installer and Documentation"."""
+        releases: Dict[str, ScrapedFirmware] = {}
+        for button in self.parse_html(html).select("span[data-link]"):
+            matched = self.SOLSA_ENTRY.match(self._text(button))
+            if matched and matched.group("version") not in releases:
+                releases[matched.group("version")] = ScrapedFirmware(
+                    version=matched.group("version"), release_date=None, download_url=button["data-link"]
+                )
+        return sorted(releases.values(), key=lambda fw: self._version_key(fw.version), reverse=True)
+
     def _parse_plugins(self, html: str) -> Dict[str, str]:
         plugins: Dict[str, str] = {}
         for row in self.parse_html(html).find_all("tr"):
@@ -198,7 +223,7 @@ class SSLScraper(BaseScraper):
         if self._devices is not None:
             return self._devices
         articles = {}
-        for title in (self.RELEASE_NOTES, self.PLUGINS, self.INTERFACES):
+        for title in (self.RELEASE_NOTES, self.PLUGINS, self.INTERFACES, self.SOLSA):
             articles[title] = await self._article(title)
             if articles[title] is None:
                 logger.warning("SSL help centre article %r was not found", title)
@@ -214,6 +239,10 @@ class SSLScraper(BaseScraper):
         url, body = articles[self.INTERFACES]
         for model, releases in self._parse_interfaces(body).items():
             devices.setdefault(model, (url, "audio_interface", releases))
+        url, body = articles[self.SOLSA]
+        solsa = self._parse_solsa(body)
+        if solsa:
+            devices[self.SOLSA_NAME] = (url, "other", solsa)
         self._devices = devices or None
         return self._devices
 
