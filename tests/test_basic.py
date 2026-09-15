@@ -89,6 +89,7 @@ async def test_api_scrapers(client):
     assert "presonus" in data["scrapers"]
     assert "sequential" in data["scrapers"]
     assert "polyend" in data["scrapers"]
+    assert "toontrack" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
