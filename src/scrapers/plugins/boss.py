@@ -1,8 +1,6 @@
 import re
-from datetime import datetime
-from typing import Optional
 
-from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.base import BaseScraper
 from src.scrapers.roland_group import SystemProgramMixin
 
 
@@ -10,7 +8,9 @@ class BossScraper(SystemProgramMixin, BaseScraper):
     """Boss pedals, read the same way as Roland because it is the same site.
 
     Boss is a Roland brand and its Updates & Drivers pages are identical in shape, so
-    the parsing lives in SystemProgramMixin and both use it.
+    the index, the parsing and the batching live in SystemProgramMixin and both use
+    it. The products come from the US Updates & Drivers index, 126 of them, in two
+    daily batches.
 
     The previous parser searched the listing for a date in two formats and found none,
     because that page has no dates at all -- 3,656 characters of text and not one.
@@ -18,49 +18,43 @@ class BossScraper(SystemProgramMixin, BaseScraper):
     rest of the history. It also had to guess which version on the page was the
     firmware, competing with an IR Loader, four USB drivers and a bundled copy of
     Chromium Embedded Framework.
+
+    Set `BOSS_FULL_SWEEP=1` to read both batches in one run.
     """
 
     manufacturer_name = "Boss"
     manufacturer_slug = "boss"
     manufacturer_website = "https://www.boss.info"
 
-    # Known Boss products with firmware updates
-    KNOWN_PRODUCTS = [
-        ("IR-200", "guitar_pedal", "https://www.boss.info/us/support/by_product/ir-200/updates_drivers/"),
-        ("DD-500", "guitar_pedal", "https://www.boss.info/global/support/by_product/dd-500/updates_drivers/"),
-        ("RC-500", "guitar_pedal", "https://www.boss.info/us/support/by_product/rc-500/updates_drivers/"),
-        ("RC-600", "guitar_pedal", "https://www.boss.info/us/support/by_product/rc-600/updates_drivers/"),
-        ("MD-500", "guitar_pedal", "https://www.boss.info/us/support/by_product/md-500/updates_drivers/"),
-        ("RV-500", "guitar_pedal", "https://www.boss.info/us/support/by_product/rv-500/updates_drivers/"),
-        ("GT-1000", "guitar_pedal", "https://www.boss.info/us/support/by_product/gt-1000/updates_drivers/"),
-        ("GT-1000CORE", "guitar_pedal", "https://www.boss.info/us/support/by_product/gt-1000core/updates_drivers/"),
-        ("GX-100", "guitar_pedal", "https://www.boss.info/us/support/by_product/gx-100/updates_drivers/"),
-        ("ME-90", "guitar_pedal", "https://www.boss.info/us/support/by_product/me-90/updates_drivers/"),
-        ("ME-90B", "guitar_pedal", "https://www.boss.info/us/support/by_product/me-90b/updates_drivers/"),
-        ("SY-300", "guitar_pedal", "https://www.boss.info/us/support/by_product/sy-300/updates_drivers/"),
-        ("SY-1000", "guitar_pedal", "https://www.boss.info/us/support/by_product/sy-1000/updates_drivers/"),
-        ("EV-1-WL", "guitar_pedal", "https://www.boss.info/us/support/by_product/ev-1-wl/updates_drivers/"),
-        ("Katana-100 MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-100_mk2/updates_drivers/"),
-        ("Katana-Artist MkII", "guitar_pedal", "https://www.boss.info/us/support/by_product/katana-artist_mk2/updates_drivers/"),
-    ]
+    INDEX_URL = "https://www.boss.info/us/support/updates_drivers/"
 
-    async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Boss products."""
-        devices = [
-            ScrapedDevice(
-                name=name,
-                category=category,
-                firmware_page_url=support_url,
-                product_url=f"https://www.boss.info/us/products/{name.lower().replace(' ', '_').replace('-', '-')}/",
-            )
-            for name, category, support_url in self.KNOWN_PRODUCTS
-        ]
-        return ScraperResult(success=True, devices=devices)
+    # Two batches of ~63: about 90 requests and two minutes a run.
+    BATCHES = 2
+    FULL_SWEEP_ENV = "BOSS_FULL_SWEEP"
 
-    async def fetch_firmware_versions(
-        self, device_name: str, firmware_page_url: str
-    ) -> ScraperResult:
-        versions, error = await self._fetch_system_program(firmware_page_url)
-        if error:
-            return ScraperResult(success=False, error=error)
-        return ScraperResult(success=True, firmware_versions=versions)
+    # The index writes the Katanas in capitals; the rows were catalogued without.
+    RENAMES = {
+        "KATANA-100 MkII": "Katana-100 MkII",
+        "KATANA-Artist MkII": "Katana-Artist MkII",
+    }
+
+    NOT_PEDALS = re.compile(
+        r"amplifier|amplification|recorder|recording|studio|mixer|player|load box|amp expander",
+        re.I,
+    )
+
+    def _category(self, subtitle: str) -> str:
+        """From the index's subtitle. Boss is pedals unless the subtitle says otherwise.
+
+        Amps, recorders and mixers are "other"; the Dr. Rhythm and Dr. Sample
+        machines are instruments; wireless footswitches and expression pedals control
+        rather than process. Only used when a row is created.
+        """
+        text = subtitle.lower()
+        if "expression pedal" in text or "footswitch" in text:
+            return "midi_controller"
+        if self.NOT_PEDALS.search(text):
+            return "other"
+        if re.search(r"dr\. rhythm|dr\. sample|sampling workstation", text):
+            return "synthesizer"
+        return "guitar_pedal"
