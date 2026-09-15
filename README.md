@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 87 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 88 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,9 +62,9 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 87 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
+- **Scrapes 88 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
   MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Casio, Cockos
-  (REAPER), Conductive Labs, Dirtywave, Dreadbox, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
+  (REAPER), Conductive Labs, DiGiCo, Dirtywave, Dreadbox, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
   Klanghelm, Korg, MOTU (Digital Performer), Mooer, Moog, Native Instruments, Neural DSP, Nord, Novation, Oberheim, OBS Project (OBS
   Studio), oeksound, OXI Instruments, Pioneer DJ, Polyend, Positive Grid, PreSonus (Fender Studio, Notion), RME, Sequential, Sequentix, Serato, Solid State Logic, Soundtoys, Squarp Instruments, Steinberg, Strymon, Synthstrom Audible, Teenage Engineering, Tokyo
@@ -164,7 +164,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,932 devices across 87 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,936 devices across 88 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -329,30 +329,31 @@ likely to touch:
 | Casio | GForce Software |
 | Conductive Labs | Goodhertz |
 | Crumar | IK Multimedia |
-| Dirtywave | Image-Line (FL Studio) |
-| Dreadbox | iZotope |
-| Elektron | Kilohearts |
-| Empress Effects | Klanghelm |
-| Engine DJ (Denon DJ, Numark, Rane) | Modartt (Pianoteq) |
-| Eventide\* | Moog |
-| Fender | MOTU (Digital Performer) |
-| Focusrite | Native Instruments |
-| Fractal Audio | OBS Project (OBS Studio) |
-| HeadRush | oeksound |
-| Hotone | PreSonus (Fender Studio, Notion) |
-| iConnectivity | PSPaudioware |
-| Keith McMillen | Serato |
-| Kemper | Soundtoys |
-| Korg | Steinberg |
-| Line 6 | TAL Software |
-| Mooer | Tokyo Dawn Labs |
-| Neural DSP | Toontrack |
-| Nord | u-he |
-| Novation | Universal Audio |
-| Oberheim | Valhalla DSP |
-| OXI Instruments | Waves |
-| Peterson | Xfer Records |
-| Pioneer DJ | XLN Audio |
+| DiGiCo | Image-Line (FL Studio) |
+| Dirtywave | iZotope |
+| Dreadbox | Kilohearts |
+| Elektron | Klanghelm |
+| Empress Effects | Modartt (Pianoteq) |
+| Engine DJ (Denon DJ, Numark, Rane) | Moog |
+| Eventide\* | MOTU (Digital Performer) |
+| Fender | Native Instruments |
+| Focusrite | OBS Project (OBS Studio) |
+| Fractal Audio | oeksound |
+| HeadRush | PreSonus (Fender Studio, Notion) |
+| Hotone | PSPaudioware |
+| iConnectivity | Serato |
+| Keith McMillen | Soundtoys |
+| Kemper | Steinberg |
+| Korg | TAL Software |
+| Line 6 | Tokyo Dawn Labs |
+| Mooer | Toontrack |
+| Neural DSP | u-he |
+| Nord | Universal Audio |
+| Novation | Valhalla DSP |
+| Oberheim | Waves |
+| OXI Instruments | Xfer Records |
+| Peterson | XLN Audio |
+| Pioneer DJ |  |
 | Polyend |  |
 | Positive Grid\* |  |
 | QSC |  |
@@ -449,7 +450,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (87 scrapers)
+    plugins/           # One file per manufacturer (88 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
