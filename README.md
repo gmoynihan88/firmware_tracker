@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 63 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 64 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,13 +62,13 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 63 manufacturers** — Ableton, Akai, Apple (Logic Pro,
+- **Scrapes 64 manufacturers** — Ableton, Akai, Apple (Logic Pro,
   MainStage), Arturia, Avid (Pro Tools), Bitwig, Boss, Cableguys, Cockos
   (REAPER), Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
   Klanghelm, Korg, Moog, Native Instruments, Neural DSP, Nord, Novation, OBS Project (OBS
   Studio), Pioneer DJ, Polyend, Positive Grid, PreSonus (Fender Studio, Notion), RME, Sequential, Soundtoys, Steinberg, Strymon, Teenage Engineering, Tokyo
-  Dawn Labs, u-he, Universal Audio, Valhalla DSP, Waves, Xfer Records, Zoom and more
+  Dawn Labs, Toontrack, u-he, Universal Audio, Valhalla DSP, Waves, Xfer Records, Zoom and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -156,7 +156,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,228 devices across 63 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,237 devices across 64 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -335,12 +335,12 @@ likely to touch:
 | Polyend | Steinberg |
 | Positive Grid\* | TAL Software |
 | QSC | Tokyo Dawn Labs |
-| RME | u-he |
-| Roland | Universal Audio |
-| Sequential | Valhalla DSP |
-| Sound-Force | Waves |
-| Strymon | Xfer Records |
-| Tascam |  |
+| RME | Toontrack |
+| Roland | u-he |
+| Sequential | Universal Audio |
+| Sound-Force | Valhalla DSP |
+| Strymon | Waves |
+| Tascam | Xfer Records |
 | TC Electronic |  |
 | Teenage Engineering |  |
 | Yamaha |  |
@@ -422,7 +422,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (63 scrapers)
+    plugins/           # One file per manufacturer (64 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
