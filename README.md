@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 73 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 74 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,7 +62,7 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 73 manufacturers** — Ableton, Akai, Apple (Logic Pro,
+- **Scrapes 74 manufacturers** — 1010music, Ableton, Akai, Apple (Logic Pro,
   MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Cockos
   (REAPER), Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
@@ -156,7 +156,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,325 devices across 73 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,336 devices across 74 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -311,39 +311,40 @@ likely to touch:
 
 | Hardware | Plugins |
 |---|---|
-| Akai Professional | Ableton (Live) |
-| Arturia\* | Apple (Logic Pro, MainStage) |
-| ASM | Avid (Pro Tools) |
-| Audient | Bitwig (Studio) |
-| Boss | Cableguys |
-| Crumar | Cockos (REAPER) |
-| Elektron | FabFilter |
-| Empress Effects | GForce Software |
-| Engine DJ (Denon DJ, Numark, Rane) | Goodhertz |
-| Eventide\* | IK Multimedia |
-| Fender | Image-Line (FL Studio) |
-| Focusrite | iZotope |
-| Fractal Audio | Kilohearts |
-| HeadRush | Klanghelm |
-| Hotone | Modartt (Pianoteq) |
-| iConnectivity | Moog |
-| Keith McMillen | MOTU (Digital Performer) |
-| Kemper | Native Instruments |
-| Korg | OBS Project (OBS Studio) |
-| Line 6 | PreSonus (Fender Studio, Notion) |
-| Mooer | PSPaudioware |
-| Neural DSP | Serato |
-| Nord | Soundtoys |
-| Novation | Steinberg |
-| Oberheim | TAL Software |
-| Peterson | Tokyo Dawn Labs |
-| Pioneer DJ | Toontrack |
-| Polyend | u-he |
-| Positive Grid\* | Universal Audio |
-| QSC | Valhalla DSP |
-| RME | Waves |
-| Roland | Xfer Records |
-| Sequential | XLN Audio |
+| 1010music | Ableton (Live) |
+| Akai Professional | Apple (Logic Pro, MainStage) |
+| Arturia\* | Avid (Pro Tools) |
+| ASM | Bitwig (Studio) |
+| Audient | Cableguys |
+| Boss | Cockos (REAPER) |
+| Crumar | FabFilter |
+| Elektron | GForce Software |
+| Empress Effects | Goodhertz |
+| Engine DJ (Denon DJ, Numark, Rane) | IK Multimedia |
+| Eventide\* | Image-Line (FL Studio) |
+| Fender | iZotope |
+| Focusrite | Kilohearts |
+| Fractal Audio | Klanghelm |
+| HeadRush | Modartt (Pianoteq) |
+| Hotone | Moog |
+| iConnectivity | MOTU (Digital Performer) |
+| Keith McMillen | Native Instruments |
+| Kemper | OBS Project (OBS Studio) |
+| Korg | PreSonus (Fender Studio, Notion) |
+| Line 6 | PSPaudioware |
+| Mooer | Serato |
+| Neural DSP | Soundtoys |
+| Nord | Steinberg |
+| Novation | TAL Software |
+| Oberheim | Tokyo Dawn Labs |
+| Peterson | Toontrack |
+| Pioneer DJ | u-he |
+| Polyend | Universal Audio |
+| Positive Grid\* | Valhalla DSP |
+| QSC | Waves |
+| RME | Xfer Records |
+| Roland | XLN Audio |
+| Sequential |  |
 | Sound-Force |  |
 | Strymon |  |
 | Tascam |  |
@@ -428,7 +429,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (73 scrapers)
+    plugins/           # One file per manufacturer (74 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
