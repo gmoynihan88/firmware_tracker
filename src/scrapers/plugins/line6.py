@@ -12,6 +12,13 @@ class Line6Scraper(BaseScraper):
     naming the products it applies to. That page is fetched once per scrape and the
     result reused, rather than fetched per device.
 
+    The products are the ones that page names. They were a hand-kept list of 17 until
+    2026-09-15, while the page named 131 across 413 releases -- the current Catalyst
+    CX, POD Express and DL4 MkII among them, and the whole POD HD, Spider IV, Variax
+    and Relay back catalogue. The page's own hardware filter is not used: it is one
+    flat list that also offers things with no release at all ("No Hardware Required",
+    iLok, Helix Stadium), and it omits 21 products that have releases.
+
     The previous /support/page/kb/<product>/ URLs are all dead. They return HTTP 200
     with a soft-404 body -- "Sorry, we could not find that!" -- which contains neither
     "404" nor "not found", so it reads as a successful fetch of an empty page.
@@ -30,35 +37,31 @@ class Line6Scraper(BaseScraper):
     VERSION_LINE = re.compile(r"^Version\s+(\d+(?:\.\d+)+)")
     RELEASED_LINE = re.compile(r"^Released\s+(\d{1,2})/(\d{1,2})/(\d{2,4})")
 
-    # (name, category, firmware_page_url)
-    KNOWN_PRODUCTS = [
-        ("Helix", "guitar_pedal", FIRMWARE_URL),
-        ("Helix Floor", "guitar_pedal", FIRMWARE_URL),
-        ("Helix LT", "guitar_pedal", FIRMWARE_URL),
-        ("Helix Rack", "guitar_pedal", FIRMWARE_URL),
-        ("HX Stomp", "guitar_pedal", FIRMWARE_URL),
-        ("HX Stomp XL", "guitar_pedal", FIRMWARE_URL),
-        ("HX Effects", "guitar_pedal", FIRMWARE_URL),
-        ("POD Go", "guitar_pedal", FIRMWARE_URL),
-        ("POD Go Wireless", "guitar_pedal", FIRMWARE_URL),
-        ("Spider V 60", "other", FIRMWARE_URL),
-        ("Spider V 120", "other", FIRMWARE_URL),
-        ("Spider V 240", "other", FIRMWARE_URL),
-        ("Catalyst 60", "other", FIRMWARE_URL),
-        ("Catalyst 100", "other", FIRMWARE_URL),
-        ("Catalyst 200", "other", FIRMWARE_URL),
-        ("Relay G10II", "other", FIRMWARE_URL),
-        ("Relay G10S", "other", FIRMWARE_URL),
-    ]
-
-    # Our device names against the ones Line 6 lists releases under. The G10II ships
-    # its firmware as the G10TII transmitter; previously this was read off Yamaha's
-    # THR Remote page, which publishes THR amp firmware and not the transmitter's.
-    PAGE_NAMES = {
-        "Helix Floor": "Helix",
-        "Relay G10II": "Relay G10TII Transmitter",
-        "Relay G10S": "Relay G10S Receiver",
+    # The page's name -> the database's, for rows catalogued under another name. The
+    # G10II ships its firmware as the G10TII transmitter and the G10S as its receiver;
+    # the G10II was previously read off Yamaha's THR Remote page, which publishes THR
+    # amp firmware and not the transmitter's.
+    RENAMES = {
+        "Relay G10TII Transmitter": "Relay G10II",
+        "Relay G10S Receiver": "Relay G10S",
     }
+
+    # Rows that read another product's releases as well as that product's own row.
+    # Line 6 sells the Helix Floor and lists its releases as "Helix"; both rows exist.
+    ALSO_LISTED_AS = {"Helix": ["Helix Floor"]}
+
+    # Line 6 publishes no categories, so they come from the name. Checked in order, so
+    # the floor processors among the amp families are caught first. Anything
+    # unmatched -- POD, Helix, HX, the M-series, DL4 -- is a processor, filed as a
+    # pedal. Only used when a row is created.
+    CATEGORIES = [
+        (("AMPLIFi FX100", "Firehawk FX"), "guitar_pedal"),
+        (("Spider", "Catalyst", "AMPLIFi", "DT25", "DT50", "Firehawk", "Flextone",
+          "Powercab", "Vetta", "StageScape", "StageSource", "Relay", "XD-V", "Variax",
+          "James Tyler Variax", "BackTrack"), "other"),
+        (("FBV", "Mobile Keys"), "midi_controller"),
+        (("TonePort", "POD Studio"), "audio_interface"),
+    ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -67,6 +70,22 @@ class Line6Scraper(BaseScraper):
     @staticmethod
     def _version_key(version: str) -> tuple:
         return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
+
+    def _category(self, name: str) -> str:
+        for prefixes, category in self.CATEGORIES:
+            if name.startswith(prefixes):
+                return category
+        return "guitar_pedal"
+
+    def _page_name(self, device_name: str) -> str:
+        """The name the page lists a device's releases under."""
+        for page_name, renamed in self.RENAMES.items():
+            if renamed == device_name:
+                return page_name
+        for page_name, aliases in self.ALSO_LISTED_AS.items():
+            if device_name in aliases:
+                return page_name
+        return device_name
 
     def _parse_catalogue(self, html: str) -> Dict[str, List[ScrapedFirmware]]:
         """Build a product -> releases map from the firmware listing.
@@ -139,18 +158,25 @@ class Line6Scraper(BaseScraper):
         return self._catalogue
 
     async def fetch_device_list(self) -> ScraperResult:
-        return ScraperResult(
-            success=True,
-            devices=[
-                ScrapedDevice(
-                    name=name,
-                    category=category,
-                    firmware_page_url=url,
-                    product_url=url,
+        catalogue = await self._get_catalogue()
+        if catalogue is None:
+            return ScraperResult(
+                success=False,
+                error=f"Could not read the Line 6 firmware listing at {self.FIRMWARE_URL}",
+            )
+
+        devices = []
+        for product in catalogue:
+            for name in [self.RENAMES.get(product, product), *self.ALSO_LISTED_AS.get(product, [])]:
+                devices.append(
+                    ScrapedDevice(
+                        name=name,
+                        category=self._category(name),
+                        firmware_page_url=self.FIRMWARE_URL,
+                        product_url=self.FIRMWARE_URL,
+                    )
                 )
-                for name, category, url in self.KNOWN_PRODUCTS
-            ],
-        )
+        return ScraperResult(success=True, devices=devices)
 
     async def fetch_firmware_versions(
         self, device_name: str, firmware_page_url: str
@@ -162,7 +188,7 @@ class Line6Scraper(BaseScraper):
                 error=f"Could not read the Line 6 firmware listing at {self.FIRMWARE_URL}",
             )
 
-        page_name = self.PAGE_NAMES.get(device_name, device_name)
+        page_name = self._page_name(device_name)
         releases = catalogue.get(page_name)
         if not releases:
             return ScraperResult(
