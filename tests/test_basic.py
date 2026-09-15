@@ -116,6 +116,7 @@ async def test_api_scrapers(client):
     assert "digico" in data["scrapers"]
     assert "rolandproav" in data["scrapers"]
     assert "yamahaproaudio" in data["scrapers"]
+    assert "soundcraft" in data["scrapers"]
     # VST plugin scrapers
     assert "modartt" in data["scrapers"]
     assert "gforce" in data["scrapers"]
