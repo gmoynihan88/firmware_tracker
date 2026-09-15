@@ -31,64 +31,100 @@ def test_soundforce_orders_versions_numerically():
     assert [fw.version for fw in versions] == ["1.11", "1.10", "1.9"]
 
 
-@pytest.mark.asyncio
-async def test_soundforce_resolves_update_pages_from_the_support_page():
-    """URLs come from the Support page, not from hardcoded WordPress page ids.
+# The Support page's own markup: current controllers in one paragraph, legacy ones
+# under their own heading, update pages on two hosts.
+SUPPORT_PAGE = """
+<p><a href="https://soundforce.notion.site/SFC-Mini-V4-Firmware-updates-2d78e657f71c" rel="noopener" target="_blank">SFC-Mini V4 updates</a><br/>
+<a href="https://sound-force.nl/?page_id=6118">SFC-OB updates</a><br/>
+<a href="https://sound-force.nl/?page_id=5155">SFC-60 V3 updates</a><br/>
+<a href="https://sound-force.nl/?page_id=5145">SFC-5 V2 updates</a></p>
+<p><a href="https://sound-force.nl/shop">Webshop</a></p>
+<p><em><strong>Legacy controllers:</strong></em><br/>
+<a href="https://sound-force.nl/?page_id=5110" rel="noopener" target="_blank">SFC-Mini V3 updates</a></p>
+"""
 
-    Two of the old ?page_id= values had changed and returned an identical
-    1037-character "Page Not Found".
-    """
-    from src.scrapers.plugins.soundforce import SoundForceScraper
 
-    scraper = SoundForceScraper()
-    support = """
-    <html><body>
-      <a href="https://sound-force.nl/?page_id=5155">SFC-60 V3 updates</a>
-      <a href="https://sound-force.nl/?page_id=5145">SFC-5 V2 updates</a>
-      <a href="https://sound-force.nl/shop">Webshop</a>
-    </body></html>
-    """
+def _with_pages(scraper, pages):
     fetched = []
 
     async def _page(url, *_args, **_kwargs):
         fetched.append(url)
-        if url == scraper.SUPPORT_URL:
-            return support
-        return "<html><body><p>V2.7:</p></body></html>"
+        return pages.get(url)
 
     scraper.fetch_page_js = _page
-
-    result = await scraper.fetch_firmware_versions("SFC-5", scraper.SUPPORT_URL)
-    assert result.success is True
-    assert result.firmware_versions[0].version == "2.7"
-    # It followed the link the support page gave, not a hardcoded id.
-    assert "page_id=5145" in fetched[-1]
-
-    # A product the support page does not link is a failure, not an empty success.
-    missing = await scraper.fetch_firmware_versions("SFC-8", scraper.SUPPORT_URL)
-    assert missing.success is False
+    return fetched
 
 
 @pytest.mark.asyncio
-async def test_soundforce_fetches_the_support_page_once():
-    """The index is shared by every device."""
+async def test_soundforce_lists_every_controller_the_support_page_links():
+    """The catalogue is the Support page's update links, not a list kept by hand."""
     from src.scrapers.plugins.soundforce import SoundForceScraper
 
     scraper = SoundForceScraper()
-    support_fetches = []
+    _with_pages(scraper, {scraper.SUPPORT_URL: SUPPORT_PAGE.replace(
+        "</p>\n<p><a href=\"https://sound-force.nl/shop\">",
+        '<br/>\n<a href="https://sound-force.nl/?page_id=7001">SFC-9 updates</a></p>\n<p><a href="https://sound-force.nl/shop">',
+    )})
 
-    async def _page(url, *_args, **_kwargs):
-        if url == scraper.SUPPORT_URL:
-            support_fetches.append(url)
-            return '<html><body><a href="/u">SFC-60 V3 updates</a><a href="/u">SFC-5 V2 updates</a></body></html>'
-        return "<html><body><p>V1.11:</p></body></html>"
+    result = await scraper.fetch_device_list()
 
-    scraper.fetch_page_js = _page
+    assert result.success is True
+    devices = {d.name: d.firmware_page_url for d in result.devices}
+    # A controller the page adds is picked up under the page's own name.
+    assert devices["SFC-9"] == "https://sound-force.nl/?page_id=7001"
+    assert "Webshop" not in devices
+    # Legacy controllers are linked under their own heading and still listed.
+    assert devices["SFC-Mini"] == "https://sound-force.nl/?page_id=5110"
+    # Each device reads the page its link names.
+    assert devices["SFC-Mini V4"].startswith("https://soundforce.notion.site/")
 
-    for name in ("SFC-60", "SFC-5"):
-        assert (await scraper.fetch_firmware_versions(name, scraper.SUPPORT_URL)).success
 
-    assert len(support_fetches) == 1
+@pytest.mark.asyncio
+async def test_soundforce_keeps_the_names_the_database_already_has():
+    """The page names controllers by revision; three were catalogued without one.
+
+    Only those three are renamed. SFC-Mini V4 is a different controller from the
+    SFC-Mini and must keep its V4, so this is not a rule that strips revisions.
+    """
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    scraper = SoundForceScraper()
+    _with_pages(scraper, {scraper.SUPPORT_URL: SUPPORT_PAGE})
+
+    names = [d.name for d in (await scraper.fetch_device_list()).devices]
+
+    assert names == ["SFC-Mini V4", "SFC-OB", "SFC-60", "SFC-5", "SFC-Mini"]
+
+
+@pytest.mark.asyncio
+async def test_soundforce_fails_when_the_support_page_links_nothing():
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    unreachable = SoundForceScraper()
+    _with_pages(unreachable, {})
+    assert (await unreachable.fetch_device_list()).success is False
+
+    rearranged = SoundForceScraper()
+    _with_pages(rearranged, {rearranged.SUPPORT_URL: '<p><a href="/shop">Webshop</a></p>'})
+    assert (await rearranged.fetch_device_list()).success is False
+
+
+@pytest.mark.asyncio
+async def test_soundforce_reads_the_update_page_it_was_given():
+    from src.scrapers.plugins.soundforce import SoundForceScraper
+
+    scraper = SoundForceScraper()
+    page = "https://sound-force.nl/?page_id=5145"
+    fetched = _with_pages(scraper, {page: "<p>V2.7:</p>", "https://sound-force.nl/?page_id=1": "<p>no releases</p>"})
+
+    result = await scraper.fetch_firmware_versions("SFC-5", page)
+    assert result.success is True
+    assert result.firmware_versions[0].version == "2.7"
+    assert fetched == [page]
+
+    # A page that loads with no release on it is a failure, not an empty success.
+    empty = await scraper.fetch_firmware_versions("SFC-5", "https://sound-force.nl/?page_id=1")
+    assert empty.success is False
 
 
 def test_soundforce_reads_a_date_that_sits_above_the_version():
