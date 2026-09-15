@@ -5302,13 +5302,20 @@ def test_korg_batches_are_even_and_cover_everything_once():
 
 
 def test_korg_full_sweep_takes_everything():
-    """The catch-up path, off by default because it costs the full 794s."""
+    """The catch-up path, off by default because it costs the full 794s.
+
+    The day is pinned: batches are 33, 33, 33, 33 and 32, so asserting 33 against the
+    real date failed one day in five -- first seen in CI on 2026-09-15.
+    """
+    from unittest.mock import patch
+
     from src.scrapers.plugins.korg import KorgScraper
 
     candidates = _korg_candidates()
 
-    assert len(KorgScraper()._select_batch(candidates)) == 33
-    assert len(KorgScraper(full_sweep=True)._select_batch(candidates)) == 164
+    with patch.object(KorgScraper, "_today_batch", lambda self: 0):
+        assert len(KorgScraper()._select_batch(candidates)) == 33
+        assert len(KorgScraper(full_sweep=True)._select_batch(candidates)) == 164
 
 
 def test_korg_full_sweep_reads_the_environment(monkeypatch):
