@@ -538,6 +538,48 @@ async def test_catalog_shows_the_latest_version_per_device(client):
     assert "1.0.0" not in row.group(0)
 
 
+def test_category_labels_keep_their_acronyms():
+    from src.templating import category_label
+
+    assert category_label("vst_plugin") == "VST Plugin"
+    assert category_label("midi_controller") == "MIDI Controller"
+    assert category_label("guitar_pedal") == "Guitar Pedal"
+    assert category_label("drum_machine") == "Drum Machine"
+
+
+@pytest.mark.asyncio
+async def test_pages_label_categories_as_the_filter_chips_do(client):
+    """`| title` rendered "Vst Plugin" in the tables beside "VST Plugin" chips."""
+    await _seed_one_of_each()
+
+    for path in ("/", "/catalog"):
+        html = (await client.get(path)).text
+        assert "VST Plugin" in html and "MIDI Controller" in html, path
+        assert "Vst Plugin" not in html and "Midi Controller" not in html, path
+
+
+def _media_block(css: str, selector: str) -> str:
+    return css.split("@media (max-width: 768px)", 1)[1].split(selector + " {", 1)[1].split("}", 1)[0]
+
+
+@pytest.mark.asyncio
+async def test_phone_layout_stacks_the_notification_header_and_fits_the_nav(client):
+    """At 390px the nav ran 8px past the screen and titles wrapped a word per line."""
+    css = (await client.get("/static/css/responsive.css")).text
+
+    assert "flex-direction: column" in _media_block(css, ".notification-header")
+    assert "flex-wrap: wrap" in _media_block(css, ".nav-links")
+    assert "padding: var(--space-sm)" in _media_block(css, ".nav-link")
+
+
+@pytest.mark.asyncio
+async def test_changelog_disclosure_draws_one_marker(client):
+    css = (await client.get("/static/css/device.css")).text
+
+    assert "list-style: none" in css.split(".firmware-changelog summary {", 2)[2].split("}", 1)[0]
+    assert ".firmware-changelog summary::-webkit-details-marker" in css
+
+
 @pytest.mark.asyncio
 async def test_notification_timestamps_share_one_column(client):
     """The content block needs flex:1 or it shrinks to its own text.

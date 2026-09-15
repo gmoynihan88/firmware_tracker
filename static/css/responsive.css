@@ -12,10 +12,17 @@
         gap: var(--space-md);
     }
 
+    /* At desktop padding the three links and the badge are 398px wide, past a 390px
+       phone, and the whole page scrolled sideways. Wrap rather than overflow below that. */
     .nav-links {
         order: 3;
         width: 100%;
         justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .nav-link {
+        padding: var(--space-sm);
     }
 
     .page-header {
@@ -34,6 +41,13 @@
 
     .notification-item {
         flex-direction: column;
+    }
+
+    /* The timestamp will not wrap, so beside it the title had one word per line. */
+    .notification-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-xs);
     }
 
     .notification-actions {

@@ -163,6 +163,24 @@
     transition: var(--transition-fast);
 }
 
+/* The chevron is the disclosure marker; the browser's own triangle drew a second one. */
+.firmware-changelog summary {
+    list-style: none;
+}
+
+.firmware-changelog summary::-webkit-details-marker {
+    display: none;
+}
+
+.firmware-changelog summary svg {
+    vertical-align: middle;
+    transition: var(--transition-fast);
+}
+
+.firmware-changelog[open] summary svg {
+    transform: rotate(180deg);
+}
+
 .firmware-changelog summary:hover {
     color: var(--amber-300);
 }

@@ -146,7 +146,7 @@
                     data-search="{{ (model.name ~ ' ' ~ model.manufacturer.name) | lower }}">
                     <td>{{ model.manufacturer.name }}</td>
                     <td class="device-name">{{ model.name }}</td>
-                    <td class="muted">{{ model.category.value | replace('_', ' ') | title }}</td>
+                    <td class="muted">{{ model.category.value | category_label }}</td>
                     {% set latest = latest_versions.get(model.id) %}
                     {# A version always wins. The flag describes why there is none, so
                        a vendor that starts publishing needs nothing cleared. #}
