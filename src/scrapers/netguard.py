@@ -191,4 +191,16 @@ async def read_text_capped(response: aiohttp.ClientResponse, limit: int) -> str:
         body.extend(chunk)
         if len(body) > limit:
             raise ResponseTooLarge(f"{response.url} exceeded the {limit}-byte cap")
-    return bytes(body).decode(_text_encoding(response))
+    data = bytes(body)
+    try:
+        return data.decode(_text_encoding(response))
+    except UnicodeDecodeError:
+        if response.charset:
+            # A declared charset the body does not match is the server's error, and
+            # guessing past it could turn a real failure into quiet mojibake.
+            raise
+        # No charset declared, and not UTF-8: a plain-text file written by a Windows-era
+        # tool. REAPER's 1.4MB changelog is Windows-1252, and failing on byte 1,275,402
+        # threw away the whole file. cp1252 with replacement never fails, and only the
+        # few bytes it cannot map come out as U+FFFD.
+        return data.decode("cp1252", errors="replace")
