@@ -1,0 +1,734 @@
+/* ═══════════════════════════════════════════════════════════════
+   BUTTONS - Tactile Controls
+   ═══════════════════════════════════════════════════════════════ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.btn-primary {
+    background: linear-gradient(180deg, var(--amber-400) 0%, var(--amber-500) 100%);
+    color: var(--surface-900);
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.3),
+        0 0 20px var(--amber-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(180deg, var(--amber-300) 0%, var(--amber-400) 100%);
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.4),
+        0 0 30px var(--amber-glow-strong),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.4),
+        inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.btn-secondary {
+    background: var(--surface-600);
+    color: var(--text-primary);
+    border: var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary:hover {
+    background: var(--surface-500);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.btn-danger {
+    background: linear-gradient(180deg, #f87171 0%, var(--signal-red) 100%);
+    color: white;
+    box-shadow: 0 0 15px var(--signal-red-glow);
+}
+
+.btn-danger:hover {
+    box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+}
+
+.btn-small {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FILTER BAR
+   ═══════════════════════════════════════════════════════════════ */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--surface-700);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    flex-wrap: wrap;
+}
+
+.filter-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.filter-actions {
+    display: flex;
+    gap: var(--space-xs);
+}
+
+.filter-action-btn {
+    padding: 0.25rem 0.5rem;
+    background: var(--surface-600);
+    border: var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.filter-action-btn:hover {
+    background: var(--surface-500);
+    color: var(--text-secondary);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.filter-action-btn:active {
+    background: var(--surface-400);
+}
+
+.filter-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.filter-checkbox {
+    cursor: pointer;
+    display: block;
+}
+
+.filter-checkbox input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.filter-chip {
+    /* Denser than the original: with 17 brands plus categories and statuses, the
+       filter bars took more vertical space than the table they filter. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.1875rem 0.5rem;
+    background: var(--surface-600);
+    border: var(--border-subtle);
+    border-radius: var(--radius-md);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    transition: var(--transition-fast);
+}
+
+/* A real checkbox, drawn. The native input is hidden for styling, so without this
+   the only signal that a filter is on is the chip's colour -- which is the same
+   signal the table uses for "update available", and read as a warning. */
+.chip-box {
+    position: relative;
+    flex: none;
+    width: 0.85em;
+    height: 0.85em;
+    border: 1px solid var(--border-medium, rgba(148, 163, 184, 0.5));
+    border-radius: 3px;
+    background: transparent;
+    transition: var(--transition-fast);
+}
+
+.filter-checkbox input:checked + .filter-chip .chip-box {
+    background: var(--signal-blue);
+    border-color: var(--signal-blue);
+}
+
+/* The tick itself: two borders on a rotated box, so it needs no font or image. */
+.filter-checkbox input:checked + .filter-chip .chip-box::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 0.2em;
+    height: 0.42em;
+    border: solid #0b1220;
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.filter-checkbox input:checked + .filter-chip {
+    /* Neutral rather than amber: selected is a state, not a warning. */
+    background: rgba(148, 163, 184, 0.14);
+    border-color: var(--border-medium, rgba(148, 163, 184, 0.45));
+    color: var(--text-primary);
+}
+
+/* Unselected should read as "off", not "disabled" -- keep it legible. */
+.filter-checkbox input:not(:checked) + .filter-chip {
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+
+.filter-checkbox input:focus-visible + .filter-chip {
+    outline: 2px solid var(--signal-blue);
+    outline-offset: 1px;
+}
+
+.filter-checkbox:hover .filter-chip {
+    background: var(--surface-500);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.filter-checkbox input:checked:hover + .filter-chip {
+    background: var(--amber-glow-strong);
+}
+
+@media (max-width: 768px) {
+    .filter-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY STATE
+   ═══════════════════════════════════════════════════════════════ */
+.empty-state {
+    text-align: center;
+    padding: var(--space-3xl) var(--space-xl);
+    background: var(--surface-700);
+    border-radius: var(--radius-xl);
+    border: 2px dashed var(--surface-500);
+}
+
+.empty-state h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-sm);
+}
+
+.empty-state p {
+    color: var(--text-tertiary);
+    margin-bottom: var(--space-lg);
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FORMS - Control Panels
+   ═══════════════════════════════════════════════════════════════ */
+.form {
+    max-width: 560px;
+    background: var(--surface-700);
+    padding: var(--space-xl);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+}
+
+.form-group {
+    margin-bottom: var(--space-lg);
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--surface-800);
+    border: var(--border-medium);
+    border-radius: var(--radius-md);
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+    transition: var(--transition-fast);
+
+    /* Inset control style */
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: var(--text-tertiary);
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--amber-500);
+    box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.2),
+        0 0 0 3px var(--amber-glow);
+}
+
+.form-group select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1a6' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    padding-right: 2.5rem;
+}
+
+.form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+}
+
+.form-group.checkbox input {
+    width: auto;
+    accent-color: var(--amber-500);
+}
+
+.form-group small {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    margin-top: var(--space-xs);
+}
+
+.form-static {
+    background: var(--surface-800);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+    padding-top: var(--space-lg);
+    border-top: var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ALERTS
+   ═══════════════════════════════════════════════════════════════ */
+.alert {
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-md);
+    font-size: 0.875rem;
+}
+
+.alert strong {
+    display: block;
+    margin-bottom: var(--space-xs);
+}
+
+.alert ul {
+    margin-top: var(--space-sm);
+    margin-left: var(--space-lg);
+    color: inherit;
+    opacity: 0.9;
+}
+
+.alert-success {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid var(--signal-green);
+    color: #86efac;
+}
+
+.alert-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--signal-red);
+    color: #fca5a5;
+}
+
+.scrape-result {
+    margin-top: var(--space-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DANGER ZONE
+   ═══════════════════════════════════════════════════════════════ */
+.danger-zone {
+    margin-top: var(--space-2xl);
+    padding: var(--space-lg);
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-lg);
+}
+
+.danger-zone h3 {
+    color: var(--signal-red);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATUS INDICATORS - LED Style
+   ═══════════════════════════════════════════════════════════════ */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0.625rem;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+}
+
+.status-indicator svg {
+    flex-shrink: 0;
+}
+
+.status-indicator.current {
+    color: var(--signal-green);
+    background: var(--signal-green-glow);
+}
+
+.status-indicator.current svg {
+    filter: drop-shadow(0 0 4px var(--signal-green));
+}
+
+.status-indicator.update {
+    color: var(--amber-400);
+    background: var(--amber-glow);
+}
+
+/* No installed version recorded: neither current nor behind, so it must not read
+   as either. Deliberately muted rather than alarming. */
+.status-indicator.unknown {
+    color: var(--text-tertiary);
+    background: rgba(148, 163, 184, 0.12);
+}
+
+.status-indicator.unknown svg {
+    opacity: 0.7;
+}
+
+.status-indicator.update svg {
+    filter: drop-shadow(0 0 4px var(--amber-500));
+    animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.status-indicator.disabled {
+    color: var(--text-tertiary);
+    background: rgba(110, 110, 115, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY STATE ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.empty-icon {
+    margin-bottom: var(--space-lg);
+    color: var(--text-tertiary);
+    opacity: 0.5;
+}
+
+.empty-state.small {
+    padding: var(--space-xl);
+    background: var(--surface-800);
+    border-style: solid;
+}
+
+.empty-state.small p {
+    font-size: 0.875rem;
+    margin-bottom: var(--space-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FORM ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.device-form {
+    max-width: 640px;
+}
+
+.form-section {
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-xl);
+    border-bottom: var(--border-subtle);
+}
+
+.form-section:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.form-section h2 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-lg);
+}
+
+.form-group label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.form-group label svg {
+    color: var(--amber-500);
+    flex-shrink: 0;
+}
+
+.form-group label .optional {
+    color: var(--text-tertiary);
+    font-weight: 400;
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.form-help {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    margin-top: var(--space-xs);
+}
+
+.form-or {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin: var(--space-md) 0;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+}
+
+.form-or::before,
+.form-or::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--surface-500);
+}
+
+.form-static {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.form-static .separator {
+    color: var(--text-tertiary);
+}
+
+.form-static .manufacturer {
+    color: var(--text-tertiary);
+}
+
+.form-static .model {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* Checkbox styling */
+.checkbox-label {
+    display: flex !important;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    font-weight: 400 !important;
+}
+
+.checkbox-label input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.checkbox-custom {
+    width: 20px;
+    height: 20px;
+    background: var(--surface-800);
+    border: var(--border-medium);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.checkbox-label input:checked + .checkbox-custom {
+    background: var(--amber-500);
+    border-color: var(--amber-500);
+}
+
+.checkbox-label input:checked + .checkbox-custom::after {
+    content: '';
+    width: 6px;
+    height: 10px;
+    border: solid var(--surface-900);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-bottom: 2px;
+}
+
+.checkbox-label input:focus + .checkbox-custom {
+    box-shadow: 0 0 0 3px var(--amber-glow);
+}
+
+.checkbox-text {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.checkbox-text svg {
+    color: var(--text-tertiary);
+}
+
+/* Disabled select */
+select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DANGER ZONE ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.danger-zone {
+    margin-top: 0;
+}
+
+.danger-zone h3 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.danger-zone h3 svg {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.danger-zone p {
+    color: var(--text-tertiary);
+    font-size: 0.8125rem;
+    margin-bottom: var(--space-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ALERT ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.alert {
+    display: flex;
+    gap: var(--space-md);
+    align-items: flex-start;
+}
+
+.alert-icon {
+    flex-shrink: 0;
+    padding-top: 0.125rem;
+}
+
+.alert-content {
+    flex: 1;
+}
+
+.alert-content strong {
+    display: block;
+    margin-bottom: var(--space-xs);
+}
+
+.alert-list {
+    list-style: none;
+    margin: var(--space-sm) 0 0 0;
+    padding: 0;
+}
+
+.alert-list li {
+    padding: var(--space-xs) 0;
+}
+
+.alert-list .stat-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.alert-success .alert-icon {
+    color: var(--signal-green);
+}
+
+.alert-error .alert-icon {
+    color: var(--signal-red);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTON WITH ICONS
+   ═══════════════════════════════════════════════════════════════ */
+.btn svg {
+    flex-shrink: 0;
+}

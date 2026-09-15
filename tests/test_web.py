@@ -289,16 +289,19 @@ async def test_stylesheet_link_is_content_versioned(client):
     import re
 
     html = (await client.get("/")).text
-    match = re.search(r'style\.css\?v=([a-f0-9]+)', html)
+    links = re.findall(r'/static/css/([a-z]+)\.css\?v=([a-f0-9]+)', html)
 
-    assert match, "stylesheet link should carry a version"
-    assert len(match.group(1)) >= 8, "expected a content hash, not a hand-set number"
+    # One link per stylesheet, in cascade order, each carrying its own content hash.
+    assert [name for name, _ in links] == [
+        "base", "nav", "components", "dashboard", "device", "notifications", "catalog", "login", "responsive",
+    ]
+    assert all(len(version) >= 8 for _, version in links), "expected content hashes, not hand-set numbers"
 
 
 @pytest.mark.asyncio
 async def test_static_assets_are_cacheable(client):
     """Safe to cache hard only because the URL changes when the file does."""
-    response = await client.get("/static/css/style.css")
+    response = await client.get("/static/css/base.css")
 
     assert response.status_code == 200
     assert "max-age=31536000" in response.headers["cache-control"]
@@ -543,7 +546,7 @@ async def test_notification_timestamps_share_one_column(client):
     a ragged edge down the page, because space-between has no free space to
     distribute inside a shrink-to-fit box.
     """
-    css = (await client.get("/static/css/style.css")).text
+    css = (await client.get("/static/css/notifications.css")).text
     block = css.split(".notification-content {", 1)[1].split("}", 1)[0]
 
     assert "flex: 1" in block
@@ -881,7 +884,7 @@ async def test_catalog_pager_stays_hidden_without_the_script(client):
 
     await _seed_catalog(60)
     html = (await client.get("/catalog")).text
-    css = (await client.get("/static/css/style.css")).text
+    css = (await client.get("/static/css/catalog.css")).text
 
     assert re.search(r'<nav class="catalog-pager" id="catalog-pager"[^>]*\bhidden\b', html)
     assert html.count('class="catalog-row"') == 60

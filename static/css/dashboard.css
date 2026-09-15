@@ -1,0 +1,342 @@
+/* ═══════════════════════════════════════════════════════════════
+   DEVICE GRID & CARDS - Rack Modules
+   ═══════════════════════════════════════════════════════════════ */
+.device-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-lg);
+}
+
+@media (max-width: 1200px) {
+    .device-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.device-card {
+    background: var(--surface-700);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    padding: var(--space-lg);
+    transition: var(--transition-base);
+    position: relative;
+    overflow: hidden;
+
+    /* Rack module styling */
+    box-shadow:
+        var(--shadow-md),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.device-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--surface-500) 0%, var(--surface-600) 50%, var(--surface-500) 100%);
+}
+
+.device-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        var(--shadow-lg),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.device-card.has-update {
+    border-left: 3px solid var(--amber-500);
+    box-shadow:
+        var(--shadow-md),
+        -4px 0 20px var(--amber-glow);
+}
+
+.device-card.has-update::before {
+    background: linear-gradient(90deg, var(--amber-500) 0%, var(--surface-600) 30%);
+}
+
+.device-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--space-md);
+    gap: var(--space-sm);
+}
+
+.device-header h3 {
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+}
+
+.update-badge {
+    background: var(--amber-500);
+    color: var(--surface-900);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 0 12px var(--amber-glow);
+    white-space: nowrap;
+}
+
+.device-info {
+    margin-bottom: var(--space-md);
+}
+
+.device-info p {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    margin-bottom: 0.125rem;
+}
+
+.device-info .manufacturer {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.device-info .category {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-tertiary);
+    margin-top: var(--space-xs);
+}
+
+/* Firmware display - VU meter inspired */
+.device-firmware {
+    background: var(--surface-800);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-md);
+    border: var(--border-subtle);
+
+    /* Inset panel effect */
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.firmware-current, .firmware-latest {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-xs) 0;
+}
+
+.firmware-current + .firmware-latest {
+    border-top: var(--border-subtle);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm);
+}
+
+.device-firmware .label {
+    font-size: 0.6875rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.device-firmware .version {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+}
+
+.device-firmware .version.new {
+    color: var(--amber-400);
+    text-shadow: 0 0 10px var(--amber-glow);
+}
+
+.device-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEVICE CARD ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+.device-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.device-manufacturer {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin-top: 0.125rem;
+}
+
+.device-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.device-model {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.device-category {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.125rem 0.5rem;
+    background: var(--surface-600);
+    border-radius: var(--radius-sm);
+}
+
+/* Firmware row styling */
+.firmware-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-xs) 0;
+}
+
+.firmware-row + .firmware-row {
+    border-top: var(--border-subtle);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm);
+}
+
+.firmware-row.highlight .firmware-value {
+    color: var(--amber-400);
+    text-shadow: 0 0 10px var(--amber-glow);
+}
+
+.firmware-label {
+    font-size: 0.6875rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.firmware-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+}
+
+.btn-block {
+    width: 100%;
+}
+
+/* Device table ----------------------------------------------------------- */
+
+.device-table-wrap {
+    /* The table is the one thing allowed to scroll sideways on a narrow screen. */
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.18));
+    border-radius: 12px;
+}
+
+.device-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.device-table th,
+.device-table td {
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.device-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-raised, #14181f);
+    border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.25));
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+}
+
+.device-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.device-table th.sortable:hover { color: var(--text-primary); }
+
+/* Direction arrow, so the active sort is visible without reading the data. */
+.device-table th.sortable[data-direction="asc"]::after { content: " \2191"; }
+.device-table th.sortable[data-direction="desc"]::after { content: " \2193"; }
+
+.device-table tbody tr {
+    border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.10));
+}
+
+.device-table tbody tr:hover {
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.device-table tbody tr.has-update {
+    /* A left edge rather than a full row tint: legible without shouting. */
+    box-shadow: inset 3px 0 0 var(--amber-400, #fbbf24);
+}
+
+.cell-product a {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.cell-product a:hover { text-decoration: underline; }
+
+.cell-sub {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.cell-version {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.cell-category { color: var(--text-tertiary); }
+
+/* Used by both tables' date columns, which had no rule of their own. Tabular
+   figures so the day and month digits line up down the column rather than
+   drifting; a third of the catalog's dates are an em-dash, and ragged numerals
+   beside them made the column look like noise. */
+.cell-date {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.cell-link {
+    color: var(--text-tertiary);
+    text-decoration: none;
+    font-size: 0.8125rem;
+}
+
+.cell-link:hover { color: var(--text-primary); }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
