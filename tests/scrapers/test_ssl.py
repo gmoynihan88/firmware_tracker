@@ -94,6 +94,8 @@ SOLSA_LINK = "https://support.download.solidstatelogic.com/Live/SOLSA%20Installe
 SOLSA = (
     '<h3>Remote Control &amp; Offline Setup Software</h3><p>SOLSA is a standalone version of Live console software.</p><ul>\n'
     '<li class="wysiwyg-list-color" data-list-item-id="e261"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("6.2.14") + '">V6.2.14 SOLSA Installer and Documentation</span></span></li>\n'
+    '<li class="wysiwyg-list-color" data-list-item-id="e092"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("6.1.10") + '">V6.1.10 SOLSA Installer and Documentation</span></span></li>\n'
+    '<li class="wysiwyg-list-color" data-list-item-id="eeae"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("6.1.7") + '">V6.1.7 SOLSA Installer and Documentation</span></span></li>\n'
     '<li data-list-item-id="eecb">\n<span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("5.2.18") + '">V5.2.18 SOLSA Installer and Documentation</span></span><span style="color: #000000;"><span class="btn btn-one wysiwyg-text-align-left" style="color: #0000CC;" data-link="' + SOLSA_LINK.format("5.1.14") + '"></span></span>\n</li>\n'
     '<li class="wysiwyg-list-color" data-list-item-id="e549"><span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("5.1.14") + '">V5.1.14 SOLSA Installer and Documentation</span></span></li>\n'
     '<li class="wysiwyg-list-color" data-list-item-id="e523">\n<span style="color: #0000CC;"><span class="btn btn-one wysiwyg-text-align-left" data-link="' + SOLSA_LINK.format("4.10.17") + '">V4.10.17 SOLSA Installer and Documentation</span></span><br>\xa0</li>\n'
@@ -206,7 +208,8 @@ def test_ssl_reads_solsa_releases_from_their_download_buttons():
 
     releases = SSLScraper()._parse_solsa(SOLSA)
 
+    # 6.1.10 is newer than 6.1.7, which comparing the text reverses.
     assert [(r.version, r.release_date) for r in releases] == [
-        ("6.2.14", None), ("5.2.18", None), ("5.1.14", None), ("4.10.17", None),
+        ("6.2.14", None), ("6.1.10", None), ("6.1.7", None), ("5.2.18", None), ("5.1.14", None), ("4.10.17", None),
     ]
-    assert releases[1].download_url == SOLSA_LINK.format("5.2.18")
+    assert releases[3].download_url == SOLSA_LINK.format("5.2.18")
