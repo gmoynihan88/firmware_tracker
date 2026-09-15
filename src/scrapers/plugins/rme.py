@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class RMEScraper(BaseScraper):
-    """RME -- the converters, preamps and cards whose firmware RME states as one version.
+    """RME -- converters, preamps and cards by stated version, interfaces by revision list.
 
     Every RME download is an item on `/downloads.html`, and the firmware ones carry
     `data-driver="flash"` -- the other 70 are drivers, TotalMix and DigiCheck, which
@@ -42,18 +42,38 @@ class RMEScraper(BaseScraper):
     The same version offered for Mac and Windows is one release, dated by the earlier
     item.
 
-    **What is not, yet.** RME's current interfaces -- Babyface Pro FS, Fireface UCX II,
-    UFX III, UFX+, 802 FS, ADI-2, MADIface, Digiface USB/Dante/Ravenna, the HDSPe series
-    -- are flashed by multi-product tools whose descriptions give per-component
-    revision lists rather than a version:
+    **Interfaces are read from the Mac flash tools, as revision lists.** RME's current
+    interfaces -- Babyface, Fireface UCX/UFX/802/UFX+, ADI-2, MADIface, OctaMic XTC,
+    Digiface USB/AES/Dante/Ravenna -- are flashed by multi-product tools that list each
+    product's firmware as its component revisions:
 
-        Update to version UFX: 361/163/344/29, ..., Babyface Pro & FS: 211/322.
-        Update to firmware version USB 55, TB 112, DSP 62 (AKM) and USB 72, ... (ESS).
+        Update to version UFX: 361/163/344/29, 802 A: 20/9/9/12, UCX II (6): 43/36/21,
+            ..., Babyface Pro & FS: 211/322.
+        ADI-2 Pro Series (Hw Rev 6): FPGA 270, DSP 130* ... Fireface UFX III: USB 21 DSP 25 CC 47
 
-    The Mac and Windows descriptions even order the components differently ("802 FS:
-    227/ 215/ 31" against "227/31/215"). Those are published, but not as one comparable
-    version, so they are left out rather than stored in a form that cannot say which is
-    newer.
+    That list is the version, stored as RME writes it with the separators made uniform
+    ("USB 21, DSP 25, CC 47"). The tracker compares versions by their numbers in order,
+    which holds while a product's components keep their order -- so **only the Mac
+    tools are read**: the Windows tools order some components differently ("802 FS:
+    227/31/215" against the Mac tool's "227/ 215/ 31") and, for MADIface XT II, state
+    different numbers (USB 323, CC 17 against 324, 15).
+
+    Labels are found by RME's product families ("Fireface", "MADIface", "ADI-2", the
+    Fireface short forms "UFX", "UCX", "UC", "802"...), so "USB 47, MCU 17, CC 11 USB
+    I/O:" ends one list and names the next product. A hardware revision is its own
+    device -- "UCX II (6)", "802 A" and "Fireface UFX II, Hw Rev A" become "Fireface
+    UCX II (Hw Rev 6)", "Fireface 802 (Hw Rev A)", "Fireface UFX II (Hw Rev A)" -- and
+    "Babyface Pro & FS" is two. The UFX+ tools name no labels, only converter-chip
+    variants: "USB 55, TB 112, DSP 62 (AKM) and USB 72, TB 167, DSP 62 (ESS)".
+
+    **A tool's date is not every product's release date.** A multi-product tool is
+    re-issued whenever any one product changes, and the newer one marks the changes
+    with "*". So a revision list is dated only when it is starred, or when the tool is
+    for that product alone (UFX+). Everything else is stored undated rather than
+    stamped with a sibling's release.
+
+    Not read: the HDSPe PCIe cards, whose tool states two firmware sets (legacy and
+    DriverKit) in prose, and the Windows-only entries.
     """
 
     manufacturer_name = "RME"
@@ -81,6 +101,21 @@ class RMEScraper(BaseScraper):
         re.compile(rf"(?:^|[\s,])v\s+(?P<v>\d+(?:\.\d+)*){_END}", re.I),
     )
     CATEGORIES = {"ARC USB": "midi_controller"}
+
+    MAC_TOOL = re.compile(r"^(?:Mac\s+OS(?:\s+X)?(?:\s+Intel)?|macOS)\b", re.I)
+    # "Product:" in a multi-product tool, by RME's product families. Words after the
+    # family may not be component revisions, so a list cannot swallow the next label.
+    _FAMILY = r"(?:Fireface|MADIface|Digiface|OctaMic|ADI-2(?:/4)?|Babyface|USB\s*I/O|USB\.MADI|UFX\+?|UCX|UC|802)"
+    LABEL = re.compile(
+        rf"(?P<label>(?<![\w/.+-]){_FAMILY}"
+        r"(?:[ ]+(?!Hw\b)(?:[A-Za-z][\w/.+&-]*|&|\d+(?=[ ]*(?:\(|:|,\s*Hw))))*"
+        r"(?:\s*\((?:Hw\s+Rev\s+)?\w+\)|,\s*Hw\s+Rev\s+\w+|[ ]+[AE](?=\s*:))?)\s*:"
+    )
+    LABEL_VARIANT = re.compile(r"(?:,\s*Hw\s+Rev\s+|\s*\((?:Hw\s+Rev\s+)?)(\w+)\)?$|\s+([AE])$")
+    FIREFACE_SHORT = re.compile(r"^(?:UFX\+?|UCX|UC|802)\b")
+    # "USB 55, TB 112, DSP 62 (AKM)": one chip variant's revisions in a single-product tool.
+    CHIP_VARIANT = re.compile(r"(?P<rev>(?:(?:USB|TB|DSP|CC|FPGA|PCIe|MCU)\s+\d+[,\s]*)+)\((?P<variant>[A-Z]{2,4})\)")
+    COMPONENT = r"(?:USB(?:\s*3/2)?|TB|DSP|CC|FPGA|PCIe|MCU)"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -111,6 +146,52 @@ class RMEScraper(BaseScraper):
                 return found.pop() if len(found) == 1 else None
         return None
 
+    def _interface_names(self, label: str) -> List[str]:
+        """"UCX II (6)" -> ["Fireface UCX II (Hw Rev 6)"]; "Babyface Pro & FS" -> two."""
+        label = " ".join(label.split())
+        variant = None
+        matched = self.LABEL_VARIANT.search(label)
+        if matched:
+            variant = matched.group(1) or matched.group(2)
+            label = label[:matched.start()].strip()
+        if self.FIREFACE_SHORT.match(label):
+            label = f"Fireface {label}"
+        both = re.match(r"^(.*?)\s*&\s*(\w+)$", label)
+        names = [both.group(1), f"{both.group(1)} {both.group(2)}"] if both else [label]
+        return [f"{name} (Hw Rev {variant})" if variant else name for name in names]
+
+    def _revisions(self, text: str) -> Tuple[str, bool]:
+        """(uniform revision list, whether RME starred it as changed)."""
+        starred = "*" in text
+        text = re.sub(r"\s*/\s*", "/", text.replace("*", ""))
+        # "USB 21 DSP 25 CC 47" and "68 CC 21" get the commas the other entries have.
+        text = re.sub(rf"(?<=\d)[,\s]+(?={self.COMPONENT}\b)", ", ", text)
+        return " ".join(text.split()).strip(" ,."), starred
+
+    def _interface_releases(self, item, title: str, description: str,
+                            released: Optional[datetime]) -> List[Tuple[str, str, Optional[datetime]]]:
+        """(device, revision list, date or None) from one Mac flash tool."""
+        found: List[Tuple[str, str, Optional[datetime]]] = []
+        labels = list(self.LABEL.finditer(description))
+        if len(labels) >= 2:
+            starred_tool = "*" in description
+            for index, label in enumerate(labels):
+                end = labels[index + 1].start() if index + 1 < len(labels) else len(description)
+                revisions, starred = self._revisions(description[label.end():end])
+                if not revisions or not re.search(r"\d", revisions):
+                    continue
+                dated = released if (starred_tool and starred) else None
+                found.extend((name, revisions, dated) for name in self._interface_names(label.group("label")))
+            return found
+        product = self._product_name(title)
+        variants = list(self.CHIP_VARIANT.finditer(description))
+        if product and variants:
+            base = self._interface_names(product)[0]
+            for variant in variants:
+                revisions, _ = self._revisions(variant.group("rev"))
+                found.append((f"{base} ({variant.group('variant')})", revisions, released))
+        return found
+
     def _parse_downloads(self, html: str) -> Dict[str, List[ScrapedFirmware]]:
         soup = self.parse_html(html)
         releases: Dict[Tuple[str, str], ScrapedFirmware] = {}
@@ -122,16 +203,32 @@ class RMEScraper(BaseScraper):
             cells = title_row.find_all("div", recursive=False) if title_row else []
             if len(cells) < 2:
                 continue
-            name = self._product_name(self._text(cells[0]))
+            title = self._text(cells[0])
             description = self._text(item.select_one("div.sub-row-description"))
-            version = self._firmware_version(description) if name else None
-            if not name or not version:
-                continue
             try:
                 released = datetime.strptime(self._text(cells[1]), "%Y-%m-%d")
             except ValueError:
                 released = None
             link = item.select_one("div.sub-row-title a[href]")
+
+            if self.MAC_TOOL.match(title):
+                for device, revisions, dated in self._interface_releases(item, title, description, released):
+                    key = (device, revisions)
+                    existing = releases.get(key)
+                    if existing is None:
+                        releases[key] = ScrapedFirmware(
+                            version=revisions, release_date=dated,
+                            download_url=link["href"] if link else None, changelog=description or None,
+                        )
+                        if device not in order:
+                            order.append(device)
+                    elif dated and (existing.release_date is None or dated < existing.release_date):
+                        existing.release_date = dated
+
+            name = self._product_name(title)
+            version = self._firmware_version(description) if name else None
+            if not name or not version:
+                continue
             key = (name, version)
             existing = releases.get(key)
             if existing is None:

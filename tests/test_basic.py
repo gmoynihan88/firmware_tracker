@@ -10093,9 +10093,7 @@ def test_rme_reads_one_version_per_single_product_firmware_item():
     from src.scrapers.plugins.rme import RMEScraper
 
     products = RMEScraper()._parse_downloads(RME_PAGE)
-    latest = {name: versions[0].version for name, versions in products.items()}
-
-    assert latest == {
+    expected = {
         "M-1620 Pro D": "1.3.3",
         "M-32 DA Pro II": "3.0.8",
         "M-32 AD Pro II": "3.0.7",
@@ -10104,6 +10102,8 @@ def test_rme_reads_one_version_per_single_product_firmware_item():
         "Fireface 400": "1.71",
         "ARC USB": "7",
     }
+
+    assert {name: products[name][0].version for name in expected} == expected
 
 
 def test_rme_names_products_from_the_title_not_the_shared_products_label():
@@ -10117,14 +10117,13 @@ def test_rme_names_products_from_the_title_not_the_shared_products_label():
     assert "M-32 AD / M-32 DA Pro II" not in products
 
 
-def test_rme_skips_revision_lists_and_multi_product_tools():
-    """Babyface/UFX, UFX+ and the RAV2 module publish per-component revisions, not a version."""
+def test_rme_skips_what_names_no_comparable_firmware():
+    """The RAV2 module's "hw 038 sw 1.31" prose, and a single version under a two-product title."""
     from src.scrapers.plugins.rme import RMEScraper
 
     products = RMEScraper()._parse_downloads(RME_PAGE)
 
-    for name in ("Fireface UFX", "Babyface Pro FS", "Fireface UFX+", "Digiface Ravenna - RAV2 module", "Digiface Ravenna",
-                 "Fireface 400 and Fireface 800"):
+    for name in ("Digiface Ravenna - RAV2 module", "Digiface Ravenna", "Fireface 400 and Fireface 800", "Fireface UFX+"):
         assert name not in products
 
 
@@ -10176,8 +10175,9 @@ async def test_rme_lists_devices_from_one_fetch():
 
     assert asked == [RMEScraper.DOWNLOADS_URL]
     assert devices["ARC USB"] == "midi_controller"
-    assert devices["M-1620 Pro D"] == "audio_interface"
-    assert len(devices) == 7
+    assert devices["M-1620 Pro D"] == devices["Babyface Pro FS"] == "audio_interface"
+    # Seven stated versions, and four interfaces from the two Mac flash tools.
+    assert len(devices) == 11
 
 
 @pytest.mark.asyncio
@@ -10266,3 +10266,84 @@ async def test_obs_is_one_device():
     devices = (await scraper.fetch_device_list()).devices
 
     assert [(d.name, d.category) for d in devices] == [("OBS Studio", "vst_plugin")]
+
+
+RME_INTERFACE_TOOLS = _rme_page(
+    _rme_item("Mac OS Flash Update Tool for MADIface XT/XT II/USB/Pro, OctaMic XTC, ADI-2 Pro series &amp; DAC",
+              "2026-09-02", "fut_madiface_mac.zip",
+              "Update to version: (*latest changes) MADIface XT II: USB 3/2 324, DSP 61, CC 15 "
+              "MADIface USB, Hw Rev 6: 25, CC 4 Fireface UFX III: USB 21 DSP 25 CC 47 "
+              "Digiface AES: USB 47, MCU 17, CC 11 USB I/O: USB 10 CC 14 USB.MADI: USB 18, CC 13*",
+              "MADIface XT II, MADIface USB, Fireface UFX III, Digiface AES, USB.IO, USB.MADI"),
+    _rme_item("Windows Flash Update Tool for MADIface XT/XT II/USB/Pro, OctaMic XTC", "2026-09-02",
+              "fut_madiface_win.zip", "Update to firmware: MADIface XT II: USB 3/2 323, DSP 61, CC 17 MADIface Pro: 73",
+              "MADIface XT II, MADIface Pro"),
+    _rme_item("Mac OS Flash Update Tool for Fireface UFX, 802, UCX, UCX II, UC, Babyface/Pro", "2025-09-01",
+              "fut_usb_mac.zip",
+              "Update to version UFX: 361/163/344/29, 802 A: 20/9/9/12, 802 FS: 227/ 215/ 31, "
+              "UCX II (6): 43/36/21, UC: 127/138, Babyface Pro &amp; FS: 211/322.",
+              "Babyface Pro, Babyface Pro FS, Fireface 802, Fireface 802 FS, Fireface UC, Fireface UCX II, Fireface UFX"),
+    _rme_item("Mac OS X Intel Flash Update Tool for Fireface UFX+ (USB+Thunderbolt)", "2025-08-06", "fut_usb_tb_mac.zip",
+              "Update to firmware version USB 55, TB 112, DSP 62 (AKM) and USB 72, TB 167, DSP 62 (ESS).", "Fireface UFX+"),
+    _rme_item("macOS UFX+ Flash Update Tool (USB+Thunderbolt)", "2025-02-27", "fut_usb_tb_mac.zip",
+              "Update to firmware version USB 55, TB 112, DSP 61 (AKM), USB 72, TB 167, DSP 61 (ESS).", "Fireface UFX+"),
+)
+
+
+def test_rme_reads_interface_revision_lists_from_the_mac_tools():
+    """Each list is the version; labels become full names, hardware revisions separate devices."""
+    from src.scrapers.plugins.rme import RMEScraper
+
+    products = RMEScraper()._parse_downloads(RME_INTERFACE_TOOLS)
+    current = {name: versions[0].version for name, versions in products.items()}
+
+    assert current == {
+        "MADIface XT II": "USB 3/2 324, DSP 61, CC 15",
+        "MADIface USB (Hw Rev 6)": "25, CC 4",
+        "Fireface UFX III": "USB 21, DSP 25, CC 47",
+        "Digiface AES": "USB 47, MCU 17, CC 11",
+        "USB I/O": "USB 10, CC 14",
+        "USB.MADI": "USB 18, CC 13",
+        "Fireface UFX": "361/163/344/29",
+        "Fireface 802 (Hw Rev A)": "20/9/9/12",
+        "Fireface 802 FS": "227/215/31",
+        "Fireface UCX II (Hw Rev 6)": "43/36/21",
+        "Fireface UC": "127/138",
+        "Babyface Pro": "211/322",
+        "Babyface Pro FS": "211/322",
+        "Fireface UFX+ (AKM)": "USB 55, TB 112, DSP 62",
+        "Fireface UFX+ (ESS)": "USB 72, TB 167, DSP 62",
+    }
+
+
+def test_rme_ignores_the_windows_tools_for_interfaces():
+    """They order components differently and, for MADIface XT II, state different numbers."""
+    from src.scrapers.plugins.rme import RMEScraper
+
+    products = RMEScraper()._parse_downloads(RME_INTERFACE_TOOLS)
+
+    assert [fw.version for fw in products["MADIface XT II"]] == ["USB 3/2 324, DSP 61, CC 15"]
+    assert "MADIface Pro" not in products  # only in the Windows tool here
+
+
+def test_rme_dates_an_interface_only_when_rme_marks_it_changed():
+    """A multi-product tool is re-issued when any one product changes, and stars that one."""
+    from src.scrapers.plugins.rme import RMEScraper
+
+    products = RMEScraper()._parse_downloads(RME_INTERFACE_TOOLS)
+
+    assert products["USB.MADI"][0].release_date.date().isoformat() == "2026-09-02"
+    assert products["Fireface UFX III"][0].release_date is None
+    assert products["Babyface Pro FS"][0].release_date is None  # that tool stars nothing
+
+
+def test_rme_keeps_ufx_plus_history_per_converter_chip():
+    """UFX+ tools are for that product alone, so their dates hold, and the older one is history."""
+    from src.scrapers.plugins.rme import RMEScraper
+
+    akm = RMEScraper()._parse_downloads(RME_INTERFACE_TOOLS)["Fireface UFX+ (AKM)"]
+
+    assert [(fw.version, fw.release_date.date().isoformat()) for fw in akm] == [
+        ("USB 55, TB 112, DSP 62", "2025-08-06"),
+        ("USB 55, TB 112, DSP 61", "2025-02-27"),
+    ]
