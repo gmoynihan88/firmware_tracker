@@ -334,12 +334,16 @@ caught scrapers that reported no failures.
 
 At the end of the batch:
 
-- **A full uncached sweep of everything**, not just the new ones. About 17 minutes
+- **A full uncached sweep of everything**, not just the new ones:
+  `.venv/bin/python scripts/sweep_scrapers.py` keeps the Mac awake, forces the cache off
+  and exits 1 on any failure. About 17 minutes
   for 37 vendors: korg 310s, elektron 113s, roland 103s, boss 74s, eventide 66s,
   everything else under 30s.
-- **README counts** — vendor count, device count, the manufacturer table. Three
-  separate places, and they drift.
-- **`CLAUDE.md`'s scraper count**, which drifted to 24 while the repo had 37.
+- **README counts** -- `.venv/bin/python scripts/update_readme_counts.py` rewrites the
+  vendor and device counts in README and CLAUDE.md and names any vendor missing from
+  the manufacturer table, which stays hand-written.
+- **`CLAUDE.md`'s scraper count** drifted to 24 while the repo had 37;
+  `test_readme_counts_match_the_registry` now fails a PR that forgets.
 - **Tag a release.** A batch is a release's worth of change.
 
 ## What a batch actually costs

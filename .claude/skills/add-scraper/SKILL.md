@@ -341,7 +341,8 @@ cleared.
    `debug-scraper` skill, step 6).
 4. Set `firmware_availability` on any product that reports no version, or decide
    deliberately to leave it unset.
-5. Update the manufacturer table in `README.md`.
+5. Add the vendor to the manufacturer table in `README.md`, then run
+   `.venv/bin/python scripts/update_readme_counts.py` for the counts.
 
 ## Things this repo has already been bitten by
 
