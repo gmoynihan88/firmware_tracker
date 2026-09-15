@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 86 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 87 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,13 +62,13 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 86 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
+- **Scrapes 87 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
   MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Casio, Cockos
   (REAPER), Conductive Labs, Dirtywave, Dreadbox, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
   Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
   Klanghelm, Korg, MOTU (Digital Performer), Mooer, Moog, Native Instruments, Neural DSP, Nord, Novation, Oberheim, OBS Project (OBS
   Studio), oeksound, OXI Instruments, Pioneer DJ, Polyend, Positive Grid, PreSonus (Fender Studio, Notion), RME, Sequential, Sequentix, Serato, Solid State Logic, Soundtoys, Squarp Instruments, Steinberg, Strymon, Synthstrom Audible, Teenage Engineering, Tokyo
-  Dawn Labs, Toontrack, Torso Electronics, u-he, Universal Audio, Valhalla DSP, Waves, Xfer Records, XLN Audio, Zoom and more
+  Dawn Labs, Toontrack, Torso Electronics, u-he, Universal Audio, Valhalla DSP, Waldorf, Waves, Xfer Records, XLN Audio, Zoom and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -162,7 +162,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,930 devices across 86 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,932 devices across 87 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -367,6 +367,7 @@ likely to touch:
 | TC Electronic |  |
 | Teenage Engineering |  |
 | Torso Electronics |  |
+| Waldorf |  |
 | Yamaha |  |
 | Zoom |  |
 
@@ -446,7 +447,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (86 scrapers)
+    plugins/           # One file per manufacturer (87 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
