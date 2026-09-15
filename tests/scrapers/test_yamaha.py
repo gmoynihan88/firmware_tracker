@@ -221,3 +221,157 @@ def test_yamaha_invents_nothing_when_the_table_is_gone():
     result = asyncio.run(run())
     assert result.success is True
     assert result.firmware_versions == []
+
+
+# The stage keyboards' downloads table, as served: the updater's version comes
+# before the words "Operating System Updater".
+CK_DOWNLOADS = """
+<html><head><title>CK - Downloads - Stage Keyboards - Yamaha USA</title></head><body>
+<table class="table table-bordered hide-division-code" id="firmware-table">
+<thead><tr class="active"><th scope="col">Name</th><th scope="col">OS</th><th scope="col">Size</th><th scope="col">Last Update</th></tr></thead>
+<tbody>
+<tr data-id="2881943" data-os="-"><td>
+<a href="/support/updates/ck61_ck88_os.html">CK61/CK88 V1.10 Operating System Updater<span aria-label="Download" class="fa fa-fw fa-download"></span></a> </td>
+<td>-</td><td>3.3MB</td><td>2026-01-14</td></tr>
+<tr data-id="2442684" data-os="Win"><td>
+<a href="/support/updates/yamaha_steinberg_usb_driver_for_win.html">Yamaha Steinberg USB Driver V2.1.9 for Windows 11/10 (64-bit)<span class="fa fa-fw fa-download"></span></a> </td>
+<td>Win</td><td>8.2MB</td><td>2025-06-25</td></tr>
+</tbody></table></body></html>
+"""
+
+
+def test_yamaha_reads_an_updater_written_version_first():
+    """"CK61/CK88 V1.10 Operating System Updater" -- four families write it this way."""
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    scraper = YamahaScraper()
+    versions = scraper._parse_downloads_table(CK_DOWNLOADS, "CK88")
+
+    assert [(fw.version, fw.release_date.strftime("%Y-%m-%d")) for fw in versions] == [("1.10", "2026-01-14")]
+    assert scraper._row_applies_to("CK61/CK88 V1.10 Operating System Updater") == ["ck61", "ck88"]
+    assert scraper._row_applies_to("reface CS/DX updater V1.30-3 for Mac") == ["reface cs", "reface dx"]
+
+
+def _modx_downloads(updater="MODX OS Updater V2.52"):
+    return f"""<html><body><table class="table table-bordered" id="firmware-table">
+      <thead><tr><th>Name</th><th>OS</th><th>Size</th><th>Last Update</th></tr></thead>
+      <tbody><tr><td><a href="/support/updates/x.html">{updater}</a></td><td>-</td><td>1GB</td><td>2021-02-22</td></tr>
+      <tr><td><a href="/support/updates/y.html">MODX Connect V1.2.1 for Mac</a></td><td>Mac</td><td>29.8MB</td><td>2024-11-11</td></tr></tbody>
+    </table></body></html>"""
+
+
+def _specs(*models):
+    heads = "".join(f"<th>{m}</th>" for m in models)
+    return f"<html><body><table><tr><th></th>{heads}</tr><tr><th>Size/Weight</th></tr><tr><th>Tone generator</th></tr></table></body></html>"
+
+
+BASE = "https://usa.yamaha.com/products/music_production"
+
+YAMAHA_PAGES = {
+    f"{BASE}/index.html": """
+      <a href="/products/music_production/synthesizers/index.html">Synthesizers</a>
+      <a href="/products/music_production/stagekeyboards/index.html">Stage Keyboards</a>
+      <a href="/products/music_production/accessories/index.html">Accessories</a>
+    """,
+    f"{BASE}/synthesizers/index.html": """
+      <div class="col-xs-6 col-sm-4 detail-page"><a class="display-block" href="/products/music_production/synthesizers/modx/index.html"><img alt=""/></a></div>
+      <div class="col-xs-6 col-sm-4 detail-page"><a class="display-block" href="/products/music_production/synthesizers/montagem/index.html"><img alt=""/></a></div>
+      <div class="col-xs-6 col-sm-4 detail-page"><a class="display-block" href="/products/music_production/synthesizers/mx88/index.html"><img alt=""/></a></div>
+    """,
+    f"{BASE}/stagekeyboards/index.html": """
+      <div class="detail-page"><a href="/products/music_production/stagekeyboards/ck/index.html"><img alt=""/></a></div>
+    """,
+    f"{BASE}/synthesizers/modx/downloads.html": _modx_downloads(),
+    f"{BASE}/synthesizers/modx/specs.html": _specs("MODX8", "MODX7", "MODX6"),
+    f"{BASE}/synthesizers/montagem/downloads.html": _modx_downloads("MONTAGE M OS Updater V3.01 from version V3.00"),
+    f"{BASE}/synthesizers/montagem/specs.html": _specs("MONTAGE M8x", "MONTAGE M7", "MONTAGE M6"),
+    # A family whose downloads carry no OS updater: not listed, specs never fetched.
+    f"{BASE}/synthesizers/mx88/downloads.html": _modx_downloads("MX88 Voice Editor V1.0.0"),
+    f"{BASE}/stagekeyboards/ck/downloads.html": CK_DOWNLOADS,
+    f"{BASE}/stagekeyboards/ck/specs.html": _specs("CK61", "CK88", "Number of Keys"),
+}
+
+
+def _discovery_scraper(pages=YAMAHA_PAGES):
+    from src.scrapers.plugins.yamaha import YamahaScraper
+
+    scraper = YamahaScraper()
+    fetched = []
+
+    async def _page(url, *_args, **_kwargs):
+        fetched.append(url)
+        return pages.get(url)
+
+    scraper.fetch_page = _page
+    return scraper, fetched
+
+
+@pytest.mark.asyncio
+async def test_yamaha_lists_the_models_each_familys_updater_serves():
+    """The products come from the family pages, not a hand-kept list of sixteen."""
+    scraper, _ = _discovery_scraper()
+
+    devices = {d.name: d for d in (await scraper.fetch_device_list()).devices}
+
+    for name in ("MODX8", "MODX7", "MODX6", "CK61", "CK88", "Montage M8x", "Montage M7", "Montage M6"):
+        assert name in devices, name
+    assert devices["CK88"].firmware_page_url == f"{BASE}/stagekeyboards/ck/downloads.html"
+    assert devices["CK88"].category == "synthesizer"
+    # The THR amps are outside the index and still listed from their own page.
+    assert devices["THR30II"].firmware_page_url == scraper.THR_REMOTE_URL
+
+
+@pytest.mark.asyncio
+async def test_yamaha_skips_families_without_an_updater_and_categories_without_firmware():
+    scraper, fetched = _discovery_scraper()
+
+    names = [d.name for d in (await scraper.fetch_device_list()).devices]
+
+    assert not any(name.startswith("MX88") for name in names)
+    assert f"{BASE}/synthesizers/mx88/specs.html" not in fetched
+    assert f"{BASE}/accessories/index.html" not in fetched
+
+
+@pytest.mark.asyncio
+async def test_yamaha_keeps_the_databases_casing_for_montage_m():
+    scraper, _ = _discovery_scraper()
+
+    names = [d.name for d in (await scraper.fetch_device_list()).devices]
+
+    assert "Montage M8x" in names and "MONTAGE M8x" not in names
+
+
+@pytest.mark.asyncio
+async def test_yamaha_reads_each_family_page_once_for_all_its_models():
+    scraper, fetched = _discovery_scraper()
+
+    listing = await scraper.fetch_device_list()
+    for device in listing.devices:
+        if device.firmware_page_url != scraper.THR_REMOTE_URL:
+            result = await scraper.fetch_firmware_versions(device.name, device.firmware_page_url)
+            assert result.success is True and result.firmware_versions, device.name
+
+    assert fetched.count(f"{BASE}/stagekeyboards/ck/downloads.html") == 1
+
+
+@pytest.mark.asyncio
+async def test_yamaha_listing_fails_when_a_family_page_does_not_load():
+    pages = dict(YAMAHA_PAGES)
+    del pages[f"{BASE}/stagekeyboards/ck/downloads.html"]
+    assert (await _discovery_scraper(pages)[0].fetch_device_list()).success is False
+
+    assert (await _discovery_scraper({})[0].fetch_device_list()).success is False
+
+
+@pytest.mark.asyncio
+async def test_yamaha_listing_fails_when_no_family_carries_an_updater():
+    """If the tables change shape, the listing must not shrink to the THR products."""
+    pages = {
+        f"{BASE}/index.html": YAMAHA_PAGES[f"{BASE}/index.html"],
+        f"{BASE}/synthesizers/index.html": """
+          <div class="detail-page"><a href="/products/music_production/synthesizers/mx88/index.html"></a></div>""",
+        f"{BASE}/stagekeyboards/index.html": "<p>No products</p>",
+        f"{BASE}/synthesizers/mx88/downloads.html": YAMAHA_PAGES[f"{BASE}/synthesizers/mx88/downloads.html"],
+    }
+
+    assert (await _discovery_scraper(pages)[0].fetch_device_list()).success is False
