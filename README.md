@@ -18,7 +18,7 @@ announce. There is no feed to subscribe to and no common release channel — eac
 manufacturer has its own downloads page, and checking them by hand does not scale past
 a few devices.
 
-This scrapes 50 manufacturers on a schedule, compares what it finds against the gear
+This scrapes 51 manufacturers on a schedule, compares what it finds against the gear
 you own, and notifies you when something is behind.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
@@ -62,11 +62,12 @@ matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md
 
 ## What it does
 
-- **Scrapes 50 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys,
-  Elektron, Eventide, Empress, FabFilter, Fender, Focusrite, Fractal Audio, Goodhertz,
-  iConnectivity, iZotope, Kemper, Kilohearts, Klanghelm, Korg, Moog, Native Instruments,
-  Neural DSP, Novation, Positive Grid, Soundtoys, Steinberg, Strymon, Teenage Engineering,
-  Tokyo Dawn Labs, u-he, Universal Audio, Valhalla DSP, Xfer Records, Zoom and more
+- **Scrapes 51 manufacturers** — Ableton, Akai, Arturia, Bitwig, Boss, Cableguys, Cockos
+  (REAPER), Elektron, Eventide, Empress, FabFilter, Fender, Focusrite, Fractal Audio,
+  Goodhertz, iConnectivity, iZotope, Kemper, Kilohearts, Klanghelm, Korg, Moog, Native
+  Instruments, Neural DSP, Novation, Positive Grid, Soundtoys, Steinberg, Strymon, Teenage
+  Engineering, Tokyo Dawn Labs, u-he, Universal Audio, Valhalla DSP, Xfer Records, Zoom
+  and more
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
@@ -154,7 +155,7 @@ together, or need a vendor the others do not cover.
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 1,016 devices across 50 vendors, so it
+**Add devices** from the catalogue at `/catalog`. 1,016 devices across 51 vendors, so it
 filters and pages: type to narrow by product or vendor, split hardware from software,
 pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
 
@@ -312,26 +313,26 @@ likely to touch:
 | Akai Professional | Ableton (Live) |
 | Arturia\* | Bitwig (Studio) |
 | Boss | Cableguys |
-| Crumar | FabFilter |
-| Elektron | GForce Software |
-| Empress Effects | Goodhertz |
-| Eventide\* | IK Multimedia |
-| Fender | iZotope |
-| Focusrite | Kilohearts |
-| Fractal Audio | Klanghelm |
-| iConnectivity | Modartt (Pianoteq) |
-| Keith McMillen | Moog |
-| Kemper | Native Instruments |
-| Korg | PSPaudioware |
-| Line 6 | Soundtoys |
-| Neural DSP | Steinberg |
-| Novation | TAL Software |
-| Peterson | Tokyo Dawn Labs |
-| Positive Grid\* | u-he |
-| QSC | Universal Audio |
-| Roland | Valhalla DSP |
-| Sound-Force | Xfer Records |
-| Strymon |  |
+| Crumar | Cockos (REAPER) |
+| Elektron | FabFilter |
+| Empress Effects | GForce Software |
+| Eventide\* | Goodhertz |
+| Fender | IK Multimedia |
+| Focusrite | iZotope |
+| Fractal Audio | Kilohearts |
+| iConnectivity | Klanghelm |
+| Keith McMillen | Modartt (Pianoteq) |
+| Kemper | Moog |
+| Korg | Native Instruments |
+| Line 6 | PSPaudioware |
+| Neural DSP | Soundtoys |
+| Novation | Steinberg |
+| Peterson | TAL Software |
+| Positive Grid\* | Tokyo Dawn Labs |
+| QSC | u-he |
+| Roland | Universal Audio |
+| Sound-Force | Valhalla DSP |
+| Strymon | Xfer Records |
 | TC Electronic |  |
 | Tascam |  |
 | Teenage Engineering |  |
@@ -414,7 +415,7 @@ src/
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
     cache.py           # Dev cache and ETag revalidation
-    plugins/           # One file per manufacturer (50 scrapers)
+    plugins/           # One file per manufacturer (51 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries

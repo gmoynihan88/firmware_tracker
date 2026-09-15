@@ -374,7 +374,8 @@ a new vendor's page before believing an extraction.
   release log has "June 20th, 2024", "October, 20, 2021" and "June 2, 2016:", and
   some releases open with a note before their date. A pattern fitted to the newest
   entry left five releases undated; four had a date all along. Print every entry the
-  extraction leaves undated and read the markup behind each one.
+  extraction leaves undated and read the markup behind each one. REAPER's three were
+  February spelled "Feburary" and "Februrary": read a month by its first three letters.
 - **A news page is history, not the current version.** Klanghelm's news page dates
   paid releases, but its newest visible SDRR entry was 2.2.1 from 2019, while a
   commented-out draft in the same file announced 2.5.5 -- a "latest" taken from it
