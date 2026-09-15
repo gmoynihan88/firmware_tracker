@@ -88,23 +88,86 @@ def test_ableton_skips_a_version_heading_with_no_notes_under_it():
     assert versions == {"12.4.5", "12.0.20", "11.3.42", "11.0.12"}
 
 
-def test_ableton_tracks_a_major_version_as_its_own_product():
-    """Following Steinberg's Cubase 12 and Cubase 13.
+# The release-notes index as served: it is the Live 12 page itself, named only by its
+# head's language alternates, with Push linked from the body and a login link that
+# carries the Live 12 URL in its query string.
+ABLETON_INDEX = """
+<html><head>
+<link rel="alternate" hreflang="en" href="https://www.ableton.com/en/release-notes/live-12/">
+<link rel="alternate" hreflang="de" href="https://www.ableton.com/de/release-notes/live-12/">
+<link rel="alternate" hreflang="ja" href="https://www.ableton.com/ja/release-notes/live-12/">
+<link rel="alternate" hreflang="x-default" href="https://www.ableton.com/en/release-notes/live-12/">
+</head><body>
+<a href="/en/login/?next=/en/release-notes/live-12/">Log in or register</a>
+<a href="https://www.ableton.com/en/release-notes/push-12/" rel="noopener noreferrer">Push release notes page.</a>
+<a href="https://www.ableton.com/en/release-notes/push-12/">Push 3</a>
+</body></html>
+"""
 
-    One "Ableton Live" row would have 12.4.5 and 11.3.43 competing to be latest, and
-    the newer always wins — telling a Live 11 owner they are behind by a major they
-    have not bought.
-    """
-    import asyncio
 
+def _index_scraper(index=ABLETON_INDEX):
     from src.scrapers.plugins.ableton import AbletonScraper
 
-    devices = asyncio.run(AbletonScraper().fetch_device_list())
-    names = [d.name for d in devices.devices]
+    scraper = AbletonScraper()
 
-    assert names[:2] == ["Live 12", "Live 11"]
-    assert "Push" in names, "Push versions itself separately and belongs here too"
-    assert all("release-notes" in d.firmware_page_url for d in devices.devices)
+    async def _page(url, **_kwargs):
+        return index if url == scraper.RELEASE_NOTES_INDEX else None
+
+    scraper.fetch_page = _page
+    return scraper
+
+
+@pytest.mark.asyncio
+async def test_ableton_lists_the_majors_the_release_notes_index_links():
+    """The products are the index's pages, not three hand-kept slugs.
+
+    A major is its own product, following Steinberg's Cubase 12 and Cubase 13: one
+    "Ableton Live" row would have 12.4.5 and 11.3.43 competing to be latest, telling a
+    Live 11 owner they are behind by a major they have not bought.
+    """
+    devices = (await _index_scraper().fetch_device_list()).devices
+
+    assert [d.name for d in devices] == ["Live 12", "Push"]
+    assert devices[0].firmware_page_url == "https://www.ableton.com/en/release-notes/live-12/"
+
+
+@pytest.mark.asyncio
+async def test_ableton_lists_a_new_major_without_a_code_change():
+    # Once 13 ships the index is the Live 13 page; the old major may stay linked.
+    index = ABLETON_INDEX.replace("live-12/\">\n<link rel=\"alternate\" hreflang=\"de\"", "live-13/\">\n<link rel=\"alternate\" hreflang=\"de\"", 1) \
+        + '<a href="https://www.ableton.com/en/release-notes/live-12/">Live 12</a>' \
+        '<a href="https://www.ableton.com/en/release-notes/push-13/">Push</a>'
+
+    devices = (await _index_scraper(index).fetch_device_list()).devices
+
+    assert [d.name for d in devices] == ["Live 13", "Live 12", "Push"]
+    # Push is one device whichever Live its page is numbered for.
+    assert devices[-1].firmware_page_url.endswith("/push-13/")
+
+
+@pytest.mark.asyncio
+async def test_ableton_still_reads_a_major_the_index_no_longer_links():
+    """Live 11's page is linked from nowhere now; its row reads the page it stores."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    scraper = AbletonScraper()
+    requested = []
+
+    async def _page(url, **_kwargs):
+        requested.append(url)
+        return _ableton_page()
+
+    scraper.fetch_page = _page
+    result = await scraper.fetch_firmware_versions("Live 11", "https://www.ableton.com/en/release-notes/live-11/")
+
+    assert result.success is True
+    assert requested == ["https://www.ableton.com/en/release-notes/live-11/"]
+
+
+@pytest.mark.asyncio
+async def test_ableton_listing_fails_when_the_index_links_nothing():
+    assert (await _index_scraper(None).fetch_device_list()).success is False
+    assert (await _index_scraper("<p>Release notes</p>").fetch_device_list()).success is False
 
 
 @pytest.mark.asyncio
@@ -182,8 +245,33 @@ async def test_ableton_lists_push_as_hardware():
     """Live is software; Push is a thing on a desk."""
     from src.scrapers.plugins.ableton import AbletonScraper
 
-    devices = await AbletonScraper().fetch_device_list()
+    devices = await _index_scraper().fetch_device_list()
     by_name = {d.name: d.category for d in devices.devices}
 
     assert by_name["Push"] == "midi_controller"
     assert by_name["Live 12"] == "vst_plugin"
+
+
+@pytest.mark.asyncio
+async def test_ableton_reads_the_current_major_from_the_index_without_fetching_it_again():
+    """The index is the Live 12 page. A second fetch returns the same bytes, which the
+    scrape summary reports as two URLs serving one page, on every run."""
+    from src.scrapers.plugins.ableton import AbletonScraper
+
+    scraper = AbletonScraper()
+    index = ABLETON_INDEX.replace("</body>", _ableton_page() + "</body>")
+    requested = []
+
+    async def _page(url, **_kwargs):
+        requested.append(url)
+        return index if url == scraper.RELEASE_NOTES_INDEX else None
+
+    scraper.fetch_page = _page
+
+    listing = await scraper.fetch_device_list()
+    live = next(d for d in listing.devices if d.name == "Live 12")
+    result = await scraper.fetch_firmware_versions(live.name, live.firmware_page_url)
+
+    assert result.success is True
+    assert "12.4.5" in {fw.version for fw in result.firmware_versions}
+    assert requested == [scraper.RELEASE_NOTES_INDEX]
