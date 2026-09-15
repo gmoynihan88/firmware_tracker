@@ -216,9 +216,9 @@ nothing:
 ```bash
 cp src/scrapers/plugins/VENDOR.py /tmp/v.bak
 # invert the specific decision the test exists to defend, then:
-.venv/bin/pytest tests/test_basic.py -k VENDOR -q | grep -E "passed|failed"
+.venv/bin/pytest tests/scrapers/test_VENDOR.py -q | grep -E "passed|failed"
 cp /tmp/v.bak src/scrapers/plugins/VENDOR.py
-.venv/bin/pytest tests/test_basic.py -k VENDOR -q | grep -E "passed|failed"
+.venv/bin/pytest tests/scrapers/test_VENDOR.py -q | grep -E "passed|failed"
 ```
 
 Expect `1 failed` then all passed. If the sabotage passes, the test is decoration.

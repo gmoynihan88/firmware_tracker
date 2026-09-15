@@ -104,4 +104,5 @@ Five tables: `Manufacturer` → `DeviceModel` → `FirmwareVersion`, `DeviceMode
 - **pytest-asyncio with `asyncio_mode = "auto"`:** Tests use async fixtures, DB is created/dropped per test
 - **Playwright is optional:** Detected at import time via try/except; some scrapers need it for JS-rendered pages
 - **AI summarization is optional:** Gracefully skipped if `ANTHROPIC_API_KEY` is not set
+- **Test layout:** `tests/test_*.py` by topic (web, api, auth, scheduler, netguard...), `tests/scrapers/test_<module>.py` per scraper plugin. The in-memory database and helpers used by more than one module (`_stub_fetch`, the `_seed_*` functions) live in `tests/support.py`; shared fixtures in `tests/conftest.py`.
 - **Tests use httpx `ASGITransport`:** The test client hits the FastAPI app in-process (no running server needed). The `setup_db` fixture creates/drops all tables per test.

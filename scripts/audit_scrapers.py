@@ -35,7 +35,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGINS = ROOT / "src/scrapers/plugins"
-TESTS = ROOT / "tests/test_basic.py"
+TESTS = ROOT / "tests"
 
 # The base class calls these; a plugin never references them itself.
 FRAMEWORK = {
@@ -96,7 +96,7 @@ def check_unreachable() -> int:
     called from nowhere, so the date reached the database once and could not be
     produced again.
     """
-    test_src = TESTS.read_text() if TESTS.exists() else ""
+    test_src = "\n".join(path.read_text() for path in sorted(TESTS.rglob("*.py")))
     findings = []
 
     for path, source in plugin_sources():

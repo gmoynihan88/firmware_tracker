@@ -39,3 +39,53 @@ def never_deliver_notifications(monkeypatch):
 
     yield
     get_settings.cache_clear()
+
+
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from src.database import Base, get_db  # noqa: E402
+from src.main import app  # noqa: E402
+from tests.support import override_get_db, test_engine  # noqa: E402
+
+app.dependency_overrides[get_db] = override_get_db
+
+
+@pytest.fixture(autouse=True)
+async def setup_db():
+    """Set up test database."""
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture
+async def client():
+    """Create test client."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.fixture
+def auth_enabled():
+    """Turn authentication on for one test, then put it back.
+
+    The middleware holds the same Settings instance the app was built with, and
+    get_settings() is cached, so mutating that object switches auth on without
+    rebuilding the app.
+    """
+    from src.auth.security import generate_secret_key, hash_password
+    from src.config import get_settings
+
+    settings = get_settings()
+    before = (settings.auth_password_hash, settings.secret_key, settings.api_key)
+
+    settings.auth_password_hash = hash_password("correct horse")
+    settings.secret_key = generate_secret_key()
+    settings.api_key = "test-api-key"
+    try:
+        yield settings
+    finally:
+        settings.auth_password_hash, settings.secret_key, settings.api_key = before
