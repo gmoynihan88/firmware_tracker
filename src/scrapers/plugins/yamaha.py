@@ -1,11 +1,29 @@
 import re
 from datetime import datetime
+from typing import Dict, List, Optional
+from urllib.parse import urljoin
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
 
 class YamahaScraper(BaseScraper):
-    """Yamaha, read from the pages its own sitemap lists.
+    """Yamaha, read from the downloads pages of its music-production families.
+
+    **The families come from the music-production index.** /products/music_production/
+    links its categories -- synthesizers, stage keyboards, music production studios,
+    interfaces, controllers -- and each category page links its product families. A
+    family's downloads page is read, and a family is listed when its table carries an
+    OS updater; the updater row names the products it serves ("CK61/CK88", "MODX",
+    "MONTAGE M"), and a family prefix is expanded to the models its specs page names
+    in the table header (MODX8, MODX7, MODX6). Accessories and apps are skipped:
+    neither category carries firmware, and together they are thirty pages a day.
+
+    Until 2026-09-15 the products were a hand-kept list of sixteen. Discovery added
+    MODX M8/M7/M6, MOXF6/MOXF8, CK61/CK88, CP88/CP73 and YC61/YC73/YC88 -- the last
+    four families write their updater "CK61/CK88 V1.10 Operating System Updater",
+    version before the word, which the pattern here did not read either. The THR-II
+    amps and the G10T transmitter are guitar products outside this index, and stay
+    on the one page that states their firmware.
 
     Eleven of the sixteen products pointed at URLs like
     `/support/updates/montagem6_firm.html`. Those never existed: every one returned
@@ -78,37 +96,147 @@ class YamahaScraper(BaseScraper):
     # THR Remote page contains firmware version info for THR amps
     THR_REMOTE_URL = "https://usa.yamaha.com/support/updates/thr_remote_mac.html"
 
-    # Known Yamaha products with firmware updates
-    KNOWN_PRODUCTS = [
-        ("THR30II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("THR30II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("THR10II Wireless", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("THR10II", "guitar_pedal", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("Line 6 G10TII", "wireless_system", "https://usa.yamaha.com/support/updates/thr_remote_mac.html"),
-        ("MODX8", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
-        ("MODX7", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
-        ("MODX6", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/modx/downloads.html"),
-        ("Montage M8x", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
-        ("Montage M7", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
-        ("Montage M6", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/montagem/downloads.html"),
-        ("SEQTRAK", "synthesizer",
-         "https://usa.yamaha.com/products/music_production/music-production-studios/seqtrak/downloads.html"),
-        ("reface CS", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
-        ("reface DX", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
-        ("reface CP", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
-        ("reface YC", "synthesizer", "https://usa.yamaha.com/products/music_production/synthesizers/reface/downloads.html"),
+    # Guitar products outside the music-production index, whose firmware is stated only
+    # as compatibility notes on the THR Remote app's page.
+    THR_PRODUCTS = [
+        ("THR30II Wireless", "guitar_pedal"),
+        ("THR30II", "guitar_pedal"),
+        ("THR10II Wireless", "guitar_pedal"),
+        ("THR10II", "guitar_pedal"),
+        ("Line 6 G10TII", "wireless_system"),
     ]
 
+    SITE = "https://usa.yamaha.com"
+    MUSIC_PRODUCTION_INDEX = "https://usa.yamaha.com/products/music_production/index.html"
+    CATEGORY_LINK = re.compile(r"^(?:https://usa\.yamaha\.com)?/products/music_production/(?P<category>[a-z0-9_-]+)/index\.html$")
+    FAMILY_LINK = re.compile(
+        r"^(?:https://usa\.yamaha\.com)?/products/music_production/(?P<category>[a-z0-9_-]+)/(?P<family>[a-z0-9_+-]+)/index\.html$"
+    )
+    SKIP_CATEGORIES = {"accessories", "apps"}
+
+    CATEGORIES = {
+        "synthesizers": "synthesizer",
+        "stagekeyboards": "synthesizer",
+        "music-production-studios": "synthesizer",
+        "interfaces": "audio_interface",
+        "controllers": "midi_controller",
+        "midi_controllers": "midi_controller",
+    }
+
+    # The specs page's name -> the database's, for rows catalogued in another case.
+    RENAMES = {"MONTAGE M8x": "Montage M8x", "MONTAGE M7": "Montage M7", "MONTAGE M6": "Montage M6"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._catalogue: Optional[Dict[str, dict]] = None
+        self._pages: Dict[str, str] = {}
+
+    def _links(self, html: str, pattern: re.Pattern) -> List[re.Match]:
+        matches, seen = [], set()
+        for anchor in self.parse_html(html).find_all("a", href=True):
+            match = pattern.match(anchor["href"])
+            if match and match.group(0) not in seen:
+                seen.add(match.group(0))
+                matches.append(match)
+        return matches
+
+    def _spec_models(self, html: str) -> List[str]:
+        """Model names from a specs page's table headers, in page order."""
+        models: List[str] = []
+        for cell in self.parse_html(html).find_all("th"):
+            text = cell.get_text(" ", strip=True)
+            if text and len(text) <= 30 and text not in models:
+                models.append(text)
+        return models
+
+    def _updater_prefixes(self, html: str) -> List[str]:
+        """The product prefixes a downloads table's updater rows name, in order."""
+        prefixes: List[str] = []
+        for table in self.parse_html(html).find_all("table"):
+            rows = table.find_all("tr")
+            header = [c.get_text(" ", strip=True) for c in rows[0].find_all(["td", "th"])] if rows else []
+            if "Last Update" not in header:
+                continue
+            for row in rows[1:]:
+                cells = row.find_all(["td", "th"])
+                if not cells:
+                    continue
+                name = cells[0].get_text(" ", strip=True)
+                if not self._updater_version(name):
+                    continue
+                for prefix in self._row_prefixes(name):
+                    if prefix not in prefixes:
+                        prefixes.append(prefix)
+        return prefixes
+
+    async def _load(self) -> Optional[Dict[str, dict]]:
+        """Every product an OS updater on a family's downloads page serves."""
+        if self._catalogue is not None:
+            return self._catalogue
+
+        index = await self.fetch_page(self.MUSIC_PRODUCTION_INDEX)
+        categories = [m for m in (self._links(index, self.CATEGORY_LINK) if index else [])
+                      if m.group("category") not in self.SKIP_CATEGORIES]
+        if not categories:
+            return None
+
+        catalogue: Dict[str, dict] = {}
+        for category in categories:
+            page = await self.fetch_page(urljoin(self.SITE, category.group(0)))
+            if not page:
+                return None
+            for family in self._links(page, self.FAMILY_LINK):
+                base = urljoin(self.SITE, family.group(0)).rsplit("/", 1)[0]
+                downloads_url = f"{base}/downloads.html"
+                downloads = await self.fetch_page(downloads_url)
+                if not downloads:
+                    # A family whose page does not load would drop its products silently.
+                    return None
+                self._pages[downloads_url] = downloads
+                prefixes = self._updater_prefixes(downloads)
+                if not prefixes:
+                    continue
+
+                specs = await self.fetch_page(f"{base}/specs.html") or ""
+                models = self._spec_models(specs)
+                for prefix in prefixes:
+                    named = [m for m in models if m.lower().startswith(prefix.lower())] or [prefix]
+                    for model in named:
+                        catalogue.setdefault(self.RENAMES.get(model, model), {
+                            "url": downloads_url,
+                            "category": self.CATEGORIES.get(category.group("category"), "other"),
+                        })
+
+        if not catalogue:
+            return None
+        self._catalogue = catalogue
+        return catalogue
+
     async def fetch_device_list(self) -> ScraperResult:
-        """Return the list of known Yamaha products."""
+        catalogue = await self._load()
+        if catalogue is None:
+            return ScraperResult(
+                success=False,
+                error=f"Could not read Yamaha's music-production families from {self.MUSIC_PRODUCTION_INDEX}",
+            )
+
         devices = [
             ScrapedDevice(
                 name=name,
-                category=category,
-                firmware_page_url=url,
-                product_url=url.replace("/support/updates/", "/products/").replace("_firm.html", "/"),
+                category=entry["category"],
+                firmware_page_url=entry["url"],
+                product_url=entry["url"].replace("/downloads.html", "/index.html"),
             )
-            for name, category, url in self.KNOWN_PRODUCTS
+            for name, entry in catalogue.items()
+        ]
+        devices += [
+            ScrapedDevice(
+                name=name,
+                category=category,
+                firmware_page_url=self.THR_REMOTE_URL,
+                product_url=self.THR_REMOTE_URL,
+            )
+            for name, category in self.THR_PRODUCTS
         ]
         return ScraperResult(success=True, devices=devices)
 
@@ -123,6 +251,41 @@ class YamahaScraper(BaseScraper):
     UPDATER = re.compile(
         r"(?:OS\s+)?[Uu]pdater\s+V\s*(\d+(?:\.\d+)+(?:-\d+)?)", re.I
     )
+
+    # The stage keyboards and MOXF put the version first: "CK61/CK88 V1.10 Operating
+    # System Updater". The pattern above never read those four families.
+    OS_UPDATER = re.compile(
+        r"^(?P<models>.+?)\s+V\s*(?P<version>\d+(?:\.\d+)+(?:-\d+)?)\s+Operating\s+System\s+Updater\b", re.I
+    )
+
+    def _updater_version(self, row_name: str) -> Optional[str]:
+        match = self.OS_UPDATER.match(row_name)
+        if match:
+            return match.group("version")
+        match = self.UPDATER.search(row_name)
+        return match.group(1) if match else None
+
+    def _row_prefixes(self, row_name: str) -> List[str]:
+        """Product prefixes an updater row names, as the page writes them.
+
+        "MODX OS Updater" is MODX; "reface CS/DX updater" is reface CS and reface DX,
+        the alternation on the last word; "CK61/CK88 V1.10 Operating System Updater"
+        is CK61 and CK88.
+        """
+        match = self.OS_UPDATER.match(row_name)
+        if match:
+            prefix = match.group("models").strip()
+        else:
+            prefix = re.split(r"\s*updater\b", row_name, maxsplit=1, flags=re.I)[0]
+            prefix = re.sub(r"\bOS\s*$", "", prefix.strip()).strip()
+        if not prefix:
+            return []
+
+        head, _, tail = prefix.rpartition(" ")
+        if "/" in tail:
+            parts = [part for part in tail.split("/") if part]
+            return [f"{head} {part}" if head else part for part in parts]
+        return [prefix]
 
     def _is_dead_page(self, html: str) -> bool:
         """Whether Yamaha served its generic landing page instead of a product page.
@@ -142,25 +305,9 @@ class YamahaScraper(BaseScraper):
         title = self.parse_html(html).title
         return bool(title) and self.LANDING_TITLE in title.get_text(strip=True)
 
-    @staticmethod
-    def _row_applies_to(row_name: str) -> list:
-        """Product prefixes a downloads row covers.
-
-        The name runs "<product> [OS] Updater V<version> ...", and one row can cover
-        two products: "reface CS/DX updater" is CS and DX, the way one updater file
-        serves both instruments.
-        """
-        prefix = re.split(r"\s*updater\b", row_name, maxsplit=1, flags=re.I)[0]
-        prefix = re.sub(r"\bOS\s*$", "", prefix.strip()).strip()
-        if not prefix:
-            return []
-
-        # "reface CS/DX" -> "reface CS", "reface DX". The alternation is always on
-        # the last word, so everything before it is the shared part of the name.
-        head, _, tail = prefix.rpartition(" ")
-        if head and "/" in tail:
-            return [f"{head} {part}".lower() for part in tail.split("/") if part]
-        return [prefix.lower()]
+    def _row_applies_to(self, row_name: str) -> list:
+        """Lowercased product prefixes a downloads row covers."""
+        return [prefix.lower() for prefix in self._row_prefixes(row_name)]
 
     def _parse_downloads_table(self, html: str, device_name: str) -> list:
         """Read updater rows and their Last Update dates for one product.
@@ -188,13 +335,12 @@ class YamahaScraper(BaseScraper):
                 if len(cells) <= date_column:
                     continue
 
-                match = self.UPDATER.search(cells[0])
-                if not match:
+                version = self._updater_version(cells[0])
+                if not version:
                     continue
                 if not any(wanted.startswith(p) for p in self._row_applies_to(cells[0])):
                     continue
 
-                version = match.group(1)
                 if version in seen:
                     # MONTAGE M lists V3.01 twice, as a full installer and as a step
                     # up from V3.00. One release, two files.
@@ -270,8 +416,13 @@ class YamahaScraper(BaseScraper):
         # Use Playwright for THR Remote page (JS-rendered)
         if "thr_remote" in firmware_page_url:
             html = await self.fetch_page_js(firmware_page_url, wait_for_timeout=15000)
+        elif firmware_page_url in self._pages:
+            # Read while listing; the same page serves every model of its family.
+            html = self._pages[firmware_page_url]
         else:
             html = await self.fetch_page(firmware_page_url)
+            if html:
+                self._pages[firmware_page_url] = html
 
         if not html:
             return ScraperResult(
