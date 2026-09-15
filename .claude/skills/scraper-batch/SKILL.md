@@ -138,6 +138,11 @@ and both had clean APIs. Three vendors now where the first impression was wrong,
 `none` requires having tried the support platform and the browser network capture,
 not just a fetch.
 
+**A hardware `none` is not a vendor `none`.** PreSonus publishes no StudioLive
+firmware version and MOTU only driver installers, but both publish dated software
+releases -- Fender Studio and Notion, Digital Performer. Survey the vendor's software
+before ruling it out, and say in the docstring which half is not read and why.
+
 ## Shapes seen so far — pattern-match before probing blind
 
 Most vendors are one of these. Recognising the shape early saves the whole search:
@@ -148,6 +153,9 @@ Most vendors are one of these. Recognising the shape early saves the whole searc
 | Zendesk Help Center | site is blocked or empty; `support.<vendor>.com/api/v2/help_center/…` answers | Universal Audio, Fender, Keith McMillen |
 | Gatsby `page-data` | `/page-data/…/page-data.json`, plus `staticQueryHashes` | Akai |
 | Next.js RSC payload | `self.__next_f.push([1,"…"])` in the HTML | TC Electronic |
+| Next.js page data | `<script id="__NEXT_DATA__">` holding a CMS's collections; the longest is the history, shorter ones the page's current-release summary | Engine DJ |
+| WordPress custom REST route | `/wp-json/` lists every route; look for the vendor's own namespace (`/wp-json/toontrack/v1/product-versions`) | Toontrack |
+| App API that names its missing parameters | a guessed endpoint answers 422 listing the fields it wants (`"field": "support_type"`); supply them | Hotone |
 | Nuxt payload | `/_nuxt/builds/meta/<id>.json` in the HTML; `<page>/_payload.json?<id>` is one flat array whose objects hold indices into it | Cableguys |
 | One page covers the range | a single `/firmware/` or `/downloads/` listing every product | Zoom, Line 6, GForce, Empress |
 | JS-rendered page | plain fetch returns shell; Playwright returns content | Kemper, Empress |
@@ -399,6 +407,12 @@ a new vendor's page before believing an extraction.
   titles stopped naming versions around 2020, and for 20 products the newest firmware
   post was versionless; reading titles alone reported them years stale. The post
   itself states the version.
+- **A date a CMS stamped is not a release date.** Toontrack's old notes were imported
+  with one day on nine EZkeys releases; Hotone's first firmware posts share the day its
+  support section launched. Drop a day shared by several releases of one product, then
+  keep the largest set of the remaining dates that rises with the version. Walking down
+  from the newest and dropping anything later cost two real Superior Drummer dates for
+  one bad one. Where two choices keep as many dates, keep the newer release's.
 
 ## Survey sources are untrusted too
 
