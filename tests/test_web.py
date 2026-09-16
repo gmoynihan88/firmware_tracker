@@ -1110,6 +1110,92 @@ async def test_an_unknown_vendor_is_ignored_rather_than_emptying_the_page(client
 
 
 @pytest.mark.asyncio
+async def test_the_catalog_table_keeps_its_columns_when_filters_change(client):
+    """Changing a filter must not redraw the table at a different shape.
+
+    Auto layout sizes columns from whichever rows are on screen, so every filter used to
+    produce a different table: measured at 1280px, showing everything gave columns of
+    249/287/154/190/171/134px and filtering to one vendor gave 172/380/143/155/188/147 --
+    all six moved, the product column by 93px. That is the jump this pins.
+
+    Two declarations hold this together and the seeded data has to make both testable.
+    The percentage widths set the proportions and steady the ordinary case; table-layout:
+    fixed makes them binding, because under auto layout a declared width is only a
+    minimum. Hence the absurd product name below: without fixed, that one row stretches
+    its column from 315px to 1209px, and removing fixed would otherwise go unnoticed here.
+
+    The stylesheets are inlined rather than fetched, and that detail is load-bearing.
+    Playwright aborts every request in this test, so a page that merely links its CSS is
+    measured with no CSS at all. The first two attempts at this measurement did exactly
+    that and cheerfully reported a fix that had not been applied.
+    """
+    from src.scrapers import base
+
+    if not base.PLAYWRIGHT_AVAILABLE:
+        pytest.skip("Playwright not installed")
+    if not chromium_is_installed():
+        pytest.skip("Chromium is not installed")
+    from playwright.async_api import async_playwright
+
+    await _seed_catalog(40)
+    # Long enough that auto layout would stretch the column to fit it, which is what
+    # makes the absence of table-layout: fixed visible to this test rather than silent.
+    await _seed_catalog(
+        6, vendor="Zed Co", slug="zedco",
+        prefix="Zulu Extraordinarily Long Product Name No Column Should Stretch To Fit",
+    )
+
+    style = "<style>" + "".join(
+        open(f"static/css/{name}").read()
+        for name in ("base.css", "nav.css", "components.css", "dashboard.css", "catalog.css")
+    ) + "</style>"
+
+    views = ["/catalog", "/catalog?vendor=zedco", "/catalog?q=zulu"]
+    pages = [(await client.get(view)).text + style for view in views]
+
+    async with async_playwright() as pw:
+        try:
+            browser = await pw.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"Chromium unavailable: {exc}")
+        try:
+            page = await browser.new_page(viewport={"width": 1280, "height": 900})
+            await page.route("**/*", lambda route: route.abort())
+
+            widths = []
+            for html in pages:
+                await page.set_content(html)
+                widths.append(await page.evaluate(
+                    "() => [...document.querySelectorAll('.catalog-table thead th')]"
+                    ".map(th => Math.round(th.getBoundingClientRect().width))"
+                ))
+        finally:
+            await browser.close()
+
+    # Unstyled tables report no useful widths, which would make every comparison below
+    # trivially true, so the CSS having loaded is asserted rather than hoped for. The
+    # count is taken from the page rather than written down: this fixture runs with auth
+    # disabled, so the table carries the owner's Track column and has seven, while the
+    # anonymous page has six. Either is fine; what matters is that it does not change.
+    assert len(widths[0]) >= 6, widths[0]
+    assert all(w > 0 for w in widths[0]), widths[0]
+
+    for view, measured in zip(views[1:], widths[1:]):
+        assert measured == widths[0], f"{view} redrew the table: {measured} vs {widths[0]}"
+
+    # Stability alone is not the whole property, and asserting only the comparison above
+    # let a real regression through: with table-layout: fixed and no declared widths, the
+    # browser splits the table into equal columns, which is perfectly stable and useless
+    # -- Product needs more room than Released. So the shape is pinned too, loosely
+    # enough to survive retuning the percentages.
+    sortable = widths[0][:6]
+    product, released = sortable[1], sortable[5]
+    assert len(set(sortable)) > 1, f"columns are all equal, widths gone: {sortable}"
+    assert product == max(sortable), f"product is not the widest column: {sortable}"
+    assert product > released, f"product should outsize released: {sortable}"
+
+
+@pytest.mark.asyncio
 async def test_real_chromium_renders_the_catalog_without_script_errors(client):
     """The catalogue in a real browser. Skipped where Chromium is missing, as in CI.
 

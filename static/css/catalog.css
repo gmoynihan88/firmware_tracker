@@ -504,3 +504,45 @@
     .history-table td { display: inline-block; padding: 0.1rem 0.6rem; }
     .history-table .history-notes { display: block; min-width: 0; }
 }
+
+/* Stable column geometry, so changing a filter does not redraw the table.
+   Measured before this existed, at 1280px: showing all devices gave columns of
+   185/200/108/135/103/77px; filtering to one vendor gave 107/253/82/89/103/77. Four of
+   six columns moved, the vendor column by 78px, because auto layout sizes columns from
+   whichever rows happen to be on screen -- so every filter produced a different table.
+
+   The two declarations do different jobs and both are needed. The percentages set the
+   proportions -- Product wants more room than Released -- and on their own they already
+   hold the ordinary case steady. table-layout: fixed is what makes them binding: under
+   auto layout a declared width is only a minimum, so a single over-long product name
+   stretches its column from 315px to 1209px and shoves every other column aside.
+   Measured both ways; with fixed, that same name moves nothing.
+
+   min-width rather than percentages alone: .device-table th/td already set
+   white-space: nowrap and .device-table-wrap scrolls sideways, which is what makes a
+   narrow screen readable. Percentages on their own would squeeze the columns instead
+   and truncate everything; the min-width keeps the sideways scroll and lets the
+   percentages govern only once there is room for them.
+
+   Columns 1-6 deliberately total less than 100%: the Track column exists only for the
+   owner, and takes the remainder when it is there. Without it the slack spreads across
+   the rest. Either way the widths no longer depend on the rows. */
+.catalog-table {
+    table-layout: fixed;
+    min-width: 46rem;
+}
+
+.catalog-table th:nth-child(1) { width: 20%; }   /* Vendor */
+.catalog-table th:nth-child(2) { width: 25%; }   /* Product */
+.catalog-table th:nth-child(3) { width: 12%; }   /* Type */
+.catalog-table th:nth-child(4) { width: 14%; }   /* Latest */
+.catalog-table th:nth-child(5) { width: 11%; }   /* Other versions */
+.catalog-table th:nth-child(6) { width: 12%; }   /* Released */
+
+/* Fixed layout stops columns growing to fit, and the cells are nowrap, so without this
+   a long product name would run across its neighbours instead of being cut off. */
+.catalog-table th,
+.catalog-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
