@@ -43,6 +43,7 @@ env/
 
 # Database
 *.db
+*.db-journal
 *.sqlite
 *.sqlite3
 backups/
@@ -61,6 +62,22 @@ Thumbs.db
 
 # Development response cache (src/scrapers/cache.py)
 .scrape_cache/
+
+# Terraform. State holds every value the config touches, secrets included, and is
+# kept in S3 rather than here. .tfvars carry the account-specific inputs -- account
+# id, domain, the ntfy topic -- which is what keeps them out of a public repo.
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# Names the state bucket, which is account-specific.
+infra/backend.hcl
+.terraform.lock.hcl.bak
 
 # Claude Code local state: personal settings and scraper-batch progress
 .claude/settings.local.json

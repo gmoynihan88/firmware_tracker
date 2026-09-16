@@ -1,0 +1,9 @@
+# Copy to backend.hcl (gitignored) with the bucket the bootstrap stack printed, then:
+#
+#   terraform init -backend-config=backend.hcl
+#
+# The key and locking settings are in versions.tf; only the bucket name and region are
+# account-specific. State locking uses the S3 lock file, so there is no DynamoDB table.
+
+bucket = "firmware-tracker-tfstate-CHANGEME"
+region = "us-west-2"
