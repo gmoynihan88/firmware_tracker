@@ -10,6 +10,21 @@
         <p class="login-error" role="alert">{{ error }}</p>
         {% endif %}
 
+        {# Password managers expect a username beside the password. With only a password
+           field, Safari's save prompt has nowhere to put one and gets stuck asking for
+           it. There is exactly one user here, so the value is fixed, and it matches the
+           subject the session token carries.
+
+           Hidden by clipping rather than display:none or type=hidden: managers skip
+           both of those, so either would look like a fix and change nothing. The class
+           lives in dashboard.css, which base.html loads on every page.
+
+           It has to come before the password field -- that is the order managers look
+           for the pair in. #}
+        <input class="visually-hidden" id="username" name="username" type="text"
+               value="owner" autocomplete="username" aria-label="Username"
+               readonly tabindex="-1">
+
         <label class="login-label" for="password">Password</label>
         <input class="login-input" id="password" name="password" type="password"
                autocomplete="current-password" autofocus required>
