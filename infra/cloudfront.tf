@@ -19,7 +19,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 # A public catalogue is a page strangers may all request at once, and behind it is one
-# 0.5 vCPU task. Sixty seconds of caching absorbs that, and the session cookie is part of
+# 0.5 vCPU task. A few minutes of caching absorbs that, and the session cookie is part of
 # the cache key so a page cached for an anonymous visitor can never be handed to the
 # logged-in owner -- who sees tracking markers an anonymous visitor must not.
 resource "aws_cloudfront_cache_policy" "catalog" {
@@ -27,10 +27,15 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   comment = "Short-lived caching for the public catalogue, keyed on the session cookie"
 
   # Five minutes, not one. The catalogue changes at most once a day (the scheduler
-  # scrapes every 24 hours), and the cost of a miss is a 1.8MB render: measured, a cold
-  # edge answers in ~1.15s against ~90ms warm. A longer TTL keeps entries alive at every
-  # edge that has been hit, which is the part that actually helps a first-time visitor
-  # -- warming from one place would only ever warm one of CloudFront's hundreds of PoPs.
+  # scrapes every 24 hours), so there is little to be had from asking the origin again
+  # sooner. A longer TTL keeps entries alive at every edge that has been hit, which is
+  # the part that actually helps a first-time visitor -- warming from one place would
+  # only ever warm one of CloudFront's hundreds of PoPs.
+  #
+  # Set when a miss meant rendering all 2,045 products, 1.8MB of HTML, with a cold edge
+  # answering in ~1.15s against ~90ms warm. The page is paginated since (#199) and a
+  # miss now renders fifty rows, about 51KB, so this TTL buys considerably less than it
+  # did. It stays because the origin behind it is still one 0.5 vCPU task.
   #
   # The ceiling on staleness for the owner: after tracking a device, the catalogue's
   # tracked markers can lag by this much. That is why it is minutes rather than hours.
@@ -41,9 +46,16 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   parameters_in_cache_key_and_forwarded_to_origin {
     # Gzip only, which is not the obvious choice. CloudFront compresses dynamic
     # responses on the fly at a low Brotli quality, and on this page it loses to its
-    # own gzip: measured against the live distribution, the same cached catalogue is
-    # 68,685 bytes as gzip and 82,436 as Brotli. Browsers send "br" ahead of "gzip",
-    # so leaving Brotli on hands almost every real visitor the 20% larger payload.
+    # own gzip. Measured against the live distribution while the catalogue was still
+    # 1.8MB of HTML, the same cached page came back as 68,685 bytes of gzip against
+    # 82,436 of Brotli -- and browsers send "br" ahead of "gzip", so leaving Brotli on
+    # handed almost every real visitor the 20% larger payload.
+    #
+    # Those numbers predate pagination (#199). The page is about 51KB now and serves at
+    # 5,656 bytes gzipped, so this saves on the order of a kilobyte per uncached fetch
+    # rather than the fourteen the original measurement implied. What justifies it is
+    # the ratio, not the absolute: the smaller of two encodings is the right one to
+    # send at any page size.
     #
     # Turning it off here makes CloudFront normalise Accept-Encoding to gzip for this
     # behaviour. It covers /catalog* only: the other two behaviours use AWS managed
