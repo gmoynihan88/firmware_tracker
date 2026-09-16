@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars, which is gitignored. Every value here has a default in
+# variables.tf; this file exists so account-specific overrides have somewhere to live
+# that is not the repository.
+
+# project     = "firmware-tracker"
+# environment = "production"
+# region      = "us-west-2"
+# vpc_cidr    = "10.20.0.0/16"
