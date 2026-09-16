@@ -109,6 +109,83 @@ def test_ua_pairs_each_uafx_version_with_its_own_date():
     assert "Bypass" in versions[0].changelog
 
 
+def test_ua_keeps_each_uafx_note_on_its_own_line():
+    """As served: labelled groups, a <br> inside an item, words split across spans.
+
+    The notes were one run-on line from the first list only: 2.0.0 lost three of its
+    four groups, and "(t</span><span>o reduce" read "(t o reduce".
+    """
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    article = """
+    <h2 id="h_1">UAFX Version 2.0.0</h2><h4 id="h_2">November 11, 2025</h4><p><strong>All UAFX pedals with two footswitches</strong></p><ul>
+    <li data-list-item-id="a">Bluetooth redesigned for faster connections<br>(requires <a href="https://www.uaudio.com/pages/download-uafx-pedals"><strong>UAFX Control</strong></a> v3)</li>
+    <li data-list-item-id="b">USB MIDI Control Change (open beta)</li>
+    </ul><p><strong>All Amp pedals</strong></p><ul><li data-list-item-id="c">Access up to four presets from footswitches</li></ul>
+    <h2 id="h_3">UAFX Version 1.1.14</h2><h4 id="h_4"><span style="font-weight: 400;">November 21, 2024</span></h4><ul>
+    <li data-list-item-id="d">
+    <span style="font-weight: 400;">(Knuckles) Reduced Master setting for clarity (t</span><span style="font-weight: 400;">o reduce it: Factory reset the pedal, or in </span><a href="https://www.uaudio.com/pages/download-uafx-pedals"><span style="font-weight: 400;"><strong>UAFX Control</strong></span></a><span style="font-weight: 400;">, Revert to Default)</span>
+    </li>
+    </ul>
+    <h2 id="h_5">UAFX Version 1.1.3</h2><h4 id="h_6">April 11, 2023</h4><ul><li>New Split dual-mono mode* (Galaxy)</li></ul>
+    <p>*Requires UAFX Control v2.2.0 or newer</p>
+    <h2 id="h_7">UAFX Version 1.0.1</h2><p>June 22, 2021</p><ul><li>Support for UAFX Control mobile app</li></ul><p></p>
+    """
+
+    versions = {fw.version: fw for fw in UniversalAudioScraper()._parse_uafx(article)}
+
+    assert versions["2.0.0"].changelog == (
+        "All UAFX pedals with two footswitches\n"
+        "- Bluetooth redesigned for faster connections (requires UAFX Control v3)\n"
+        "- USB MIDI Control Change (open beta)\n"
+        "All Amp pedals\n"
+        "- Access up to four presets from footswitches"
+    )
+    assert versions["1.1.14"].changelog == (
+        "- (Knuckles) Reduced Master setting for clarity (to reduce it: Factory reset the pedal, "
+        "or in UAFX Control, Revert to Default)"
+    )
+    # The footnote belongs to the release it follows.
+    assert versions["1.1.3"].changelog == "- New Split dual-mono mode* (Galaxy)\n*Requires UAFX Control v2.2.0 or newer"
+    # A date in a paragraph is still the date, not a note.
+    assert versions["1.0.1"].release_date.strftime("%Y-%m-%d") == "2021-06-22"
+    assert versions["1.0.1"].changelog == "- Support for UAFX Control mobile app"
+
+
+def test_ua_indents_the_ox_notes_nested_lists():
+    from src.scrapers.plugins.universal_audio import UniversalAudioScraper
+
+    article = """
+    <h1>OX Firmware Version History</h1>
+    <p><em>Note: For optimum results, use the same version of the OX Amp Top Box app and the firmware.</em></p>
+    <h4>OX Firmware v1.2 — November 12, 2019</h4>
+    <ul>
+    <li>Five new speaker cabinet models
+    <ul>
+    <li>4x12 UK Vee 30</li>
+    <li>2x12 JBF 120</li>
+    </ul>
+    </li>
+    <li>27 new Rigs based on tones from legendary artists and albums</li>
+    </ul>
+    <h4>OX Firmware v1.1 — August 8, 2018</h4>
+    <ul>
+    <li>General stability improvements</li>
+    </ul>
+    """
+
+    versions = UniversalAudioScraper()._parse_ox(article)
+
+    assert versions[0].changelog == (
+        "- Five new speaker cabinet models\n"
+        "  - 4x12 UK Vee 30\n"
+        "  - 2x12 JBF 120\n"
+        "- 27 new Rigs based on tones from legendary artists and albums"
+    )
+    # Stops at the next release rather than running on into it.
+    assert versions[1].changelog == "- General stability improvements"
+
+
 def test_ua_skips_the_ox_install_guide_that_names_a_version():
     """The date in the heading is what separates a release from an instruction."""
     from src.scrapers.plugins.universal_audio import UniversalAudioScraper
