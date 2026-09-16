@@ -94,3 +94,118 @@ def test_auth_stays_off_if_only_half_configured():
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="", secret_key="k")) is False
     assert auth_is_enabled(Settings(_env_file=None, auth_password_hash="scrypt$a$b", secret_key="k")) is True
+
+
+def test_login_throttle_counts_failures_in_a_sliding_window():
+    from src.auth.throttle import LoginThrottle
+
+    now = [1000.0]
+    throttle = LoginThrottle(max_attempts=3, window_seconds=300, clock=lambda: now[0])
+
+    for _ in range(2):
+        throttle.record_failure("10.0.0.1")
+    assert throttle.retry_after("10.0.0.1") is None
+
+    throttle.record_failure("10.0.0.1")
+    assert throttle.retry_after("10.0.0.1") == 300
+    # Another address is unaffected.
+    assert throttle.retry_after("10.0.0.2") is None
+
+    # Part-way through the window the wait shrinks, and the oldest failure ageing out
+    # is what lets the next attempt through.
+    now[0] += 120
+    assert throttle.retry_after("10.0.0.1") == 180
+    now[0] += 181
+    assert throttle.retry_after("10.0.0.1") is None
+
+
+def test_login_throttle_forgets_a_client_that_gets_in_and_caps_what_it_keeps():
+    from src.auth.throttle import LoginThrottle
+
+    throttle = LoginThrottle(max_attempts=1, window_seconds=300, max_clients=2)
+
+    throttle.record_failure("10.0.0.1")
+    assert throttle.retry_after("10.0.0.1") == 300
+    throttle.clear("10.0.0.1")
+    assert throttle.retry_after("10.0.0.1") is None
+
+    # A stream of addresses must not grow the map without bound: the oldest goes.
+    for address in ("a", "b", "c"):
+        throttle.record_failure(address)
+    assert throttle.retry_after("a") is None
+    assert throttle.retry_after("c") == 300
+
+
+@pytest.mark.asyncio
+async def test_login_answers_429_once_the_attempts_run_out(auth_enabled, client):
+    """A public /login needs a limit; five wrong passwords is the default."""
+    from src.auth.throttle import reset_login_throttle
+
+    reset_login_throttle()
+    try:
+        for _ in range(auth_enabled.login_max_attempts):
+            assert (await client.post("/login", data={"password": "wrong"})).status_code == 401
+
+        blocked = await client.post("/login", data={"password": "wrong"})
+        assert blocked.status_code == 429
+        assert int(blocked.headers["retry-after"]) > 0
+        assert "Too many attempts" in blocked.text
+
+        # The right password does not get past the limit either, or guessing would
+        # only have to be lucky on the attempt after the lockout.
+        assert (await client.post("/login", data={"password": "correct horse"})).status_code == 429
+    finally:
+        reset_login_throttle()
+
+
+@pytest.mark.asyncio
+async def test_login_throttle_is_per_client_and_cleared_by_a_correct_password(auth_enabled):
+    from httpx import ASGITransport, AsyncClient
+
+    from src.auth.throttle import reset_login_throttle
+    from src.main import app
+
+    def _client(address):
+        return AsyncClient(
+            transport=ASGITransport(app=app, client=(address, 5000)), base_url="http://test"
+        )
+
+    reset_login_throttle()
+    try:
+        async with _client("10.0.0.1") as guesser, _client("10.0.0.2") as innocent:
+            for _ in range(auth_enabled.login_max_attempts):
+                await guesser.post("/login", data={"password": "wrong"})
+            assert (await guesser.post("/login", data={"password": "wrong"})).status_code == 429
+
+            # Someone else's login is not affected by the guesser's address.
+            assert (await innocent.post("/login", data={"password": "wrong"})).status_code == 401
+            assert (await innocent.post("/login", data={"password": "correct horse"})).status_code == 303
+            # ... and getting in clears what that address had against it.
+            for _ in range(auth_enabled.login_max_attempts):
+                assert (await innocent.post("/login", data={"password": "wrong"})).status_code == 401
+    finally:
+        reset_login_throttle()
+
+
+@pytest.mark.asyncio
+async def test_session_cookie_is_marked_secure_when_configured(auth_enabled, client):
+    """Behind CloudFront the app sees http, so the scheme alone drops the flag."""
+    from src.auth.throttle import reset_login_throttle
+
+    reset_login_throttle()
+    before = auth_enabled.session_cookie_secure
+    try:
+        auth_enabled.session_cookie_secure = False
+        plain = await client.post("/login", data={"password": "correct horse"})
+        assert "secure" not in plain.headers["set-cookie"].lower()
+
+        auth_enabled.session_cookie_secure = True
+        secured = await client.post("/login", data={"password": "correct horse"})
+        assert "; Secure" in secured.headers["set-cookie"]
+
+        # Logging out has to clear the same cookie, attributes included.
+        cleared = await client.get("/logout")
+        assert "; Secure" in cleared.headers["set-cookie"]
+    finally:
+        auth_enabled.session_cookie_secure = before
+        reset_login_throttle()

@@ -272,6 +272,13 @@ open, including `POST /api/firmware/scrape-all` and full CRUD over the device li
 With auth on, only `/health`, `/login` and `/static` stay open: a load balancer cannot
 present credentials, and requiring a session to reach the login form is a redirect loop.
 
+Five failed logins from one address within five minutes make `/login` answer 429 with
+`Retry-After`; a correct password clears the count (`LOGIN_MAX_ATTEMPTS`,
+`LOGIN_WINDOW_SECONDS`). Behind a proxy that terminates TLS, set
+`SESSION_COOKIE_SECURE=true` — the app itself sees http, so the cookie would
+otherwise lose its `Secure` flag — and run uvicorn with `--proxy-headers` so the
+throttle sees real client addresses rather than the proxy's.
+
 Scripts can send `X-API-Key` instead, if `API_KEY` is set. Unset means the header is
 ignored entirely, not that any key works. Passwords use scrypt, sessions use HMAC, both
 from the standard library.
@@ -309,6 +316,7 @@ likely to touch:
 | `NOTIFY_TRANSPORT` | `none` | `ntfy` to push to your phone |
 | `NTFY_TOPIC` | | Long and random — it is the only secret |
 | `AUTH_PASSWORD_HASH` / `SECRET_KEY` | | Both required to enable auth |
+| `SESSION_COOKIE_SECURE` | `false` | `true` when served over https — see below |
 | `ANTHROPIC_API_KEY` | | Enables changelog summaries |
 | `SCRAPE_CACHE` | `false` | `true` while developing a scraper |
 | `LOG_FILE` | | Set it if nothing else rotates your logs |

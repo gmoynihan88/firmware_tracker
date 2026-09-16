@@ -39,6 +39,19 @@ class Settings(BaseSettings):
     api_key: str = ""                 # optional, for X-API-Key on programmatic calls
     session_lifetime_hours: int = 336  # 14 days
 
+    # Marks the session cookie Secure regardless of the scheme the app sees. CloudFront
+    # and API Gateway terminate TLS and speak http to the task, so the scheme alone
+    # drops the flag exactly where it matters. Set true in any deployment reached over
+    # https; left false so a plain http://localhost install still keeps its session.
+    session_cookie_secure: bool = False
+
+    # Failed logins allowed per client address within the window, after which /login
+    # answers 429 with Retry-After. A correct password clears the count. See
+    # src/auth/throttle.py: behind a proxy uvicorn needs --proxy-headers, or every
+    # request looks like one client.
+    login_max_attempts: int = 5
+    login_window_seconds: int = 300
+
     # Notification delivery. Transport is "none" by default so the app runs with no
     # configuration; on public ntfy.sh the topic name is the only secret, so use a
     # long random one and keep it in .env.
