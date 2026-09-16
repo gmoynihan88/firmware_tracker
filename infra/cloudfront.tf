@@ -26,9 +26,17 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   name    = "${local.name}-catalog"
   comment = "Short-lived caching for the public catalogue, keyed on the session cookie"
 
+  # Five minutes, not one. The catalogue changes at most once a day (the scheduler
+  # scrapes every 24 hours), and the cost of a miss is a 1.8MB render: measured, a cold
+  # edge answers in ~1.15s against ~90ms warm. A longer TTL keeps entries alive at every
+  # edge that has been hit, which is the part that actually helps a first-time visitor
+  # -- warming from one place would only ever warm one of CloudFront's hundreds of PoPs.
+  #
+  # The ceiling on staleness for the owner: after tracking a device, the catalogue's
+  # tracked markers can lag by this much. That is why it is minutes rather than hours.
   min_ttl     = 0
-  default_ttl = 60
-  max_ttl     = 300
+  default_ttl = 300
+  max_ttl     = 3600
 
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = true

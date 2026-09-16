@@ -104,9 +104,10 @@ async def test_anonymous_visitors_cannot_see_which_devices_are_owned(public_cata
 
     assert anonymous.status_code == 200
     assert "Sharable One" in anonymous.text
-    # Every row still carries data-tracked, which is the client-side filter's hook; what
-    # matters is that it never says yes, and that nothing on the page discloses ownership.
-    assert 'data-tracked="yes"' not in anonymous.text
+    # An anonymous page carries no data-tracked at all -- there is no Hide tracked box to
+    # feed, so 2,045 copies of "no" were weight with nothing reading them. Absent is also
+    # a stronger guarantee than always-"no": there is no attribute left to leak a yes.
+    assert "data-tracked" not in anonymous.text
     assert "tracked-flag" not in anonymous.text
     assert "Hide tracked" not in anonymous.text
     assert "/devices/add?model_id=" not in anonymous.text
