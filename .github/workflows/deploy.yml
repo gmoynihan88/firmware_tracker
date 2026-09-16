@@ -1,0 +1,114 @@
+name: Deploy
+
+# Every push to main that changes something the image contains. Documentation and test
+# changes do not rebuild a 1GB Chromium image for nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "templates/**"
+      - "static/**"
+      - "alembic/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "requirements.txt"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+# One deploy at a time, and never cancelled halfway: the service stops the old task
+# before starting the new one, so an interrupted deploy leaves nothing running.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # The environment is half of the AWS trust policy: the role can only be assumed by a
+    # job that declares this, not by any branch or fork that can start a workflow.
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write # Mint the OIDC token. Only this job gets it.
+
+    env:
+      AWS_REGION: us-west-2
+      CLUSTER: firmware-tracker-production
+      SERVICE: firmware-tracker-production
+      FAMILY: firmware-tracker-production
+      CONTAINER: firmware-tracker
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No stored AWS key: this trades the job's OIDC token for credentials that expire
+      # in an hour. The role ARN is a repository variable rather than a secret -- an ARN
+      # is not a credential, and the trust policy is what makes it useless to anyone else.
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # The AWS CLI is already on the runner, so this is a `docker login` rather than a
+      # third-party action -- one less action to allowlist, pin and trust.
+      - name: Log in to ECR
+        id: ecr
+        run: |
+          registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
+          echo "image=${registry}/firmware-tracker:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      # Tagged with the commit SHA, and the repository refuses to overwrite a tag, so
+      # "which commit is running?" always has an answer. Cached from the previous image
+      # to skip reinstalling Chromium when only application code changed.
+      - name: Build and push
+        run: |
+          docker build \
+            --cache-from "${{ steps.ecr.outputs.image }}" \
+            --tag "${{ steps.ecr.outputs.image }}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            .
+          docker push "${{ steps.ecr.outputs.image }}"
+
+      # A task definition is immutable, so a deploy is a new revision with a new image
+      # and everything else copied. The describe/jq/register dance is what the
+      # amazon-ecs-deploy-task-definition action does; doing it with the CLI keeps the
+      # third-party action count at one.
+      - name: Register a task definition revision
+        id: task
+        run: |
+          aws ecs describe-task-definition --task-definition "$FAMILY" --query taskDefinition > current.json
+          jq --arg image "${{ steps.ecr.outputs.image }}" --arg name "$CONTAINER" '
+            .containerDefinitions |= map(if .name == $name then .image = $image else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ' current.json > next.json
+          arn=$(aws ecs register-task-definition --cli-input-json file://next.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Update the service
+        run: |
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$SERVICE" \
+            --task-definition "${{ steps.task.outputs.arn }}" \
+            --output text --query 'service.serviceName'
+
+      # The service stops the old task before starting the new one, so this window is a
+      # short outage. Failing here means the new task did not become healthy.
+      - name: Wait for the service to settle
+        run: aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+
+      - name: Report what is running
+        run: |
+          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].{desired:desiredCount,running:runningCount,taskDefinition:taskDefinition}' \
+            --output table

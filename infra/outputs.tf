@@ -48,6 +48,11 @@ output "log_group" {
   value       = aws_cloudwatch_log_group.app.name
 }
 
+output "deploy_role_arn" {
+  description = "Set as the AWS_DEPLOY_ROLE_ARN variable on the repository's production environment."
+  value       = aws_iam_role.deploy.arn
+}
+
 output "secret_parameter_names" {
   description = "Set each of these with: aws ssm put-parameter --overwrite --type SecureString --name <name> --value <secret>"
   value       = [for parameter in aws_ssm_parameter.secret : parameter.name]
