@@ -4,7 +4,12 @@ import time
 
 import pytest
 
-from tests.support import _seed_notification, _seed_unversioned, test_session_maker
+from tests.support import (
+    _seed_notification,
+    _seed_unversioned,
+    chromium_is_installed,
+    test_session_maker,
+)
 
 
 @pytest.mark.asyncio
@@ -1117,6 +1122,11 @@ async def test_real_chromium_renders_the_catalog_without_script_errors(client):
 
     if not base.PLAYWRIGHT_AVAILABLE:
         pytest.skip("Playwright not installed")
+    # Decided before async_playwright(), which spawns the driver as a subprocess even
+    # when there is no browser for it to launch. chromium_is_installed() says what that
+    # costs on 3.12; the launch below still skips if this was optimistic.
+    if not chromium_is_installed():
+        pytest.skip("Chromium is not installed")
     from playwright.async_api import async_playwright
 
     await _seed_catalog(60)
@@ -1241,6 +1251,9 @@ async def test_real_chromium_opens_the_version_history(client):
 
     if not base.PLAYWRIGHT_AVAILABLE:
         pytest.skip("Playwright not installed")
+    # As above: no driver subprocess unless there is a browser to drive.
+    if not chromium_is_installed():
+        pytest.skip("Chromium is not installed")
     from playwright.async_api import async_playwright
 
     box_id = await _seed_history()

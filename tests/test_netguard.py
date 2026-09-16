@@ -3,6 +3,7 @@ import contextlib
 import pytest
 
 from src.main import app
+from tests.support import chromium_is_installed
 
 
 @contextlib.asynccontextmanager
@@ -391,10 +392,22 @@ async def test_real_chromium_blocks_private_pages_and_subrequests(monkeypatch, c
             content_type="text/html",
         )
 
+    # Decided before the browser is touched at all. _get_browser() starts Playwright's
+    # driver as a subprocess and only then launches Chromium, so asking the question
+    # where there is no browser costs a driver process to be told no.
+    if not chromium_is_installed():
+        pytest.skip("Chromium is not installed")
+
     scraper = _guard_stub()
     try:
         await scraper._get_browser()
     except Exception as exc:
+        # Stop the driver this call has already started. Skipping from here jumps over
+        # the finally below -- the only thing that closes the scraper -- which left a
+        # subprocess transport to be finalised after the test's event loop had closed.
+        # On 3.12 that surfaces as "Event loop is closed" through pytest's unraisable
+        # hook: two of them on every CI run, on an otherwise green build.
+        await scraper.close()
         pytest.skip(f"Chromium unavailable: {exc}")
 
     try:
