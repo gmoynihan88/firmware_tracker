@@ -26,8 +26,17 @@ async def login_page(request: Request):
         # than telling them auth is off.
         return RedirectResponse(url="/", status_code=303)
 
+    # public_catalog decides whether the page can offer the catalogue as somewhere to go
+    # instead. Offering it when the catalogue is private would send someone straight back
+    # here, which is worse than not offering it at all.
     return templates.TemplateResponse(
-        request, name="login.html", context={"error": None, "unread_count": 0}
+        request,
+        name="login.html",
+        context={
+            "error": None,
+            "unread_count": 0,
+            "public_catalog": current.public_catalog,
+        },
     )
 
 
@@ -48,7 +57,11 @@ async def login(request: Request, password: str = Form(...)):
         return templates.TemplateResponse(
             request,
             name="login.html",
-            context={"error": "Too many attempts. Try again shortly.", "unread_count": 0},
+            context={
+                "error": "Too many attempts. Try again shortly.",
+                "unread_count": 0,
+                "public_catalog": current.public_catalog,
+            },
             status_code=429,
             headers={"Retry-After": str(wait)},
         )
@@ -60,7 +73,11 @@ async def login(request: Request, password: str = Form(...)):
         return templates.TemplateResponse(
             request,
             name="login.html",
-            context={"error": "Incorrect password.", "unread_count": 0},
+            context={
+                "error": "Incorrect password.",
+                "unread_count": 0,
+                "public_catalog": current.public_catalog,
+            },
             status_code=401,
         )
 
