@@ -427,57 +427,63 @@ async def catalog_page(
         )
         return f"/catalog?{query}" if query else "/catalog"
 
-    # The registry lists slugs, and the template used to title-case them, which
-    # rendered "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments". Each
-    # scraper carries the vendor's own spelling, so use that.
-    device_counts = {
-        row[0]: row[1]
-        for row in (
-            await db.execute(
-                select(Manufacturer.slug, func.count(DeviceModel.id))
-                .join(DeviceModel, DeviceModel.manufacturer_id == Manufacturer.id)
-                .group_by(Manufacturer.slug)
-            )
-        ).all()
-    }
-
-    # Most recent successful run per scraper, so a vendor card can say when it last
-    # worked rather than only offering to run again. scrape_runs only goes back to
-    # the day that table was added, so manufacturers.last_scraped_at -- maintained
-    # since the beginning -- is the fallback. Without it every vendor scraped before
-    # then reads "never scraped", which is worse than the gap it describes.
-    last_runs = {
-        row[0]: row[1]
-        for row in (
-            await db.execute(
-                select(ScrapeRun.scraper_type, func.max(ScrapeRun.started_at))
-                .where(ScrapeRun.success.is_(True))
-                .group_by(ScrapeRun.scraper_type)
-            )
-        ).all()
-    }
-
-    vendor_rows = (
-        await db.execute(
-            select(Manufacturer.slug, Manufacturer.website_url, Manufacturer.last_scraped_at)
-        )
-    ).all()
-    websites = {row[0]: row[1] for row in vendor_rows}
-    legacy_scraped = {row[0]: row[2] for row in vendor_rows}
-
-    available_scrapers = [
-        {
-            "slug": slug,
-            "name": ScraperRegistry.get(slug).manufacturer_name,
-            "device_count": device_counts.get(slug, 0),
-            "last_run": last_runs.get(slug) or legacy_scraped.get(slug),
-            "website": websites.get(slug) or ScraperRegistry.get(slug).manufacturer_website,
+    # The import panel is the owner's, and the template renders it behind the same check
+    # as this one. So these three queries and the list they built existed only to fill
+    # markup a visitor never receives -- on /catalog, which is the public, cached, most
+    # requested page here. An anonymous request now runs none of them.
+    available_scrapers = []
+    if authenticated:
+        # The registry lists slugs, and the template used to title-case them, which
+        # rendered "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments". Each
+        # scraper carries the vendor's own spelling, so use that.
+        device_counts = {
+            row[0]: row[1]
+            for row in (
+                await db.execute(
+                    select(Manufacturer.slug, func.count(DeviceModel.id))
+                    .join(DeviceModel, DeviceModel.manufacturer_id == Manufacturer.id)
+                    .group_by(Manufacturer.slug)
+                )
+            ).all()
         }
-        for slug in sorted(
-            ScraperRegistry.list_available(),
-            key=lambda s: ScraperRegistry.get(s).manufacturer_name.lower(),
-        )
-    ]
+
+        # Most recent successful run per scraper, so a vendor card can say when it last
+        # worked rather than only offering to run again. scrape_runs only goes back to
+        # the day that table was added, so manufacturers.last_scraped_at -- maintained
+        # since the beginning -- is the fallback. Without it every vendor scraped before
+        # then reads "never scraped", which is worse than the gap it describes.
+        last_runs = {
+            row[0]: row[1]
+            for row in (
+                await db.execute(
+                    select(ScrapeRun.scraper_type, func.max(ScrapeRun.started_at))
+                    .where(ScrapeRun.success.is_(True))
+                    .group_by(ScrapeRun.scraper_type)
+                )
+            ).all()
+        }
+
+        vendor_rows = (
+            await db.execute(
+                select(Manufacturer.slug, Manufacturer.website_url, Manufacturer.last_scraped_at)
+            )
+        ).all()
+        websites = {row[0]: row[1] for row in vendor_rows}
+        legacy_scraped = {row[0]: row[2] for row in vendor_rows}
+
+        available_scrapers = [
+            {
+                "slug": slug,
+                "name": ScraperRegistry.get(slug).manufacturer_name,
+                "device_count": device_counts.get(slug, 0),
+                "last_run": last_runs.get(slug) or legacy_scraped.get(slug),
+                "website": websites.get(slug) or ScraperRegistry.get(slug).manufacturer_website,
+            }
+            for slug in sorted(
+                ScraperRegistry.list_available(),
+                key=lambda s: ScraperRegistry.get(s).manufacturer_name.lower(),
+            )
+        ]
 
     # Which models the user already tracks, so the table can say so instead of
     # offering to add a second copy of something they have.
