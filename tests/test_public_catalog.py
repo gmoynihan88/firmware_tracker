@@ -243,3 +243,5 @@ async def test_the_navigation_offers_a_way_in_and_nothing_else(public_catalog, c
     assert 'href="/notifications"' not in anonymous
     assert 'href="/" class="nav-link"' not in anonymous
     assert "notification-badge" not in anonymous
+    # Nor a way out of a session they do not have.
+    assert 'href="/logout"' not in anonymous
