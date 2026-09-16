@@ -7,10 +7,6 @@ data "aws_cloudfront_cache_policy" "caching_disabled" {
   name = "Managed-CachingDisabled"
 }
 
-data "aws_cloudfront_cache_policy" "caching_optimized" {
-  name = "Managed-CachingOptimized"
-}
-
 # Forwards everything the viewer sent -- cookies, query strings, headers -- except Host.
 # API Gateway checks the Host header against its own domain, so passing the viewer's
 # through would answer 403 on every request.
@@ -82,6 +78,50 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   }
 }
 
+# Static assets, keyed on the query string -- which is the whole point of them.
+#
+# These were on Managed-CachingOptimized, whose QueryStringBehavior is "none": the query
+# string is dropped from the cache key. src/templating.py appends ?v=<sha256 of the file>
+# to every asset URL so that changing a file changes its URL, and CloudFront was throwing
+# that away and serving one cached object for the path regardless.
+#
+# Measured on the live distribution: catalog.css with no query, with the old hash, with
+# the new hash, and with a fabricated one all returned the same 14,292 bytes and the same
+# ETag, with the age still climbing. A CSS fix that had deployed successfully was invisible
+# to visitors, and would have stayed invisible for the policy's 24-hour TTL.
+#
+# With the query string in the key, a new hash is a new object and takes effect at once,
+# which is what makes the long TTL below safe rather than merely cheap.
+resource "aws_cloudfront_cache_policy" "static" {
+  name    = "${local.name}-static"
+  comment = "Long-lived caching for fingerprinted static assets, keyed on the ?v= hash"
+
+  # A year is fine precisely because the URL changes when the file does. Without the
+  # query string in the key it would have been a year of serving stale CSS.
+  min_ttl     = 0
+  default_ttl = 86400
+  max_ttl     = 31536000
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    # Gzip only, for the reason recorded on the catalogue policy above: CloudFront's
+    # on-the-fly Brotli lost to its own gzip when measured on this distribution.
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = true
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "main" {
   enabled         = true
   comment         = local.name
@@ -120,8 +160,11 @@ resource "aws_cloudfront_distribution" "main" {
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
-  # Static assets are safe to cache hard because src/templating.py fingerprints every
-  # URL with a hash of the file: a changed asset is a changed URL.
+  # Static assets are safe to cache hard because src/templating.py fingerprints every URL
+  # with a hash of the file -- and, now, because the cache policy actually keys on that
+  # hash. On Managed-CachingOptimized it did not: that policy drops the query string, so
+  # every version of a file shared one cache entry and a changed asset was not a changed
+  # URL as far as the edge was concerned. See aws_cloudfront_cache_policy.static.
   ordered_cache_behavior {
     path_pattern             = "/static/*"
     target_origin_id         = "api-gateway"
@@ -129,7 +172,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods          = ["GET", "HEAD"]
     cached_methods           = ["GET", "HEAD"]
     compress                 = true
-    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_optimized.id
+    cache_policy_id          = aws_cloudfront_cache_policy.static.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
