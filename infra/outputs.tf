@@ -48,6 +48,16 @@ output "log_group" {
   value       = aws_cloudwatch_log_group.app.name
 }
 
+output "app_url" {
+  description = "The public address. CloudFront's own certificate, until a domain arrives."
+  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+}
+
+output "api_endpoint" {
+  description = "The origin behind CloudFront. Public, and reachable directly -- see infra/README.md."
+  value       = aws_apigatewayv2_api.main.api_endpoint
+}
+
 output "deploy_role_arn" {
   description = "Set as the AWS_DEPLOY_ROLE_ARN variable on the repository's production environment."
   value       = aws_iam_role.deploy.arn
