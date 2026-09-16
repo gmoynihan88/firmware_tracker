@@ -111,6 +111,22 @@ accepted here: the app authenticates every request, throttles failed logins, and
 stage caps bursts at 50 requests. Anything added at CloudFront later -- WAF especially --
 would want this closed first.
 
+## Cost alarms
+
+Three, because they fail differently. A **monthly budget** at $15 catches drift -- the
+realistic failure is $9 quietly becoming $25, not a sudden $50 -- and alerts on forecast
+as well as actual, because Cost Explorer lags 8-24 hours and the forecast fires first. A
+**daily budget** at $1 catches a spike; it sits near the ~$0.30 run rate rather than far
+above it, since a threshold at five times normal lets a steady doubling through forever.
+**Anomaly detection** catches a change of shape that no fixed number describes.
+
+Measured run rate on 2026-09-16: about $0.30 a day, and the largest single item is not the
+task -- it is the **public IPv4 address at $0.005/hour (~$3.65/month)**, which exists
+because the task sits in a public subnet to avoid a $32/month NAT gateway. Fargate Spot
+for 0.5 vCPU and 1GB is about $0.10 a day.
+
+`alert_email` and `anomaly_monitor_arn` live in `terraform.tfvars`, gitignored.
+
 ## What is not here yet
 
 In order, each its own change:
@@ -118,8 +134,8 @@ In order, each its own change:
 1. **CloudFront access logs.** Legacy standard logging needs S3 ACLs enabled on the
    bucket, which new buckets disable; the newer delivery path avoids that and is worth
    doing properly rather than quickly. API Gateway access logs are already on.
-2. **Guardrails** — a budget alarm, and a rate limit on `/login` at the edge if the
-   app-level throttle proves not to be enough.
+2. **An edge rate limit on `/login`**, if the app-level throttle proves not to be
+   enough. The stage already caps bursts at 50 requests.
 3. **Terraform in CI** — plan on a pull request, apply on merge. That needs a second
    role with much wider permissions than the deploy role, which is a decision worth
    making deliberately rather than by default.

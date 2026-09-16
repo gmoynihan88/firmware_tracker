@@ -2,6 +2,15 @@
 # variables.tf; this file exists so account-specific overrides have somewhere to live
 # that is not the repository.
 
+# alert_email has no default: a fresh clone cannot plan without it, which is
+# deliberate -- cost alarms that go nowhere are worse than none. anomaly_monitor_arn
+# names the AWS-managed monitor the account already has; leave it empty to skip the
+# anomaly subscription entirely. Both are account-specific, which is why they live here
+# rather than in variables.tf.
+alert_email         = "you@example.com"
+# anomaly_monitor_arn = "arn:aws:ce::<account>:anomalymonitor/<id>"
+#   aws ce get-anomaly-monitors --query 'AnomalyMonitors[].MonitorArn' --output text
+
 # project     = "firmware-tracker"
 # environment = "production"
 # region      = "us-west-2"
