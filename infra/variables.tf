@@ -28,6 +28,77 @@ variable "image_retention_count" {
   default     = 10
 }
 
+variable "image_tag" {
+  description = "Image tag the service runs. The deploy workflow pushes one tag per commit SHA and updates the service; this is only the starting point."
+  type        = string
+  default     = "latest"
+}
+
+variable "container_port" {
+  description = "Port uvicorn listens on inside the task."
+  type        = number
+  default     = 8000
+}
+
+variable "task_cpu" {
+  description = "Fargate CPU units. 512 is 0.5 vCPU, which Chromium needs to render pages in reasonable time."
+  type        = number
+  default     = 512
+}
+
+variable "task_memory" {
+  description = "Fargate memory in MB. 1024 leaves room for Chromium; 512 risks the task being killed mid-render."
+  type        = number
+  default     = 1024
+}
+
+variable "cpu_architecture" {
+  description = "X86_64 or ARM64. ARM64 is cheaper but needs an arm64 image; GitHub's default runners build x86_64."
+  type        = string
+  default     = "X86_64"
+}
+
+variable "use_spot" {
+  description = "Run on Fargate Spot, at roughly a third of the price. An interruption gives two minutes' notice and costs a restart, not data: the database is on EFS."
+  type        = bool
+  default     = true
+}
+
+variable "desired_count" {
+  description = "Tasks to run. Must stay 1: SQLite on EFS allows one writer and the scheduler runs in-process."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.desired_count == 1
+    error_message = "desired_count must be 1: a second task would corrupt the database and double every scrape."
+  }
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch log retention."
+  type        = number
+  default     = 30
+}
+
+variable "log_level" {
+  description = "LOG_LEVEL for the app. INFO is one line per manufacturer per scrape."
+  type        = string
+  default     = "INFO"
+}
+
+variable "notify_transport" {
+  description = "NOTIFY_TRANSPORT for the app: none, or ntfy once the topic parameter is set."
+  type        = string
+  default     = "none"
+}
+
+variable "scrape_interval_hours" {
+  description = "How often the in-process scheduler scrapes every manufacturer."
+  type        = number
+  default     = 24
+}
+
 locals {
   name = "${var.project}-${var.environment}"
 
