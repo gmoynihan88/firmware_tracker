@@ -126,3 +126,27 @@ Logs go to stderr. Docker caps them at 10MB × 3; under systemd journald handles
 run `uvicorn > file &` then nothing rotates it, so set `LOG_FILE` and the app rotates for
 you. Access lines for `/health` are dropped by default — a container health check polls it
 every 30 seconds, which is 95MB of log a year against about 1MB of actual results.
+
+## CloudFront access logs
+
+Deployed only, and separate from the app's own logs: these are what the edge served,
+including the requests that never reached the task because the cache answered them.
+
+```bash
+BUCKET=$(terraform -chdir=infra output -raw access_log_bucket)
+aws s3 ls "s3://$BUCKET/" --recursive | tail
+aws s3 cp "s3://$BUCKET/<key>" - | head        # add | gunzip if the object is compressed
+```
+
+**Delivery is not immediate.** The first objects appear up to an hour after the requests
+they describe, so an empty bucket shortly after an apply means wait, not broken.
+
+They expire after two years (`access_log_retention_days`). At roughly 300 requests a day
+that is a couple of hundred megabytes, so pennies a month. Worth knowing before tuning
+it: these records carry visitor IP addresses, so the case for a shorter window is a
+privacy one rather than a cost one.
+
+What these add over CloudFront's own metrics is per-URL and per-viewer detail: which
+pages a visitor actually opened, and which addresses are working on `/login`. Request
+counts, error rates and cache hit ratio are already in CloudWatch for free, which is
+where to look first.

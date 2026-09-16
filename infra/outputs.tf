@@ -48,6 +48,11 @@ output "log_group" {
   value       = aws_cloudwatch_log_group.app.name
 }
 
+output "access_log_bucket" {
+  description = "S3 bucket CloudFront delivers access logs to. Delivery starts within an hour of the first request after apply."
+  value       = aws_s3_bucket.access_logs.id
+}
+
 output "app_url" {
   description = "The public address. CloudFront's own certificate, until a domain arrives."
   value       = "https://${aws_cloudfront_distribution.main.domain_name}"
