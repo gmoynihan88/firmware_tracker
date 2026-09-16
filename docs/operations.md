@@ -135,11 +135,22 @@ including the requests that never reached the task because the cache answered th
 ```bash
 BUCKET=$(terraform -chdir=infra output -raw access_log_bucket)
 aws s3 ls "s3://$BUCKET/" --recursive | tail
-aws s3 cp "s3://$BUCKET/<key>" - | head        # add | gunzip if the object is compressed
+aws s3 cp "s3://$BUCKET/<key>" - | gunzip | head
 ```
 
-**Delivery is not immediate.** The first objects appear up to an hour after the requests
-they describe, so an empty bucket shortly after an apply means wait, not broken.
+Objects are gzipped, one JSON record per request, keyed by distribution and hour:
+`AWSLogs/<account>/CloudFront/<distribution>.<YYYY-MM-DD-HH>.<hash>.gz`.
+
+**Delivery is not immediate**, though it is quicker than the hour AWS allows for: measured
+here, requests at 16:46 UTC were in an object by 16:49. Give it an hour before concluding
+anything is wrong, because an empty bucket shortly after an apply means wait.
+
+One trap worth knowing. A **zero-byte `AWSLogs/<account>/CloudFront/` prefix marker
+appears immediately**, long before any log does. It is not a log, and counting objects
+rather than bytes will tell you delivery works when the bucket holds nothing else -- which
+is exactly how the first check written for this reported success against an empty bucket.
+Its one use is diagnostic: only the delivery service creates it, so if it is there, the
+bucket policy is letting that service write and any problem lies further along.
 
 They expire after two years (`access_log_retention_days`). At roughly 300 requests a day
 that is a couple of hundred megabytes, so pennies a month. Worth knowing before tuning
