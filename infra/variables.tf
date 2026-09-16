@@ -52,6 +52,12 @@ variable "task_memory" {
   default     = 1024
 }
 
+variable "github_repository" {
+  description = "owner/name of the repository allowed to assume the deploy role. Half of the OIDC trust condition."
+  type        = string
+  default     = "gmoynihan88/firmware_tracker"
+}
+
 variable "cpu_architecture" {
   description = "X86_64 or ARM64. ARM64 is cheaper but needs an arm64 image; GitHub's default runners build x86_64."
   type        = string
