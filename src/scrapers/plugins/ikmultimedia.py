@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from packaging.version import Version
+from src.devices.versions import parse_version
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
 
@@ -88,26 +88,35 @@ class IKMultimediaScraper(BaseScraper):
         if not found:
             return None
 
-        # Parse versions
+        # parse_version rather than an outside library: it is the one comparison rule
+        # this project uses -- the same one deciding which firmware row is_latest -- and
+        # it lives in the runtime dependencies, which the previous import did not. A
+        # plugin holding a second opinion on version ordering is how the two drift.
+        #
+        # It returns a tuple, hashable and comparable, so it serves as the dict key and
+        # the sort key below exactly as the old type did.
         parsed = []
         for name, v in found:
-            try:
-                parsed.append((name, Version(v), v))
-            except Exception:
-                # Invalid version format, skip
+            # parse_version never raises -- it answers (0,) for a string with no digits.
+            # Skipping those preserves the old behaviour: an unparseable candidate took
+            # no part in the vote rather than joining a bucket that could win one.
+            if not any(character.isdigit() for character in v):
                 continue
+            parsed.append((name, parse_version(v), v))
 
         if not parsed:
             return found[0][1]  # Return first raw version if none parse
 
         # Count occurrences per version
-        counts: dict[Version, int] = {}
+        counts: dict[tuple, int] = {}
         for _, v, _ in parsed:
             counts[v] = counts.get(v, 0) + 1
 
         # Sort by (count, version) and pick best
         best = sorted(counts.items(), key=lambda kv: (kv[1], kv[0]))[-1][0]
-        return str(best)
+        # The raw string the winning tuple came from: str() on a tuple would render
+        # "(1, 2, 3)" where the old type rendered "1.2.3".
+        return next(raw for _, parsed_version, raw in parsed if parsed_version == best)
 
     async def fetch_device_list(self) -> ScraperResult:
         """Return the list of known IK Multimedia products."""
