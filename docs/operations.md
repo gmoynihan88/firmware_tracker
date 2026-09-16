@@ -2,9 +2,11 @@
 
 ## Adding devices
 
-From the catalogue at `/catalog`: type to narrow by product or vendor, split hardware from
-software, pick vendors from a dropdown, or hide what you already track. Search covers
-every page, and devices already tracked say so instead of offering to add a second copy.
+From the catalogue at `/catalog`: search by product or vendor, split hardware from
+software, pick a vendor, or hide what you already track. Filtering, sorting and paging
+all happen on the server, so a search covers the whole catalogue rather than the rows
+you can see, and the URL carries the view -- a filtered, sorted page is a link you can
+send someone. Devices you already track say so instead of offering to add a second copy.
 
 Or in bulk, from what is installed (macOS):
 

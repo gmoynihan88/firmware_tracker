@@ -2,11 +2,20 @@ from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+from urllib.parse import urlencode
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import selectinload
 
 from src.database import get_db
-from src.devices.models import DeviceModel, FirmwareVersion, Manufacturer, MyDevice, ScrapeRun
+from src.devices.models import (
+    DeviceCategory,
+    DeviceModel,
+    FirmwareVersion,
+    Manufacturer,
+    MyDevice,
+    ScrapeRun,
+)
 from src.config import get_settings
 from src.devices import service as device_service
 from src.devices.schemas import MyDeviceCreate, MyDeviceUpdate
@@ -242,9 +251,30 @@ async def mark_all_read(db: AsyncSession = Depends(get_db)):
     return RedirectResponse(url="/notifications", status_code=303)
 
 
+CATALOG_PAGE_SIZES = (25, 50, 100)
+CATALOG_DEFAULT_SIZE = 50
+CATALOG_DEFAULT_SORT = "product"
+
+
 @router.get("/catalog", response_class=HTMLResponse)
-async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
-    """Device catalog browsing page."""
+async def catalog_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    q: str = "",
+    vendor: str = "",
+    kind: str = "",
+    hide_tracked: bool = False,
+    sort: str = CATALOG_DEFAULT_SORT,
+    direction: str = "asc",
+    page: int = 1,
+    size: int = CATALOG_DEFAULT_SIZE,
+):
+    """Device catalog browsing page, one page of rows at a time.
+
+    Filtering, sorting and paging all happen in SQL. They used to happen in the
+    browser, which meant every one of the catalogue's products had to be in the HTML
+    before any of them could be filtered -- a 1.8MB page to show fifty rows.
+    """
     # With PUBLIC_CATALOG on, this is the one page an anonymous visitor may read. The
     # products are public facts about other people's gear; which of them someone owns,
     # and what they have been notified about, is not -- so neither is fetched at all,
@@ -252,8 +282,150 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
     authenticated = getattr(request.state, "authenticated", True)
 
     manufacturers = await device_service.get_manufacturers(db)
-    device_models = await device_service.get_device_models(db)
     unread_count = await device_service.get_unread_count(db) if authenticated else 0
+
+    # Every parameter is clamped to something renderable rather than rejected. These
+    # arrive from a bookmarked or shared URL as often as from the form, and answering
+    # 422 to size=17 is a worse answer than fifty rows.
+    if size not in CATALOG_PAGE_SIZES:
+        size = CATALOG_DEFAULT_SIZE
+    if direction not in ("asc", "desc"):
+        direction = "asc"
+    if kind not in ("hardware", "software"):
+        kind = ""
+    if vendor not in {maker.slug for maker in manufacturers}:
+        vendor = ""
+    q = q.strip()
+
+    # One row per model from each, so neither join can multiply the result.
+    latest = (
+        select(
+            FirmwareVersion.device_model_id.label("model_id"),
+            FirmwareVersion.release_date,
+            FirmwareVersion.version_sort_key,
+        )
+        .where(FirmwareVersion.is_latest.is_(True))
+        .subquery()
+    )
+    counts = (
+        select(
+            FirmwareVersion.device_model_id.label("model_id"),
+            func.count(FirmwareVersion.id).label("total"),
+        )
+        .group_by(FirmwareVersion.device_model_id)
+        .subquery()
+    )
+
+    listing = (
+        select(DeviceModel)
+        .options(selectinload(DeviceModel.manufacturer))
+        .join(Manufacturer, Manufacturer.id == DeviceModel.manufacturer_id)
+        .outerjoin(latest, latest.c.model_id == DeviceModel.id)
+        .outerjoin(counts, counts.c.model_id == DeviceModel.id)
+    )
+
+    if q:
+        term = f"%{q.lower()}%"
+        listing = listing.where(
+            or_(
+                func.lower(DeviceModel.name).like(term),
+                func.lower(Manufacturer.name).like(term),
+            )
+        )
+    # Software is the VST_PLUGIN category and hardware is everything else, the same
+    # split the rows themselves are marked with.
+    if kind == "software":
+        listing = listing.where(DeviceModel.category == DeviceCategory.VST_PLUGIN)
+    elif kind == "hardware":
+        listing = listing.where(DeviceModel.category != DeviceCategory.VST_PLUGIN)
+    if vendor:
+        listing = listing.where(Manufacturer.slug == vendor)
+    # Owner-only, and forced off for a visitor: an anonymous page has no tracked
+    # devices to hide and no checkbox offering to. Rewriting the flag rather than
+    # ignoring it keeps the URLs the page builds from agreeing with what it rendered.
+    if hide_tracked and authenticated:
+        listing = listing.where(DeviceModel.id.notin_(select(MyDevice.device_model_id)))
+    else:
+        hide_tracked = False
+
+    sortable = {
+        "vendor": Manufacturer.name,
+        "product": DeviceModel.name,
+        "type": DeviceModel.category,
+        # The stored key, not the version text: it is parse_version's comparison in a
+        # form SQL can order by, so 1.11 ranks above 1.9 here exactly as it does when
+        # the scraper decides which row is_latest. See src/devices/versions.py.
+        "latest": latest.c.version_sort_key,
+        "others": func.coalesce(counts.c.total, 0),
+        "released": latest.c.release_date,
+    }
+    if sort not in sortable:
+        sort = CATALOG_DEFAULT_SORT
+    column = sortable[sort]
+    listing = listing.order_by(
+        # A product with no version sorts last whichever way the column points, which
+        # is what the old browser-side sort did with its em-dash. Letting them fall
+        # into the middle of a descending page would read as "the oldest releases".
+        column.is_(None),
+        column.desc() if direction == "desc" else column.asc(),
+        # A deterministic tie-break, or LIMIT/OFFSET can show a row on one page and
+        # skip it on the next: most of this table ties on category or on having no
+        # release date at all.
+        DeviceModel.name,
+        DeviceModel.id,
+    )
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(listing.order_by(None).subquery())
+        )
+    ).scalar_one()
+    # Whether the catalogue is empty is a different question from whether this filter
+    # matched anything, and the page says different things about them.
+    total_devices = (await db.execute(select(func.count(DeviceModel.id)))).scalar_one()
+
+    pages = max(1, -(-total // size))
+    page = min(max(1, page), pages)
+    first_row = (page - 1) * size + 1 if total else 0
+    last_row = min(page * size, total)
+
+    device_models = (
+        (await db.execute(listing.limit(size).offset((page - 1) * size))).scalars().all()
+    )
+    page_ids = [model.id for model in device_models]
+
+    def catalog_url(**overrides) -> str:
+        """This view with some parameters changed, and defaults left out.
+
+        Leaving defaults out is not tidiness: CloudFront keys this page's cache on the
+        whole query string, so a link spelling out every default would be a second
+        cache entry for the page the reader is already on.
+        """
+        params = {
+            "q": q,
+            "vendor": vendor,
+            "kind": kind,
+            "hide_tracked": hide_tracked,
+            "sort": sort,
+            "direction": direction,
+            "page": page,
+            "size": size,
+        }
+        params.update(overrides)
+        defaults = {
+            "q": "",
+            "vendor": "",
+            "kind": "",
+            "hide_tracked": False,
+            "sort": CATALOG_DEFAULT_SORT,
+            "direction": "asc",
+            "page": 1,
+            "size": CATALOG_DEFAULT_SIZE,
+        }
+        query = urlencode(
+            {key: value for key, value in params.items() if value != defaults[key]}
+        )
+        return f"/catalog?{query}" if query else "/catalog"
 
     # The registry lists slugs, and the template used to title-case them, which
     # rendered "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments". Each
@@ -322,6 +494,9 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
     # tracker first saw the version, which is a different fact, and putting it under
     # a "Released" heading would be the invention this project exists to avoid. The
     # dashboard shows it in its own "Discovered" column instead.
+    #
+    # Scoped to the rows on this page. Unscoped, these two loaded a row for every
+    # version in the database -- 11,207 of them -- to render fifty.
     latest_versions = {
         row.device_model_id: row
         for row in (
@@ -332,9 +507,10 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
                     FirmwareVersion.release_date,
                 )
                 .where(FirmwareVersion.is_latest.is_(True))
+                .where(FirmwareVersion.device_model_id.in_(page_ids))
             )
         ).all()
-    }
+    } if page_ids else {}
 
     # How many versions each model has, so the table can offer the ones behind the
     # latest. Only the count: the histories run to 5,000 versions with their notes,
@@ -344,10 +520,11 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
         for row in (
             await db.execute(
                 select(FirmwareVersion.device_model_id, func.count(FirmwareVersion.id))
+                .where(FirmwareVersion.device_model_id.in_(page_ids))
                 .group_by(FirmwareVersion.device_model_id)
             )
         ).all()
-    }
+    } if page_ids else {}
 
     return templates.TemplateResponse(
         request,
@@ -360,6 +537,22 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
             "latest_versions": latest_versions,
             "version_counts": version_counts,
             "unread_count": unread_count,
+            # The current view, for the form, the column headers and the pager.
+            "catalog_url": catalog_url,
+            "search": q,
+            "vendor": vendor,
+            "kind": kind,
+            "hide_tracked": hide_tracked,
+            "sort": sort,
+            "direction": direction,
+            "page": page,
+            "pages": pages,
+            "size": size,
+            "page_sizes": CATALOG_PAGE_SIZES,
+            "total": total,
+            "total_devices": total_devices,
+            "first_row": first_row,
+            "last_row": last_row,
         },
     )
 

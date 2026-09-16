@@ -13,6 +13,7 @@ from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, Scrap
 from src.config import get_settings
 from src.devices import service as device_service
 from src.devices.models import ScrapeRun
+from src.devices.versions import parse_version
 from src.notifications.reconcile import is_behind
 
 logger = logging.getLogger(__name__)
@@ -114,12 +115,10 @@ async def sync_devices(
     return {"created": created, "updated": updated, "total": len(devices)}
 
 
-def parse_version(version: str) -> tuple:
-    """Parse version string into comparable tuple."""
-    import re
-    # Extract numeric parts from version string
-    parts = re.findall(r'\d+', version)
-    return tuple(int(p) for p in parts) if parts else (0,)
+# parse_version moved to src/devices/versions.py, next to the encoding the database
+# sorts by, so the rule that picks is_latest below and the rule the catalogue orders by
+# are one rule rather than two copies that agree today. It is imported at the top of
+# this module, which keeps scraper_service.parse_version resolving as it always did.
 
 
 def _clean_url(url: Optional[str]) -> Optional[str]:

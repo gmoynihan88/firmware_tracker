@@ -644,7 +644,8 @@ async def test_catalog_shows_the_vendor_s_release_date(client):
 
     html = (await client.get("/catalog")).text
 
-    headers = re.findall(r"<th[^>]*>(?:<span[^>]*>)?([A-Za-z]+)", html)
+    # Each sortable heading is a link now, so its label sits inside an <a>.
+    headers = re.findall(r"<th[^>]*>\s*<a[^>]*>\s*([A-Za-z]+)", html)
     assert headers[:6] == ["Vendor", "Product", "Type", "Latest", "Other", "Released"]
 
     dated_row = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Dated Box.*?</tr>", html, re.S)
@@ -717,29 +718,33 @@ def _kinds_by_product(html):
 
 
 @pytest.mark.asyncio
-async def test_catalog_marks_every_row_hardware_or_software(client):
-    """Only VST_PLUGIN is software. Every other category is a physical thing."""
+async def test_catalog_splits_hardware_from_software_on_the_server(client):
+    """Only VST_PLUGIN is software. Every other category is a physical thing.
+
+    The split used to be a data-kind attribute that the browser filtered on. It is a
+    WHERE clause now, so this asks the server for each half rather than reading the
+    markup: the rows that come back *are* the filter's result.
+    """
     await _seed_one_of_each()
 
-    kinds = _kinds_by_product((await client.get("/catalog")).text)
+    software = (await client.get("/catalog?kind=software")).text
+    hardware = (await client.get("/catalog?kind=hardware")).text
 
-    assert kinds == {
-        "Kind Pedal": "hardware",
-        "Kind Synth": "hardware",
-        "Kind Interface": "hardware",
-        "Kind Controller": "hardware",
-        "Kind Other": "hardware",
-        "Kind Plugin": "software",
-    }
+    assert "Kind Plugin" in software
+    assert "Kind Plugin" not in hardware
+    for name in ("Kind Pedal", "Kind Synth", "Kind Interface", "Kind Controller", "Kind Other"):
+        assert name in hardware, name
+        assert name not in software, name
 
 
 @pytest.mark.asyncio
-async def test_catalog_rows_carry_their_search_text_in_the_cells(client):
-    """filterCatalog() derives the search string from the row, not from an attribute.
+async def test_catalog_rows_carry_nothing_the_server_has_already_decided(client):
+    """A row carries what is shown in it, and no filter hooks.
 
-    data-search repeated the vendor and product names that the first two cells already
-    hold -- 70KB across the real catalogue. Dropping it is only safe for as long as both
-    names are genuinely in those cells, in that order, which is what this pins.
+    data-brand, data-kind, data-search and data-tracked were all read by a script that
+    filtered, sorted and paged in the browser. The server does all three now, so every
+    one of them would be weight that nothing reads -- data-search alone repeated the
+    vendor and product names on each row, 70KB across the real catalogue.
     """
     import re
 
@@ -747,7 +752,8 @@ async def test_catalog_rows_carry_their_search_text_in_the_cells(client):
 
     html = (await client.get("/catalog")).text
 
-    assert "data-search" not in html
+    for attribute in ("data-search", "data-brand", "data-kind", "data-tracked"):
+        assert attribute not in html, attribute
     row = re.search(r'<tr class="catalog-row".*?</tr>', html, re.S)
     assert row, "no catalogue row rendered"
     cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)
@@ -769,14 +775,22 @@ async def test_dashboard_marks_every_row_hardware_or_software(client):
 
 @pytest.mark.asyncio
 async def test_both_pages_offer_the_type_filter(client):
-    """The chips have to exist, or data-kind is dead weight."""
+    """Both pages still offer the split -- by different machinery now.
+
+    The catalogue submits it to the server as a query parameter; the dashboard shows
+    only what you own and still filters its handful of rows in the browser.
+    """
     await _seed_one_of_each()
 
-    for path, container in (("/catalog", "catalog-kind-filters"), ("/", "kind-filters")):
-        html = (await client.get(path)).text
-        assert f'id="{container}"' in html, f"{path} has no type filter"
-        assert 'value="hardware"' in html
-        assert 'value="software"' in html
+    catalog = (await client.get("/catalog")).text
+    assert 'name="kind"' in catalog, "the catalogue has no type filter"
+    assert 'value="hardware"' in catalog
+    assert 'value="software"' in catalog
+
+    dashboard = (await client.get("/")).text
+    assert 'id="kind-filters"' in dashboard, "the dashboard has no type filter"
+    assert 'value="hardware"' in dashboard
+    assert 'value="software"' in dashboard
 
 
 async def _seed_two_vendors():
@@ -929,36 +943,176 @@ async def test_catalog_folds_the_import_panel_away_once_there_are_devices(client
 
 
 @pytest.mark.asyncio
-async def test_catalog_vendor_chips_live_in_a_dropdown(client):
+async def test_the_vendor_filter_is_one_select_rather_than_a_checkbox_each(client):
+    """One control, not 91 checkboxes.
+
+    As checkboxes the filter could put up to 91 parameters in the URL, and CloudFront
+    keys this page's cache on the whole query string -- so nearly every visitor would
+    get a cache entry of their own. The cost is that vendors no longer multi-select.
+    """
     import re
 
     await _seed_catalog(1)
     html = (await client.get("/catalog")).text
 
-    picker = re.search(r'<details class="vendor-picker" id="vendor-picker">(.*?)</details>', html, re.S)
-    assert picker, "no vendor dropdown"
-    assert 'id="catalog-vendor-filters"' in picker.group(1)
+    picker = re.search(r'<select name="vendor"[^>]*>(.*?)</select>', html, re.S)
+    assert picker, "no vendor filter"
+    assert '<option value="">All vendors</option>' in picker.group(1)
     assert 'value="pagerco"' in picker.group(1)
 
 
 @pytest.mark.asyncio
-async def test_catalog_pager_stays_hidden_without_the_script(client):
-    """Every row is on the page until the script pages it; a pager that does nothing is worse than none."""
+async def test_catalog_pages_on_the_server_with_no_script_at_all(client):
+    """One page of rows reaches the browser, not the whole catalogue.
+
+    This is the inversion of the test it replaces. That one pinned the opposite -- every
+    row present, the pager hidden until a script filled it in -- which is what made the
+    page 1.8MB to show fifty rows.
+    """
     import re
 
     await _seed_catalog(60)
     html = (await client.get("/catalog")).text
-    css = (await client.get("/static/css/catalog.css")).text
 
-    assert re.search(r'<nav class="catalog-pager" id="catalog-pager"[^>]*\bhidden\b', html)
-    assert html.count('class="catalog-row"') == 60
-    # The pager is display:flex, which beats the hidden attribute unless told otherwise.
-    assert re.search(r"\.catalog-pager\[hidden\]\s*\{\s*display:\s*none", css)
+    assert html.count('class="catalog-row"') == 50
+    assert "1&ndash;50 of 60 &middot; page 1 of 2" in html
+    # Links, not buttons: paging has to work with JavaScript off.
+    assert re.search(r'id="catalog-next"[^>]*href="[^"]*page=2', html)
+    assert not re.search(r'<nav class="catalog-pager"[^>]*\bhidden\b', html)
+
+    second = (await client.get("/catalog?page=2")).text
+    assert second.count('class="catalog-row"') == 10
+    assert "51&ndash;60 of 60 &middot; page 2 of 2" in second
+
+
+async def _seed_versions(pairs, vendor="Sortco", slug="sortco"):
+    """Products with a latest version each, or None for one that publishes none."""
+    from src.devices import service as ds
+    from src.devices.models import DeviceCategory
+    from src.devices.schemas import (
+        DeviceModelCreate, FirmwareVersionCreate, ManufacturerCreate,
+    )
+
+    async with test_session_maker() as db:
+        mfr = await ds.create_manufacturer(db, ManufacturerCreate(name=vendor, slug=slug))
+        for name, version in pairs:
+            model = await ds.create_device_model(db, DeviceModelCreate(
+                manufacturer_id=mfr.id, name=name, category=DeviceCategory.OTHER,
+            ))
+            if version:
+                await ds.create_firmware_version(db, FirmwareVersionCreate(
+                    device_model_id=model.id, version=version, is_latest=True,
+                ))
+
+
+def _product_order(html):
+    import re
+
+    return re.findall(r'class="device-name">([A-Za-z]+)<', html)
 
 
 @pytest.mark.asyncio
-async def test_real_chromium_pages_the_catalog(client):
-    """Paging, search across pages and sorting, in a browser. Skipped where Chromium is not installed, as in CI."""
+async def test_catalog_sorts_versions_by_number_and_not_as_text(client):
+    """1.11 is a later release than 1.9, and the sorted page has to say so.
+
+    This is the whole reason the version_sort_key column exists. The sort runs in SQL,
+    before the page is sliced -- sorting afterwards would only order the fifty rows
+    that happened to be fetched -- and SQLite comparing the version as text puts 1.11
+    below 1.9.
+    """
+    await _seed_versions([("Alpha", "1.9"), ("Beta", "1.11"), ("Gamma", "1.2")])
+
+    html = (await client.get("/catalog?sort=latest&direction=desc")).text
+
+    assert _product_order(html) == ["Beta", "Alpha", "Gamma"]
+
+
+@pytest.mark.asyncio
+async def test_a_product_with_no_version_sorts_last_whichever_way_the_column_points(client):
+    """Ascending it must not lead, and descending it must not lead either.
+
+    A product with nothing published is not the oldest release; it is an absence, and
+    the browser-side sort it replaces kept its em-dash rows at the bottom both ways.
+    """
+    await _seed_versions([("Alpha", "1.0"), ("Beta", None), ("Gamma", "2.0")])
+
+    for direction in ("asc", "desc"):
+        html = (await client.get(f"/catalog?sort=latest&direction={direction}")).text
+        assert _product_order(html)[-1] == "Beta", direction
+
+
+@pytest.mark.asyncio
+async def test_search_reaches_the_whole_catalogue_not_only_the_page_on_screen(client):
+    """The needle sorts onto page two, so a search of the visible rows would miss it."""
+    await _seed_catalog(60)
+    await _seed_catalog(1, vendor="Zed Co", slug="zedco", prefix="Zulu Needle")
+
+    unfiltered = (await client.get("/catalog")).text
+    assert "Zulu Needle 000" not in unfiltered, "the needle landed on page one by accident"
+
+    found = (await client.get("/catalog?q=needle")).text
+    assert "Zulu Needle 000" in found
+    assert found.count('class="catalog-row"') == 1
+
+
+@pytest.mark.asyncio
+async def test_a_page_past_the_last_one_lands_on_the_last_one(client):
+    """A stale bookmark should not answer with an empty table."""
+    await _seed_catalog(60)
+
+    html = (await client.get("/catalog?page=999")).text
+
+    assert html.count('class="catalog-row"') == 10
+    assert "51&ndash;60 of 60 &middot; page 2 of 2" in html
+
+
+@pytest.mark.asyncio
+async def test_the_pager_links_leave_out_every_default(client):
+    """CloudFront keys this page's cache on the whole query string.
+
+    A link spelling out sort=product&direction=asc&size=50 would be a second cache
+    entry for the page the reader is already looking at.
+    """
+    import re
+
+    await _seed_catalog(60)
+    html = (await client.get("/catalog")).text
+
+    next_link = re.search(r'id="catalog-next"[^>]*href="([^"]+)"', html).group(1)
+    assert next_link == "/catalog?page=2"
+
+
+@pytest.mark.asyncio
+async def test_one_vendor_at_a_time_filters_the_catalogue(client):
+    await _seed_catalog(2)
+    await _seed_catalog(1, vendor="Zed Co", slug="zedco", prefix="Zulu")
+
+    html = (await client.get("/catalog?vendor=zedco")).text
+
+    assert "Zulu 000" in html
+    assert "Unit 000" not in html
+    assert html.count('class="catalog-row"') == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_vendor_is_ignored_rather_than_emptying_the_page(client):
+    """A slug from a renamed vendor reads as "no filter", not "this vendor has none"."""
+    await _seed_catalog(2)
+
+    html = (await client.get("/catalog?vendor=nosuchvendor")).text
+
+    assert html.count('class="catalog-row"') == 2
+
+
+@pytest.mark.asyncio
+async def test_real_chromium_renders_the_catalog_without_script_errors(client):
+    """The catalogue in a real browser. Skipped where Chromium is missing, as in CI.
+
+    This used to drive paging, search and sorting here, because all three ran in the
+    browser. They run in SQL now and are checked against the server above. What is
+    still worth a browser is that the page carries no script that throws, and that the
+    pager is real links rather than buttons waiting for JavaScript that never comes.
+    """
     from src.scrapers import base
 
     if not base.PLAYWRIGHT_AVAILABLE:
@@ -966,17 +1120,7 @@ async def test_real_chromium_pages_the_catalog(client):
     from playwright.async_api import async_playwright
 
     await _seed_catalog(60)
-    await _seed_catalog(1, vendor="Zed Co", slug="zedco", prefix="Zulu Needle")
     html = (await client.get("/catalog")).text
-
-    state = """() => ({
-        shown: [...document.querySelectorAll('.catalog-row')]
-            .filter(r => !r.hidden).map(r => r.children[1].textContent.trim()),
-        status: document.getElementById('catalog-pager').hidden
-            ? null : document.getElementById('catalog-page-status').textContent,
-        prev: document.getElementById('catalog-prev').disabled,
-        next: document.getElementById('catalog-next').disabled,
-    })"""
 
     async with async_playwright() as pw:
         try:
@@ -990,39 +1134,16 @@ async def test_real_chromium_pages_the_catalog(client):
             await page.route("**/*", lambda route: route.abort())  # no network, htmx CDN included
             await page.set_content(html)
 
-            first = await page.evaluate(state)
-            assert len(first["shown"]) == 50
-            assert first["status"] == "1–50 of 61 · page 1 of 2"
-            assert first["prev"] and not first["next"]
+            # Every row that arrived is visible: none is hidden waiting to be paged.
+            shown = await page.evaluate(
+                "() => [...document.querySelectorAll('.catalog-row')].filter(r => !r.hidden).length"
+            )
+            assert shown == 50
 
-            await page.click("#catalog-next")
-            second = await page.evaluate(state)
-            assert len(second["shown"]) == 11
-            assert not set(first["shown"]) & set(second["shown"])
-            assert second["next"] and not second["prev"]
-
-            # Search reaches every row, not only the current page, and the pager
-            # goes away when one page holds the result.
-            await page.fill("#catalog-search", "needle")
-            found = await page.evaluate(state)
-            assert found["shown"] == ["Zulu Needle 000"]
-            assert found["status"] is None
-
-            await page.fill("#catalog-search", "")
-            assert (await page.evaluate(state))["status"] == "1–50 of 61 · page 1 of 2"
-
-            await page.select_option("#catalog-page-size", "0")
-            assert len((await page.evaluate(state))["shown"]) == 61
-
-            # A new order starts from its first page.
-            await page.select_option("#catalog-page-size", "25")
-            await page.click("#catalog-next")
-            await page.click("th[data-column='1']")
-            await page.click("th[data-column='1']")
-            ordered = await page.evaluate(state)
-            assert ordered["shown"][0] == "Zulu Needle 000"
-            assert len(ordered["shown"]) == 25
-            assert ordered["status"].startswith("1–25 of 61")
+            # Prev on the first page is inert rather than a button that does nothing.
+            next_href = await page.get_attribute("#catalog-next", "href")
+            assert next_href and "page=2" in next_href
+            assert await page.get_attribute("#catalog-prev", "aria-disabled") == "true"
 
             assert errors == []
         finally:
