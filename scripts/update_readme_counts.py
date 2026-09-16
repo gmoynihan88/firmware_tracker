@@ -14,7 +14,8 @@ scraper counts, which need no database.
 
 The Supported manufacturers table stays hand-written -- which column a vendor sits in,
 and the product named beside it, are editorial -- but vendors missing from it are
-listed, and fail --check.
+listed, and fail --check. The table is read wherever it sits in that section, including
+inside a <details>.
 """
 
 import argparse
@@ -61,10 +62,15 @@ def missing_from_table(readme: str, names: Iterable[str]) -> List[str]:
     Pro, MainStage)" -- and may shorten the name: "Keith McMillen" covers "Keith
     McMillen Instruments".
     """
-    section = readme.split("## Supported manufacturers", 1)[-1]
-    table = [line for line in section.split("\n\n", 2)[1].splitlines() if line.startswith("|")][2:]
+    section = readme.split("## Supported manufacturers", 1)[-1].split("\n## ", 1)[0]
+    # Every table row in the section, rather than the second paragraph block: the table
+    # sits inside a <details> so a long vendor list does not dominate the README, and
+    # positional parsing read the <summary> instead and reported every vendor missing.
+    rows = [line for line in section.splitlines() if line.startswith("|")]
     cells = {re.sub(r"\\\*|\s*\(.*\)", "", cell).strip()
-             for row in table for cell in row.strip("|").split("|")} - {""}
+             for row in rows for cell in row.strip("|").split("|")} - {""}
+    cells -= {"Hardware", "Plugins"}
+    cells = {cell for cell in cells if set(cell) - set("-: ")}
     return sorted(name for name in names
                   if not any(name == cell or name.startswith(cell + " ") for cell in cells))
 

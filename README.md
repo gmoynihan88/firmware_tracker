@@ -2,30 +2,27 @@
 
 [![CI](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/gmoynihan88/firmware_tracker/actions/workflows/ci.yml)
 
-tl;dr, this is a web app that keeps inventory of sofware levels for your music gadgets.  The UI 
-lets you add and update devices that are not online such as digital effects pedals, digital mixers,
-loudspeakers, etc.  Software VSTs are simply queried on the filesystem.  
+Keeps track of firmware and plugin versions for music gear — the hardware you own and the
+software you have installed — and tells you when something is behind.
 
-I wrote this because my QSC speaker had an update available that I overlooked for months, maybe 
-a year or two, called bass amp mode.  HELL YEAH.  This is one of my favorite
-software updates for anything, ever, and I almost missed it.  So, I wrote an app to discover
-and notify me for all my stuff, because who has time to track that all the hard way?
-
-DISCLAIMER:  Much of the text below was created by AI, skim appropriately, thanks! 
-
-Music hardware and audio plugins get firmware and version updates that vendors rarely
-announce. There is no feed to subscribe to and no common release channel — each
-manufacturer has its own downloads page, and checking them by hand does not scale past
-a few devices.
-
-This scrapes 91 manufacturers on a schedule, compares what it finds against the gear
-you own, and notifies you when something is behind.
+**[Browse the live catalogue →](https://d158w6n8a9cj3m.cloudfront.net)** · 2,045 devices across 91 vendors, no sign-in needed.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
 
 *Filtered to devices with an update waiting. Sort any column; filter by status, brand or type.*
 
-## Quick start
+## Why
+
+My QSC speaker had an update available that I overlooked for months, maybe a year or two,
+called bass amp mode. HELL YEAH. This is one of my favorite software updates for anything,
+ever, and I almost missed it.
+
+Vendors rarely announce this stuff. There is no feed to subscribe to and no common release
+channel — each manufacturer has its own downloads page, and checking them by hand does not
+scale past a few devices. This scrapes 91 manufacturers on a schedule, compares what it
+finds against the gear you own, and tells you when something is behind.
+
+## Try it
 
 ```bash
 git clone https://github.com/gmoynihan88/firmware_tracker.git
@@ -33,18 +30,18 @@ cd firmware_tracker
 docker compose up
 ```
 
-Open http://localhost:8000. Nothing to configure — it starts with no notifications, no
-AI summaries and no authentication, which is fine on localhost.
+Open http://localhost:8000. Nothing to configure — it starts with no notifications, no AI
+summaries and no authentication, which is fine on localhost.
 
-The plugin scanner runs standalone, without the server or database. On macOS it reads
-the VST3, VST, AU and CLAP folders and reports every plugin with its version and vendor:
+The plugin scanner runs standalone, without the server or database. On macOS it reads the
+VST3, VST, AU and CLAP folders and reports every plugin with its version and vendor:
 
 ```bash
 python scripts/scan_installed_plugins.py
 ```
 
 <details>
-<summary>Running it without Docker</summary>
+<summary>Without Docker</summary>
 
 Requires Python 3.12+.
 
@@ -57,261 +54,62 @@ uvicorn src.main:app --reload
 
 Dependencies install from hashed lock files, so pip refuses any package whose contents
 differ from the version that was reviewed. To change one, edit `pyproject.toml` and the
-matching `.in` file, then re-run the `pip-compile` commands listed in `CLAUDE.md`.
+matching `.in` file, then re-run the `pip-compile` commands in `CLAUDE.md`.
 </details>
 
 ## What it does
 
-- **Scrapes 91 manufacturers** — 1010music, Ableton, Akai, Allen & Heath, Apple (Logic Pro,
-  MainStage), Arturia, ASM, Audient, Avid (Pro Tools), Bitwig, Boss, Cableguys, Casio, Cockos
-  (REAPER), Conductive Labs, DiGiCo, Dirtywave, Dreadbox, Elektron, Eventide, Empress, Engine DJ (Denon DJ, Numark, Rane), FabFilter, Fender, Focusrite, Fractal Audio,
-  Goodhertz, HeadRush, Hotone, iConnectivity, Image-Line (FL Studio), iZotope, Kemper, Kilohearts,
-  Klanghelm, Korg, MOTU (Digital Performer), Mooer, Moog, Native Instruments, Neural DSP, Nord, Novation, Oberheim, OBS Project (OBS
-  Studio), oeksound, OXI Instruments, Pioneer DJ, Polyend, Positive Grid, PreSonus (Fender Studio, Notion), RME, Sequential, Sequentix, Serato, Solid State Logic, Soundtoys, Squarp Instruments, Steinberg, Strymon, Synthstrom Audible, Teenage Engineering, Tokyo
-  Dawn Labs, Toontrack, Torso Electronics, u-he, Universal Audio, Valhalla DSP, Waldorf, Waves, Xfer Records, XLN Audio, Zoom and more
+- **Scrapes 91 manufacturers** — synths, pedals, mixers, interfaces, DAWs and plugins
 - **Tracks hardware and plugins together**, rather than one or the other
 - **Scans installed plugins** on macOS and matches them to the catalogue
 - **Checks daily** and pushes to [ntfy](https://ntfy.sh) when something falls behind
 - **Optional AI changelog summaries** via the Anthropic API
 
-## Unknown versions are reported as unknown
+## What's interesting about it
 
-Not every vendor publishes a version number, and a scraper that fills the gap with a
-plausible guess is worse than one that reports nothing. [docs/vendor-data-feedback.md](docs/vendor-data-feedback.md)
-lists which vendors publish no version or no dates, errors found on vendor pages, and the
-sources worth copying.
+**It says "unknown" rather than guessing.** A scraper that invents a plausible version is
+worse than one that reports nothing, and one here used to do exactly that — its hardcoded
+table matched the plugins on my own laptop, so every product read as up to date by
+construction. Absence is now a first-class result, with a reason attached where one is
+known. [Design notes →](docs/design-notes.md)
 
-Universal Audio publishes no per-plugin versions: not on their site, not in their
-release notes (which list changes by month with no version numbers), and their
-installer manifest is encrypted. An earlier version of that scraper carried a
-hardcoded table whose ten entries matched the plugins installed on the developer's
-machine, because that is where they came from. It reported every product as current by
-construction and could not detect an update. Those products now report no version,
-which renders as "Firmware Unknown", and link to UA's release notes.
+**It runs on AWS for about $9 a month.** Terraform for everything, a single Fargate Spot
+task behind CloudFront and an API Gateway VPC Link, SQLite on EFS, and deploys from GitHub
+Actions using OIDC with no stored credentials. The largest line on the bill turned out to
+be the public IPv4 address, not the compute. [Infrastructure →](infra/README.md)
 
-Eventide is a similar case for hardware. The H90 downloads page shows version 2.2.0,
-which belongs to a companion app rather than the pedal; pedal firmware ships through
-Eventide's device manager and is not published anywhere.
+**It tries not to be a nuisance.** One request per second per vendor, daily rather than
+hourly, conditional requests, and the three vendors with no bulk listing check a slice of
+their catalogue per run. [Scraping load →](docs/scraping-load.md)
 
-The reverse is worth stating, because assuming it cost this project 22 products. UA's
-UAFX pedals are delivered by UA Connect too — their release notes open with "To update
-your pedal's firmware, use UA Connect" — and are published in full, sixteen dated
-versions back to 2021. Shipping firmware through a vendor's own installer says nothing
-about whether the version is published.
-
-A scrape distinguishes three outcomes rather than two: `devices_failed` is a fetch or
-parse that broke, `devices_without_firmware` is a product the vendor publishes nothing
-for, and `devices_not_checked` is the time budget running out. Collapsing the first two
-would either hide a real breakage or report one every run.
-
-**Products that will never report a version say so.** 122 of them have no version, and
-for 92 a scraper has established why — the catalogue shows `not published` where the
-vendor publishes no version anywhere, and `no firmware` where the product takes no
-updates at all. The other 30 stay an em-dash, because nobody has checked and guessing
-is the thing this avoids.
-
-That split is what makes the absence list usable. `devices_without_firmware` carries
-over a hundred entries on every sweep, so a product that goes silent tomorrow joins a
-crowd nobody reads; `devices_unexplained` holds only the ones with no recorded reason, and it is the
-list that should be shrinking.
-
-## Scraping load
-
-Several of these vendors are very small operations, so the defaults are set to keep
-request volume low.
-
-- One request per second per manufacturer, and a daily check rather than hourly.
-- Conditional requests (`If-None-Match` / `If-Modified-Since`), so an unchanged page
-  returns `304` with no body. Not every vendor sends validators; for those that do,
-  it saves the full page on every run.
-- `SCRAPE_CACHE=1` serves repeat requests from disk during development. Working on a
-  scraper means fetching the same page dozens of times, and a cached run is 35× faster
-  as well as 35× less traffic.
-- **Korg checks a fifth of its catalogue per run.** It is the one vendor with no
-  listing covering more than a single product, and 164 product pages at ~4.8s each is
-  794s against a 900s hard timeout — the first attempt was killed by it. Candidates
-  are sorted and strided into five batches of 33, picked by day of year, so a run
-  costs ~160s and every product is seen within five days. `KORG_FULL_SWEEP=1` does
-  all five in one run, for a first import or a catch-up.
-- **Roland and Boss do the same.** Their Updates & Drivers indexes list every product
-  (580 and 126), and only each product's own listing says whether it takes firmware,
-  so a full Roland pass measured 1,945s. Roland reads a sixth of its index per run
-  (~217s) and Boss half (~107s). `ROLAND_FULL_SWEEP=1` and `BOSS_FULL_SWEEP=1` read
-  everything at once; Roland's takes longer than the scheduler's hard timeout, so it
-  is for a manual catch-up only.
-
-These are worth keeping if you fork it. Every instance scrapes independently, so the
-load scales with the number of people running it.
-
-## Alternatives
-
-**[FW//RADAR](https://fwradar.com)** covers the same ground as a hosted service and is
-the better option for hardware-only users: polished, with an iPhone app and used-market
-prices that this has no equivalent for. It is closed-source, not self-hostable, and does
-not read what is installed on your machine.
-
-**[daw-plugin-manager](https://github.com/thelukehendy/daw-plugin-manager)** overlaps on
-plugins. It refreshes a curated version catalogue; this scrapes each vendor directly. A
-catalogue is less work to maintain but depends on someone updating it; scraping breaks
-when a site changes but cannot silently fall behind.
-
-**[pluginvault](https://github.com/GalAzu/pluginvault)** organises plugins rather than
-versioning them. **[VST-Version-Scanner](https://github.com/BasShiFteR/VST-Version-Scanner)**
-reports installed versions on Windows with nothing to compare them against.
-
-This one is useful if you want the data self-hosted, want hardware and plugins tracked
-together, or need a vendor the others do not cover.
+**833 tests, 91% coverage**, two thresholds because scrapers are verified against live
+vendor sites rather than by coverage. [Development →](docs/development.md)
 
 ## Usage
 
-**Add devices** from the catalogue at `/catalog`. 2,045 devices across 91 vendors, so it
-filters and pages: type to narrow by product or vendor, split hardware from software,
-pick vendors from a dropdown, or hide what you already track. Search covers every page. Devices already tracked say so instead of offering to add a second copy.
-
-![The catalogue, filtered to seven devices by typing "digi"](docs/images/catalog.png)
-
-Or add them in bulk:
+Add devices from the catalogue, or import what is already installed:
 
 ```bash
 python scripts/scan_installed_plugins.py --compare   # what matches the database
 python scripts/scan_installed_plugins.py --add       # import the matches
 ```
 
-**Run a scrape** by hand:
+Trigger a scrape, and see what it could not do rather than only what it did:
 
 ```bash
 curl -X POST http://localhost:8000/api/firmware/scrape-all
 curl -X POST http://localhost:8000/api/firmware/scrape/strymon
 ```
 
-It reports what it could not do, not just what it did:
-
-```json
-{
-  "new_firmware_versions": 195,
-  "devices_without_firmware": ["Hall of Fame 2"],
-  "devices_failed": [],
-  "devices_not_checked": []
-}
-```
-
-**Backfill notifications** for a device whose installed version you recorded *after* its
-latest was already known — a scrape only notifies about versions it discovers, so those
-would otherwise never fire. Safe to re-run; one notification per device per version:
-
-```bash
-curl -X POST http://localhost:8000/api/firmware/reconcile-notifications
-```
-
-**Get them on your phone** by setting a transport:
+Notifications go to your phone through ntfy:
 
 ```bash
 NOTIFY_TRANSPORT=ntfy
 NTFY_TOPIC=firmware-tracker-<long random string>
 ```
 
-Delivery is a side effect: if ntfy is unreachable the notification is still recorded and
-the failure logged. The test suite forces the transport off, so `pytest` on a configured
-machine cannot push fixture alerts to your phone.
-
-**Find versions a vendor has withdrawn.** A version that disappears from a vendor's
-page simply stops being returned, so without a last-seen stamp its row looks identical
-to one confirmed this morning. Comparing it against the last successful scrape for
-that vendor separates "withdrawn" from "we stopped looking":
-
-```sql
-WITH last_run AS (
-  SELECT scraper_type, MAX(started_at) AS ran_at
-  FROM scrape_runs WHERE success = 1 GROUP BY scraper_type
-)
-SELECT m.name, dm.name, fv.version, date(fv.last_seen_at)
-FROM firmware_versions fv
-JOIN device_models dm ON dm.id = fv.device_model_id
-JOIN manufacturers m ON m.id = dm.manufacturer_id
-JOIN last_run lr ON lr.scraper_type = m.slug
-WHERE fv.last_seen_at < lr.ran_at;
-```
-
-**See what the scrapes have been doing**, which is what makes a quiet stretch in a
-device's history readable — a version's first-seen date cannot tell "the vendor
-published nothing for eight months" from "the scraper was broken for eight months":
-
-```bash
-curl "http://localhost:8000/api/firmware/runs?limit=20"
-curl "http://localhost:8000/api/firmware/runs?scraper_type=yamaha"
-```
-
-**Back up the database** with `bash scripts/backup_db.sh` (`list` and `restore` too).
-Each run writes two files: a `.db` that restores fastest and is byte-exact, and a
-`.sql` text dump that diffs, compresses and can be read without sqlite. SQLite
-rewrites pages on almost any change, so two binary snapshots a day apart share very
-little — one scrape of a single manufacturer moved 3,238 bytes in the `.db` and five
-lines in the dump.
-
-`backups/` is gitignored, and should stay that way here: this database holds your
-device list, and git history is permanent. If you want the dumps versioned, put them
-in a private repo.
-
-**Check referential integrity** with `python scripts/check_orphans.py` (`--fix` deletes
-what it finds, exits 1 when there is anything). It should always find nothing: deletes
-cascade through the ORM and SQLite is told to enforce foreign keys. It exists because
-neither was true for most of this project's life, and a database outlives the bug that
-damaged it.
-
-## Security
-
-**Authentication is off until you configure it**, which keeps a local install working
-with no setup and is fine on localhost. Turn it on before this touches a public address:
-
-```bash
-python -m src.auth.hash_password
-```
-
-The app warns at startup while unconfigured. Without authentication every route is
-open, including `POST /api/firmware/scrape-all` and full CRUD over the device list.
-With auth on, only `/health`, `/login` and `/static` stay open: a load balancer cannot
-present credentials, and requiring a session to reach the login form is a redirect loop.
-
-`PUBLIC_CATALOG=true` opens the catalogue and the read-only device APIs to anyone, so
-the app can be linked to as a demo. It covers `/catalog`, its version-history popup, and
-`GET /api/manufacturers` and `/api/device-models` — scraped facts about other people's
-products. The dashboard, notifications, tracked devices and every write stay behind the
-password, and an anonymous visitor sees no tracking markers, because which products
-someone owns is not part of the catalogue. Requests to `/` are sent to `/catalog` rather
-than a password prompt.
-
-Five failed logins from one address within five minutes make `/login` answer 429 with
-`Retry-After`; a correct password clears the count (`LOGIN_MAX_ATTEMPTS`,
-`LOGIN_WINDOW_SECONDS`). Behind a proxy that terminates TLS, set
-`SESSION_COOKIE_SECURE=true` — the app itself sees http, so the cookie would
-otherwise lose its `Secure` flag — and run uvicorn with `--proxy-headers` so the
-throttle sees real client addresses rather than the proxy's.
-
-Scripts can send `X-API-Key` instead, if `API_KEY` is set. Unset means the header is
-ignored entirely, not that any key works. Passwords use scrypt, sessions use HMAC, both
-from the standard library.
-
-**On public ntfy.sh the topic name is the only secret.** Use a long random one
-(`firmware-tracker-$(openssl rand -hex 16)`) and keep it in `.env`, which is gitignored.
-
-## Health and logs
-
-```bash
-curl http://localhost:8000/health        # liveness  -> {"status":"ok","uptime_seconds":2.9}
-curl http://localhost:8000/health/ready  # readiness -> {"status":"ok","database":"ok"}
-```
-
-`/health` touches nothing, so a failure means the process is wedged or gone. It
-deliberately skips the database: if it checked, a slow disk would have the orchestrator
-kill and replace tasks, which does not fix a slow disk. `/health/ready` runs a query and
-returns **503** with a reason — on a deployment where the database is a file on a network
-mount, losing that mount is exactly what this catches.
-
-Logs go to stderr. Docker caps them at 10MB × 3; under systemd journald handles it; if
-you run `uvicorn > file &` then nothing rotates it, so set `LOG_FILE` and the app rotates
-for you. Access lines for `/health` are dropped by default — a container health check
-polls it every 30 seconds, which is 95MB of log a year against about 1MB of actual
-results.
+Backups, integrity checks, health endpoints, and a SQL recipe for finding versions a vendor
+has quietly withdrawn: [Running it →](docs/operations.md)
 
 ## Configuration
 
@@ -324,15 +122,53 @@ likely to touch:
 | `NOTIFY_TRANSPORT` | `none` | `ntfy` to push to your phone |
 | `NTFY_TOPIC` | | Long and random — it is the only secret |
 | `AUTH_PASSWORD_HASH` / `SECRET_KEY` | | Both required to enable auth |
-| `SESSION_COOKIE_SECURE` | `false` | `true` when served over https — see below |
-| `PUBLIC_CATALOG` | `false` | `true` to let anyone read the catalogue — see below |
+| `PUBLIC_CATALOG` | `false` | `true` to let anyone read the catalogue |
 | `ANTHROPIC_API_KEY` | | Enables changelog summaries |
-| `SCRAPE_CACHE` | `false` | `true` while developing a scraper |
-| `LOG_FILE` | | Set it if nothing else rotates your logs |
 
-`.env.example` documents the rest, including cache TTLs, rate limiting and log levels.
+`.env.example` documents the rest.
+
+## Security
+
+**Authentication is off until you configure it**, which keeps a local install working with
+no setup. Turn it on before this touches a public address — the app warns at startup while
+unconfigured, because without it every route is open, including `POST
+/api/firmware/scrape-all` and full CRUD over your device list.
+
+```bash
+python -m src.auth.hash_password
+```
+
+`PUBLIC_CATALOG=true` opens the catalogue and the read-only device APIs to anyone, so the
+app can be linked to as a demo — that is what the live site above runs. The dashboard,
+notifications, tracked devices and every write stay behind the password, and an anonymous
+visitor sees no tracking markers, because which products someone owns is not part of the
+catalogue.
+
+Five failed logins from one address in five minutes make `/login` answer 429. Passwords use
+scrypt, sessions use HMAC, both from the standard library. Behind a proxy that terminates
+TLS, set `SESSION_COOKIE_SECURE=true` and run uvicorn with `--proxy-headers`.
+
+## Alternatives
+
+**[FW//RADAR](https://fwradar.com)** covers the same ground as a hosted service and is the
+better option for hardware-only users: polished, with an iPhone app and used-market prices.
+It is closed-source, not self-hostable, and does not read what is installed on your machine.
+
+**[daw-plugin-manager](https://github.com/thelukehendy/daw-plugin-manager)** overlaps on
+plugins, refreshing a curated catalogue where this scrapes each vendor directly. A catalogue
+is less work to maintain but depends on someone updating it; scraping breaks when a site
+changes but cannot silently fall behind.
+**[pluginvault](https://github.com/GalAzu/pluginvault)** organises plugins rather than
+versioning them. **[VST-Version-Scanner](https://github.com/BasShiFteR/VST-Version-Scanner)**
+reports installed versions on Windows with nothing to compare them against.
+
+This one is useful if you want the data self-hosted, want hardware and plugins tracked
+together, or need a vendor the others do not cover.
 
 ## Supported manufacturers
+
+<details>
+<summary>91 vendors — 2,045 devices</summary>
 
 | Hardware | Plugins |
 |---|---|
@@ -397,58 +233,24 @@ likely to touch:
 \*Arturia, Eventide and Positive Grid are on both sides: Arturia 116 instruments and
 effects alongside 67 hardware products, Eventide 54 plugins and 29 pedals, Positive Grid 6
 BIAS plugins and 11 Spark and BIAS amps and controllers.
+</details>
 
 ## Adding a scraper
 
-Drop a file in `src/scrapers/plugins/`. It is auto-discovered on startup.
+Drop a file in `src/scrapers/plugins/` subclassing `BaseScraper`; it is auto-discovered on
+startup. The shape, the conventions and the debugging ladder are in
+[docs/development.md](docs/development.md).
 
-```python
-from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+## Known limits
 
-class MyScraper(BaseScraper):
-    manufacturer_name = "Acme Audio"
-    manufacturer_slug = "acme"
-    manufacturer_website = "https://acme.example.com"
-
-    async def fetch_device_list(self) -> ScraperResult:
-        ...
-
-    async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
-        ...
-```
-
-Return `success=False` when a fetch or parse breaks, and `success=True` with an empty
-list when the page loaded and the product genuinely has none. Add the slug to
-`tests/test_basic.py::test_api_scrapers`.
-
-The repo carries two [Claude Code skills](.claude/skills/): one for writing a scraper,
-one for diagnosing a broken one. The diagnostic steps are drawn from the scrapers that
-actually broke here; in nearly every case the cause was a dead URL or a relocated data
-source rather than a parsing error.
-
-## Development
-
-```bash
-pytest                                   # 442 tests
-pytest -n auto                           # the same in parallel, one worker per CPU, as CI runs
-pytest --cov=src                         # 84% overall, 88% outside the scrapers
-pytest tests/test_basic.py::test_dashboard
-
-coverage report --omit='src/scrapers/plugins/*' --fail-under=80   # the gates CI runs
-coverage report --fail-under=65
-```
-
-Tests use in-memory SQLite and never touch the real database.
-
-CI enforces two coverage thresholds: 80% for application code and 65% for the whole
-project. The second is deliberately looser. Scrapers are verified against the live
-vendor site rather than by coverage, and each new one arrives with mostly-uncovered
-lines, costing roughly a point of the total.
-
-`concurrency = ["greenlet", "thread"]` in `pyproject.toml` is required for those
-numbers to be accurate. SQLAlchemy bridges async to the sync DBAPI through greenlets,
-and without it coverage stops tracing at each handler's first `await` into the
-database, which understated the API and web layers by roughly 35 points.
+- The **plugin scanner is macOS only**. Windows plugins are DLLs with no `Info.plist`, so
+  versions would need a completely different mechanism.
+- Scrapers send a **browser User-Agent**, because some vendors reject anything else. The
+  trade-off is that a vendor cannot tell who is calling or ask you to stop.
+- **Release dates are missing for a quarter of current versions** — 1,375 of 1,923 have
+  one. That is what the vendor publishes, not what the scraper managed to read.
+- The web app runs anywhere on Python 3.12+. Linux is CI-verified on 3.12 and 3.13, macOS
+  is the development platform, Windows is untested.
 
 <details>
 <summary>Project layout</summary>
@@ -458,42 +260,26 @@ src/
   main.py              # FastAPI app, lifespan, router registration
   config.py            # Settings from .env
   database.py          # Async engine, session factory, integrity repair
-  logging_config.py    # Handler, rotation, health-check access filter
   templating.py        # Jinja env with content-hashed asset URLs
   devices/             # Models, schemas, CRUD service, REST router
   web/                 # HTML page routes
-  auth/                # scrypt hashing, HMAC sessions, middleware
+  auth/                # scrypt hashing, HMAC sessions, middleware, login throttle
   health/              # Liveness and readiness
   firmware/            # Scrape trigger endpoints
   scrapers/
     base.py            # aiohttp + Playwright helpers
     registry.py        # Auto-discovery via pkgutil
     service.py         # Orchestrates scrape -> sync -> notify
-    cache.py           # Dev cache and ETag revalidation
+    notes.py           # Release notes as lines, shared by several scrapers
     plugins/           # One file per manufacturer (91 scrapers)
   notifications/       # ntfy transport, and reconciliation
   scheduler/           # APScheduler periodic checks
   summarizer/          # Optional Claude changelog summaries
 alembic/               # Migrations; env.py prefers DATABASE_URL
+infra/                 # Terraform: VPC, ECS, EFS, API Gateway, CloudFront, budgets
 Dockerfile             # python:3.12-slim + Chromium, runs as uid 10001
-docker-compose.yml     # Volumes, log caps
 ```
 </details>
-
-## Known limits
-
-- The **plugin scanner is macOS only**. Windows plugins are DLLs with no `Info.plist`,
-  so versions would need a completely different mechanism.
-- Scrapers send a **browser User-Agent**, because some vendors reject anything else. The
-  trade-off is that a vendor cannot tell who is calling or ask you to stop.
-- The web app itself runs anywhere on Python 3.12+. Linux is CI-verified on 3.12, the
-  Docker image's version, and 3.13; macOS is the development platform; Windows is untested.
-- **Release dates are missing for over a quarter of current versions** — 1,287 of 1,779
-  have one. That is what the vendor publishes, not what the scraper managed to read:
-  some
-  list a version with no date anywhere on the page. The catalogue shows an em-dash
-  rather than substituting the date the version was first seen, which would read as a
-  release date and would be wrong.
 
 ## License
 
