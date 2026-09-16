@@ -24,6 +24,42 @@ resource "aws_efs_file_system" "data" {
   tags = {
     Name = local.name
   }
+
+  # creation_token is ForceNew, and it is derived from project and environment. So
+  # renaming either -- or standing up a second workspace, which is the documented way to
+  # make a staging environment -- plans a destroy-and-create of the file system holding
+  # the entire database. Terraform prints it, but a skimmed plan or an -auto-approve
+  # discards it in silence. The state bucket already carries this guard, and for a
+  # weaker reason: state can be rebuilt by importing, whereas this cannot be rebuilt at
+  # all.
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Daily backups, which were simply absent.
+#
+# EFS created through the API -- which is what Terraform does -- has automatic backups
+# OFF by default; only the console enables them for you. That distinction is easy to
+# read past, so it was verified against the live file system rather than assumed:
+# `aws efs describe-backup-policy --file-system-id fs-03a653f5a3c083092` returned
+# PolicyNotFound, meaning the file holding every scraped version, every device and the
+# whole firmware history had no copy anywhere.
+#
+# What made this worth fixing ahead of everything else is that the alternatives are not
+# recovery. docker-entrypoint.sh runs `alembic upgrade head` unattended on every task
+# start, including every Spot restart, so a bad migration reaches production with no
+# human in the loop. scripts/backup_db.sh reads a relative path on a developer laptop
+# and has never run against this file system, though outputs.tf claims otherwise.
+#
+# AWS Backup's default plan keeps 35 daily recovery points. At this size that is cents a
+# month, against a database that is otherwise unrecoverable.
+resource "aws_efs_backup_policy" "data" {
+  file_system_id = aws_efs_file_system.data.id
+
+  backup_policy {
+    status = "ENABLED"
+  }
 }
 
 resource "aws_security_group" "efs" {

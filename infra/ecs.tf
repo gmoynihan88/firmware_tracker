@@ -71,14 +71,39 @@ resource "aws_ecs_task_definition" "app" {
       # proxy flags matter: TLS ends at CloudFront, so without --proxy-headers the app
       # sees http and every client address is API Gateway's -- which would drop the
       # session cookie's Secure flag and make the login throttle lock out everyone at
-      # once. Nothing but the VPC Link can reach this port, so trusting the forwarded
-      # headers from any peer is safe here.
+      # once.
+      #
+      # --forwarded-allow-ips was "*". The old comment here reasoned that nothing but
+      # the VPC Link can reach this port, so forwarded headers from any peer are safe --
+      # which is true about *who may connect* and misses what the flag actually does.
+      # In uvicorn it also decides *which* X-Forwarded-For entry is believed: "*" sets
+      # `_TrustedHosts.always_trust`, and get_trusted_client_address then returns
+      # x_forwarded_for_hosts[0] -- the leftmost entry, whatever the client sent --
+      # instead of walking the chain in reverse. CloudFront and API Gateway append to a
+      # client-supplied header rather than replacing it, so that entry is attacker
+      # controlled.
+      #
+      # src/auth/throttle.py keys the login limiter on exactly that value, so rotating
+      # one header put every password guess in a fresh bucket and the 5-per-300s limit
+      # never fired. It also wrote the spoofed string into CloudWatch, leaving the logs
+      # unable to attribute the attempts.
+      #
+      # The trusted set has to cover every hop *downstream of* CloudFront so the reverse
+      # walk stops at the viewer address CloudFront appended. The VPC CIDR on its own is
+      # not enough -- the walk would stop at CloudFront's egress address and drop every
+      # visitor into one shared bucket, which is the failure "*" was reaching for in the
+      # first place.
+      #
+      # AWS republishes the CloudFront ranges without notice, so an apply may register a
+      # task definition revision for that change alone. That is the price of reading the
+      # list instead of pinning a copy that goes stale quietly.
       command = [
         "uvicorn", "src.main:app",
         "--host", "0.0.0.0",
         "--port", tostring(var.container_port),
         "--proxy-headers",
-        "--forwarded-allow-ips", "*",
+        "--forwarded-allow-ips",
+        join(",", concat([var.vpc_cidr], data.aws_ip_ranges.cloudfront_origin_facing.cidr_blocks)),
       ]
 
       mountPoints = [{
