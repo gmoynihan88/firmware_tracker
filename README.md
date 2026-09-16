@@ -5,7 +5,7 @@
 Keeps track of firmware and plugin versions for music gear — the hardware you own and the
 software you have installed — and tells you when something is behind.
 
-**[Browse the live catalogue →](https://d158w6n8a9cj3m.cloudfront.net/catalog)** · 2,045 devices across 91 vendors, no sign-in needed.
+**[Browse the live catalogue →](https://firmware.gregmoynihan.dev/catalog)** · 2,045 devices across 91 vendors, no sign-in needed.
 
 ![The dashboard, filtered to devices with updates available](docs/images/dashboard.png)
 
