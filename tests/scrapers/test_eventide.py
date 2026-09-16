@@ -122,3 +122,60 @@ async def test_eventide_hardware_reports_no_version_without_fetching():
 
     assert result.success is True      # success, not failure: nothing broke
     assert result.firmware_versions == []
+
+
+def test_eventide_keeps_each_note_on_its_own_line():
+    """As served for Anthology XII: an h3 per version and a list under each.
+
+    The notes were one run-on line, cut at 500 characters.
+    """
+    from src.scrapers.plugins.eventide import EventideScraper
+
+    page = """
+    <div class="download card widget">
+      <a class="download-link">Widget Installer (Mac 64-bit)</a>
+      <div class="version-number">Version 1.5.5</div>
+      <div class="card-body p-3"><h2>Release Notes</h2>
+    <h3>1.5.5</h3>
+    <ul>
+    <li>Added initial screen reader support to the installer</li>
+    <li>Updated the installer with the most recent iLok Licensing Components</li>
+    </ul>
+    <h3>1.4.0</h3>
+    <ul>
+    <li>Updated the installer to install iLok Licensing Components</li>
+    <li>Improved and clarified installer text</li>
+    </ul>
+    </div></div>
+    """
+    versions = {fw.version: fw for fw in EventideScraper()._installer_versions(page, "Widget")}
+
+    assert versions["1.5.5"].changelog == (
+        "- Added initial screen reader support to the installer\n"
+        "- Updated the installer with the most recent iLok Licensing Components"
+    )
+    assert versions["1.4.0"].changelog == (
+        "- Updated the installer to install iLok Licensing Components\n"
+        "- Improved and clarified installer text"
+    )
+
+
+def test_eventide_keeps_a_release_s_requirements_with_its_notes():
+    """A lower heading under a version belongs to it; the next version ends it."""
+    from src.scrapers.plugins.eventide import EventideScraper
+
+    page = """
+    <div class="download card widget">
+      <a class="download-link">Widget Installer (Mac 64-bit)</a>
+      <div class="version-number">Version 2.2.0</div>
+      <div class="card-body">
+        <h2>2.2.0</h2><ul><li>New</li></ul>
+        <h3>Firmware Requirements</h3><ul><li>H90: 1.9.4+</li></ul>
+        <h2>2.1.8</h2><ul><li>Older</li></ul>
+      </div>
+    </div>
+    """
+    versions = {fw.version: fw for fw in EventideScraper()._installer_versions(page, "Widget")}
+
+    assert versions["2.2.0"].changelog == "- New\nFirmware Requirements\n- H90: 1.9.4+"
+    assert versions["2.1.8"].changelog == "- Older"

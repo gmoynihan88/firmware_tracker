@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.notes import elements_of, join_notes, note_lines
 
 
 class AbletonScraper(BaseScraper):
@@ -171,22 +172,17 @@ class AbletonScraper(BaseScraper):
             seen.add(version)
 
             release_date = self._release_date(body)
-            text = body.get_text(" ", strip=True)
-            changelog = text
+            lines = note_lines(body.descendants)
             if release_date is not None:
-                # Drop the date from the front of the changelog when it leads.
-                leading = self.RELEASE_DATE.match(text)
-                if leading:
-                    changelog = text[leading.end():].strip()
-
-            # Both spellings of the month are also stripped where the date opened the
-            # block, so the changelog reads as changes rather than as a datestamp.
+                # The date is its own element, so its own line: leave it out, so the
+                # changelog reads as changes rather than as a datestamp.
+                lines = [line for line in lines if not self.RELEASE_DATE.fullmatch(line)]
 
             versions.append(
                 ScrapedFirmware(
                     version=version,
                     release_date=release_date,
-                    changelog=changelog[:500] or None,
+                    changelog=join_notes(lines),
                 )
             )
 
@@ -210,7 +206,7 @@ class AbletonScraper(BaseScraper):
             seen.add(version)
 
             release_date = None
-            notes: List[str] = []
+            notes = []
             for sibling in heading.find_next_siblings():
                 text = sibling.get_text(" ", strip=True)
                 if self.PUSH_HEADING.match(text):
@@ -226,14 +222,13 @@ class AbletonScraper(BaseScraper):
                         except (ValueError, KeyError):
                             release_date = None
                         continue
-                if text:
-                    notes.append(text)
+                notes.append(sibling)
 
             versions.append(
                 ScrapedFirmware(
                     version=version,
                     release_date=release_date,
-                    changelog=" ".join(notes)[:500] or None,
+                    changelog=join_notes(note_lines(elements_of(notes))),
                 )
             )
 

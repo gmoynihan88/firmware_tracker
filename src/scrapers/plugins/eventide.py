@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
 from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+from src.scrapers.notes import elements_of, join_notes, note_lines
 
 
 class EventideScraper(BaseScraper):
@@ -274,14 +275,24 @@ class EventideScraper(BaseScraper):
                 if version in seen:
                     continue
                 seen.add(version)
-                notes = heading.find_next_sibling()
+                notes = []
+                for sibling in heading.find_next_siblings():
+                    # The next release, or a heading at this level or above, ends the
+                    # notes. A lower heading is part of them: "Firmware Requirements"
+                    # under an h2 version lists what that release needs.
+                    if re.fullmatch(r"h[1-6]", sibling.name) and (
+                        sibling.name <= heading.name
+                        or re.match(r"^(\d+(?:\.\d+)+)\b", sibling.get_text(" ", strip=True))
+                    ):
+                        break
+                    notes.append(sibling)
                 versions.append(
                     ScrapedFirmware(
                         version=version,
                         # Eventide dates none of these, and inventing one would put a
                         # fabricated date in front of the user.
                         release_date=None,
-                        changelog=notes.get_text(" ", strip=True)[:500] if notes else None,
+                        changelog=join_notes(note_lines(elements_of(notes))),
                     )
                 )
 
