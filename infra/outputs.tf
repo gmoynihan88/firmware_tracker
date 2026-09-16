@@ -54,8 +54,13 @@ output "access_log_bucket" {
 }
 
 output "app_url" {
-  description = "The public address. CloudFront's own certificate, until a domain arrives."
-  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+  description = "The public address: the custom hostname where one is configured, CloudFront's own domain otherwise. The CloudFront domain keeps working either way."
+  value       = var.app_hostname == "" ? "https://${aws_cloudfront_distribution.main.domain_name}" : "https://${var.app_hostname}"
+}
+
+output "cloudfront_domain" {
+  description = "The distribution's own domain, which answers whether or not a custom hostname is configured."
+  value       = aws_cloudfront_distribution.main.domain_name
 }
 
 output "api_endpoint" {

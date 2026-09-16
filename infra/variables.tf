@@ -87,6 +87,18 @@ variable "public_catalog" {
   default     = true
 }
 
+variable "domain_name" {
+  description = "Registered domain whose Route 53 hosted zone holds the records, e.g. example.dev. The zone is looked up, not created: registering through Route 53 already made one. Empty leaves CloudFront on its own certificate."
+  type        = string
+  default     = ""
+}
+
+variable "app_hostname" {
+  description = "Hostname the app answers on, e.g. firmware.example.dev, which must sit inside domain_name. Empty disables the certificate and the DNS records, which is what a fork of this repository should get."
+  type        = string
+  default     = ""
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention."
   type        = number
