@@ -13,6 +13,7 @@ infra/
   ecr.tf          image repository and its lifecycle policy
   efs.tf          file system, mount targets and the access point the task writes as
   logs.tf         CloudWatch log group
+  access_logs.tf  CloudFront access log delivery, and the bucket it writes to
   ssm.tf          SecureString parameters, created empty and set by hand
   iam.tf          execution role -- and no task role, on purpose
   ecs.tf          cluster, capacity providers and the task definition

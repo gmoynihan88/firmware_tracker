@@ -93,6 +93,12 @@ variable "log_retention_days" {
   default     = 30
 }
 
+variable "access_log_retention_days" {
+  description = "Days CloudFront access logs stay in S3 before they expire. Two years is a couple of hundred megabytes at this traffic; the argument for shortening it is that the records carry visitor IP addresses, not the storage bill."
+  type        = number
+  default     = 730
+}
+
 variable "log_level" {
   description = "LOG_LEVEL for the app. INFO is one line per manufacturer per scrape."
   type        = string
