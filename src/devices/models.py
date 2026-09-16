@@ -93,6 +93,12 @@ class FirmwareVersion(Base):
     changelog_summary = Column(Text)
     is_latest = Column(Boolean, default=False)
 
+    # This version's numbers, zero-padded so that ORDER BY reproduces the comparison
+    # in src/devices/versions.py -- the same one that decides is_latest. Stored rather
+    # than computed because the catalogue sorts every product by version and then takes
+    # a page of fifty: the sort has to run in SQL, before the slice.
+    version_sort_key = Column(String(255), index=True)
+
     # First seen by this tracker. For roughly half the catalogue it is the only date
     # there is, because the vendor publishes none -- so it is never rewritten.
     created_at = Column(DateTime, default=datetime.utcnow)

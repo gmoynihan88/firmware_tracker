@@ -79,7 +79,9 @@
     {% endif %}
 </section>
 
-{% if device_models %}
+{# Whether the catalogue is empty is a different question from whether this filter
+   matched anything: an empty result under a search still needs its search box. #}
+{% if total_devices %}
 <section class="catalog-section">
     <div class="section-header">
         <h2>
@@ -89,62 +91,88 @@
             </svg>
             Available Devices
         </h2>
-        <span class="count-badge">{{ device_models | length }}</span>
+        <span class="count-badge">{{ total }}</span>
     </div>
 
-    <div class="filter-bar catalog-filters">
-        <input type="search" id="catalog-search" class="catalog-search"
-               placeholder="Search product or vendor" oninput="filterCatalog()"
+    {# A plain GET form. The catalogue has to work with JavaScript off -- and htmx here
+       is served from a CDN -- so every control submits the form and the URL is the
+       whole view: shareable, bookmarkable, and the thing CloudFront caches. #}
+    <form class="filter-bar catalog-filters" method="get" action="/catalog">
+        <input type="search" name="q" id="catalog-search" class="catalog-search"
+               placeholder="Search product or vendor" value="{{ search }}"
                autocomplete="off" aria-label="Filter devices by name">
-        <div class="filter-checkboxes" id="catalog-kind-filters">
-            <label class="filter-checkbox">
-                <input type="checkbox" value="hardware" checked onchange="filterCatalog()">
-                <span class="filter-chip"><span class="chip-box"></span>Hardware</span>
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" value="software" checked onchange="filterCatalog()">
-                <span class="filter-chip"><span class="chip-box"></span>Software</span>
-            </label>
-        </div>
+
+        {# Vendors used to be one checkbox each, 91 of them. As checkboxes they would
+           put up to 91 parameters in the URL, and CloudFront keys this page's cache on
+           the whole query string -- so a multi-select would shatter the cache. One
+           vendor at a time keeps the URL short and the cached page reusable. #}
+        <label class="filter-label" for="catalog-vendor">Vendor
+            <select name="vendor" id="catalog-vendor" class="catalog-select">
+                <option value="">All vendors</option>
+                {% for manufacturer in manufacturers %}
+                <option value="{{ manufacturer.slug }}"{{ ' selected' if manufacturer.slug == vendor }}>{{ manufacturer.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        {# Software is the VST_PLUGIN category and hardware is everything else, which is
+           the only split the category enum supports. A DAW lives under VST_PLUGIN too. #}
+        <label class="filter-label" for="catalog-kind">Type
+            <select name="kind" id="catalog-kind" class="catalog-select">
+                <option value="">Hardware and software</option>
+                <option value="hardware"{{ ' selected' if kind == 'hardware' }}>Hardware</option>
+                <option value="software"{{ ' selected' if kind == 'software' }}>Software</option>
+            </select>
+        </label>
+
         {% if request.state.authenticated %}
         <label class="filter-checkbox">
-            <input type="checkbox" id="hide-tracked" onchange="filterCatalog()">
+            <input type="checkbox" name="hide_tracked" value="1" id="hide-tracked"{{ ' checked' if hide_tracked }}>
             <span class="filter-chip"><span class="chip-box"></span>Hide tracked</span>
         </label>
         {% endif %}
 
-        {# One chip per vendor is 46 chips; as a dropdown it is one control. #}
-        <details class="vendor-picker" id="vendor-picker">
-            <summary class="filter-action-btn">Vendors: <span id="vendor-summary">all</span></summary>
-            <div class="vendor-panel">
-                <div class="filter-actions">
-                    <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', true)">All</button>
-                    <button type="button" class="filter-action-btn" onclick="toggleAllCatalog('catalog-vendor-filters', false)">None</button>
-                </div>
-                <div class="filter-checkboxes" id="catalog-vendor-filters">
-                    {% for manufacturer in manufacturers %}
-                    <label class="filter-checkbox">
-                        <input type="checkbox" value="{{ manufacturer.slug }}" checked onchange="filterCatalog()">
-                        <span class="filter-chip"><span class="chip-box"></span>{{ manufacturer.name }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-        </details>
+        {# The chosen column rides along as hidden fields, or searching would quietly
+           throw away the sort the reader had picked. #}
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
+        <input type="hidden" name="size" value="{{ size }}">
 
-        <span class="filter-label" id="catalog-count"></span>
-    </div>
+        <button type="submit" class="btn btn-secondary btn-small">Filter</button>
+        {% if search or vendor or kind or hide_tracked %}
+        <a class="filter-action-btn" href="{{ catalog_url(q='', vendor='', kind='', hide_tracked=False, page=1) }}">Clear</a>
+        {% endif %}
+
+        <span class="filter-label" id="catalog-count">
+            {%- if total == total_devices -%}
+            {{ total }} devices
+            {%- else -%}
+            {{ total }} of {{ total_devices }} devices
+            {%- endif -%}
+        </span>
+    </form>
 
     <div class="device-table-wrap">
         <table class="device-table catalog-table">
             <thead>
+                {# Each heading is a link carrying every other filter, so sorting never
+                   silently drops a search. Clicking the current column flips it;
+                   clicking another starts ascending and returns to page one. #}
+                {%- macro sort_header(key, label, extra='') -%}
+                <th class="sortable {{ extra }}" scope="col"
+                    aria-sort="{{ 'ascending' if sort == key and direction == 'asc' else 'descending' if sort == key else 'none' }}">
+                    <a href="{{ catalog_url(sort=key, direction='desc' if sort == key and direction == 'asc' else 'asc', page=1) }}">{{ label }}
+                    {%- if sort == key %}<span class="sort-marker" aria-hidden="true">{{ '&#9650;' if direction == 'asc' else '&#9660;' }}</span>{% endif -%}
+                    </a>
+                </th>
+                {%- endmacro -%}
                 <tr>
-                    <th class="sortable" data-column="0" scope="col">Vendor</th>
-                    <th class="sortable" data-column="1" scope="col">Product</th>
-                    <th class="sortable" data-column="2" scope="col">Type</th>
-                    <th class="sortable numeric" data-column="3" scope="col">Latest</th>
-                    <th class="sortable numeric" data-column="4" scope="col">Other versions</th>
-                    <th class="sortable" data-column="5" scope="col">Released</th>
+                    {{ sort_header('vendor', 'Vendor') }}
+                    {{ sort_header('product', 'Product') }}
+                    {{ sort_header('type', 'Type') }}
+                    {{ sort_header('latest', 'Latest', 'numeric') }}
+                    {{ sort_header('others', 'Other versions', 'numeric') }}
+                    {{ sort_header('released', 'Released') }}
                     {% if request.state.authenticated %}
                     <th scope="col"><span class="visually-hidden">Track</span></th>
                     {% endif %}
@@ -152,19 +180,11 @@
             </thead>
             <tbody>
                 {% for model in device_models %}
-                <tr class="catalog-row"
-                    data-brand="{{ model.manufacturer.slug }}"
-                    {# Software is the VST_PLUGIN category and hardware is everything
-                       else, which is the only split the category enum supports. A DAW
-                       lives under VST_PLUGIN too -- see the note in the filter bar. #}
-                    data-kind="{{ 'software' if model.category.value == 'vst_plugin' else 'hardware' }}"
-                    {# No data-search: it duplicated the vendor and product names already
-                       in the two cells below, 70KB across the catalogue. filterCatalog()
-                       reads the cells instead. Tracking is the owner's business, so an
-                       anonymous page carries no flag rather than 2,045 copies of "no". #}
-                    {%- if request.state.authenticated %}
-                    data-tracked="{{ 'yes' if model.id in tracked_model_ids else 'no' }}"
-                    {%- endif %}>
+                {# No filter attributes at all. data-brand, data-kind, data-search and
+                   data-tracked were hooks for a script that no longer runs: the server
+                   decides which rows are on this page, so the row carries only what is
+                   shown in it. #}
+                <tr class="catalog-row">
                     <td>{{ model.manufacturer.name }}</td>
                     <td class="device-name">{{ model.name }}</td>
                     <td class="muted">{{ model.category.value | category_label }}</td>
@@ -221,29 +241,49 @@
         </table>
     </div>
 
-    <p class="catalog-no-match" id="catalog-no-match" hidden>No devices match these filters.</p>
+    <p class="catalog-no-match" id="catalog-no-match"{{ '' if total == 0 else ' hidden' }}>No devices match these filters.</p>
 
-    {# Hidden until the script runs: without it every row is already on the page,
-       and a pager that does nothing is worse than none. #}
     <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
         <div class="history-body" id="history-body"></div>
     </dialog>
 
-    <nav class="catalog-pager" id="catalog-pager" aria-label="Catalog pages" hidden>
-        <label class="filter-label" for="catalog-page-size">Per page
-            <select id="catalog-page-size" class="catalog-page-size" onchange="catalogPage = 1; renderCatalogPage()">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-                <option value="0">All</option>
-            </select>
-        </label>
+    {# Rendered by the server and present whenever there is more than one page. The old
+       one was hidden until a script filled it in, because every row was already here.
+       Links rather than buttons, so paging works with no JavaScript and each page has
+       a URL of its own. There is no "All": that option is the thing this replaced. #}
+    {% if pages > 1 %}
+    <nav class="catalog-pager" id="catalog-pager" aria-label="Catalog pages">
+        <form class="pager-size" method="get" action="/catalog">
+            <input type="hidden" name="q" value="{{ search }}">
+            <input type="hidden" name="vendor" value="{{ vendor }}">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="direction" value="{{ direction }}">
+            {% if hide_tracked %}<input type="hidden" name="hide_tracked" value="1">{% endif %}
+            <label class="filter-label" for="catalog-page-size">Per page
+                <select name="size" id="catalog-page-size" class="catalog-page-size" onchange="this.form.submit()">
+                    {% for option in page_sizes %}
+                    <option value="{{ option }}"{{ ' selected' if option == size }}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <noscript><button type="submit" class="filter-action-btn">Set</button></noscript>
+        </form>
         <div class="pager-controls">
-            <button type="button" class="filter-action-btn" id="catalog-prev" onclick="turnCatalogPage(-1)">&lsaquo; Prev</button>
-            <span class="pager-status" id="catalog-page-status" aria-live="polite"></span>
-            <button type="button" class="filter-action-btn" id="catalog-next" onclick="turnCatalogPage(1)">Next &rsaquo;</button>
+            {% if page > 1 %}
+            <a class="filter-action-btn" id="catalog-prev" rel="prev" href="{{ catalog_url(page=page - 1) }}">&lsaquo; Prev</a>
+            {% else %}
+            <span class="filter-action-btn" id="catalog-prev" aria-disabled="true">&lsaquo; Prev</span>
+            {% endif %}
+            <span class="pager-status" id="catalog-page-status">{{ first_row }}&ndash;{{ last_row }} of {{ total }} &middot; page {{ page }} of {{ pages }}</span>
+            {% if page < pages %}
+            <a class="filter-action-btn" id="catalog-next" rel="next" href="{{ catalog_url(page=page + 1) }}">Next &rsaquo;</a>
+            {% else %}
+            <span class="filter-action-btn" id="catalog-next" aria-disabled="true">Next &rsaquo;</span>
+            {% endif %}
         </div>
     </nav>
+    {% endif %}
 </section>
 {% else %}
 <div class="empty-state">
@@ -265,176 +305,6 @@
 {% endif %}
 
 <script>
-function toggleAllCatalog(containerId, checked) {
-    document.querySelectorAll('#' + containerId + ' input').forEach(cb => cb.checked = checked);
-    filterCatalog();
-}
-
-// --- filtering ---------------------------------------------------------------
-// A row's search text is its vendor and product cells, read on first use and kept
-// against the element itself -- so sorting, which reorders rows, does not lose it.
-// The alternative was shipping both names a second time in a data- attribute.
-const CATALOG_SEARCH = new WeakMap();
-
-function catalogSearchText(row) {
-    let text = CATALOG_SEARCH.get(row);
-    if (text === undefined) {
-        text = (row.cells[0].textContent + ' ' + row.cells[1].textContent)
-            .trim().toLowerCase();
-        CATALOG_SEARCH.set(row, text);
-    }
-    return text;
-}
-
-// Filtering marks each row as matching or not; paging then decides which of the
-// matching rows are on screen. Keeping the two apart is what lets a search reach
-// every device rather than only the ones on the current page.
-function filterCatalog() {
-    const term = (document.getElementById('catalog-search')?.value || '').trim().toLowerCase();
-    const hideTracked = document.getElementById('hide-tracked')?.checked;
-
-    const vendorBoxes = Array.from(document.querySelectorAll('#catalog-vendor-filters input'));
-    const activeVendors = vendorBoxes.filter(cb => cb.checked).map(cb => cb.value);
-    const allVendors = vendorBoxes.map(cb => cb.value);
-
-    const kindBoxes = document.querySelectorAll('#catalog-kind-filters input');
-    const activeKinds = Array.from(kindBoxes).filter(cb => cb.checked).map(cb => cb.value);
-    const allKinds = Array.from(kindBoxes).map(cb => cb.value);
-
-    // Fail open, the same rule the dashboard uses: a row whose vendor no checkbox
-    // offers stays visible. If the template and the route ever disagree, hiding
-    // everything blanks the page the moment a filter is touched, and showing too
-    // much is the better failure.
-    const vendorMatches = value =>
-        allVendors.includes(value) ? activeVendors.includes(value) : true;
-    const kindMatches = value =>
-        allKinds.includes(value) ? activeKinds.includes(value) : true;
-
-    document.querySelectorAll('.catalog-row').forEach(row => {
-        const matches =
-            vendorMatches(row.dataset.brand) &&
-            kindMatches(row.dataset.kind) &&
-            (!term || catalogSearchText(row).includes(term)) &&
-            !(hideTracked && row.dataset.tracked === 'yes');
-        row.dataset.match = matches ? 'yes' : 'no';
-    });
-
-    const summary = document.getElementById('vendor-summary');
-    if (summary) {
-        const names = vendorBoxes.filter(cb => cb.checked)
-            .map(cb => cb.nextElementSibling.textContent.trim());
-        summary.textContent =
-            activeVendors.length === allVendors.length ? 'all'
-            : activeVendors.length === 0 ? 'none'
-            : activeVendors.length <= 2 ? names.join(', ')
-            : activeVendors.length + ' of ' + allVendors.length;
-    }
-
-    catalogPage = 1;
-    renderCatalogPage();
-}
-
-// --- paging --------------------------------------------------------------------
-// The DOM order is the sort order, so a page is a slice of the matching rows as
-// they currently sit in the table.
-let catalogPage = 1;
-
-function catalogPageSize() {
-    const size = Number(document.getElementById('catalog-page-size')?.value);
-    return size > 0 ? size : Infinity;
-}
-
-function renderCatalogPage() {
-    const rows = Array.from(document.querySelectorAll('.catalog-row'));
-    const matching = rows.filter(row => row.dataset.match !== 'no');
-    const size = catalogPageSize();
-    const pages = size === Infinity ? 1 : Math.max(1, Math.ceil(matching.length / size));
-    catalogPage = Math.min(Math.max(1, catalogPage), pages);
-
-    const start = size === Infinity ? 0 : (catalogPage - 1) * size;
-    const end = Math.min(start + size, matching.length);
-
-    rows.forEach(row => { row.hidden = true; });
-    matching.slice(start, end).forEach(row => { row.hidden = false; });
-
-    const count = document.getElementById('catalog-count');
-    if (count) {
-        count.textContent = matching.length === rows.length
-            ? rows.length + ' devices'
-            : matching.length + ' of ' + rows.length + ' devices';
-    }
-
-    const noMatch = document.getElementById('catalog-no-match');
-    if (noMatch) noMatch.hidden = matching.length > 0;
-
-    const pager = document.getElementById('catalog-pager');
-    if (!pager) return;
-    // Below the smallest page size there is nothing to page through.
-    pager.hidden = matching.length <= 25;
-    document.getElementById('catalog-page-status').textContent = matching.length
-        ? (start + 1) + '–' + end + ' of ' + matching.length + ' · page ' + catalogPage + ' of ' + pages
-        : '';
-    document.getElementById('catalog-prev').disabled = catalogPage <= 1;
-    document.getElementById('catalog-next').disabled = catalogPage >= pages;
-}
-
-function turnCatalogPage(step) {
-    catalogPage += step;
-    renderCatalogPage();
-    // Paging from the bottom of a long page should land on the top of the new one.
-    const table = document.querySelector('.catalog-table');
-    if (table && table.getBoundingClientRect().top < 0) {
-        table.scrollIntoView({ block: 'start' });
-    }
-}
-
-// --- sorting ---------------------------------------------------------------
-// Versions are compared segment by segment as numbers, so 1.11 ranks above 1.9.
-// Rows with no version sort last in both directions, which has to sit outside the
-// direction flip or every unreleased device floats to the top when descending.
-const CATALOG_VERSION = /^\d+(\.\d+)*$/;
-const CATALOG_EMPTY = '—';
-
-function catalogCompare(a, b) {
-    if (CATALOG_VERSION.test(a) && CATALOG_VERSION.test(b)) {
-        const left = a.split('.').map(Number), right = b.split('.').map(Number);
-        for (let i = 0; i < Math.max(left.length, right.length); i++) {
-            const diff = (left[i] || 0) - (right[i] || 0);
-            if (diff !== 0) return diff;
-        }
-        return 0;
-    }
-    return a.localeCompare(b, undefined, { sensitivity: 'base' });
-}
-
-function sortCatalog(columnIndex, header) {
-    const table = document.querySelector('.device-table');
-    const body = table.querySelector('tbody');
-    const ascending = header.dataset.direction !== 'asc';
-
-    table.querySelectorAll('th.sortable').forEach(th => delete th.dataset.direction);
-    header.dataset.direction = ascending ? 'asc' : 'desc';
-
-    const rows = Array.from(body.querySelectorAll('tr'));
-    rows.sort((rowA, rowB) => {
-        const a = rowA.children[columnIndex].textContent.trim();
-        const b = rowB.children[columnIndex].textContent.trim();
-        if (a === CATALOG_EMPTY && b === CATALOG_EMPTY) return 0;
-        if (a === CATALOG_EMPTY) return 1;
-        if (b === CATALOG_EMPTY) return -1;
-        return ascending ? catalogCompare(a, b) : -catalogCompare(a, b);
-    });
-
-    rows.forEach(row => body.appendChild(row));
-    // A new order starts from its first page, or page 3 of it is an arbitrary slice.
-    catalogPage = 1;
-    renderCatalogPage();
-}
-
-document.querySelectorAll('.device-table th.sortable').forEach(header => {
-    header.addEventListener('click', () => sortCatalog(Number(header.dataset.column), header));
-});
-
 // --- version history -------------------------------------------------------
 // Plain fetch rather than htmx, so the popup does not depend on a script served
 // from a CDN. The partial is rendered and escaped by the server -- release notes
@@ -468,16 +338,5 @@ document.getElementById('history-dialog')?.addEventListener('click', event => {
     if (event.target === event.currentTarget) event.currentTarget.close();
 });
 
-// The vendor dropdown closes like any other: a click elsewhere, or Escape.
-document.addEventListener('click', event => {
-    const picker = document.getElementById('vendor-picker');
-    if (picker && picker.open && !picker.contains(event.target)) picker.open = false;
-});
-document.addEventListener('keydown', event => {
-    const picker = document.getElementById('vendor-picker');
-    if (event.key === 'Escape' && picker && picker.open) picker.open = false;
-});
-
-filterCatalog();
 </script>
 {% endblock %}

@@ -1,4 +1,3 @@
-import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from sqlalchemy.orm import selectinload
@@ -11,6 +10,7 @@ from src.devices.models import (
     MyDevice,
     Notification,
 )
+from src.devices.versions import parse_version, version_sort_key
 from src.devices.schemas import (
     ManufacturerCreate,
     ManufacturerUpdate,
@@ -139,10 +139,10 @@ async def delete_device_model(db: AsyncSession, device_model_id: int) -> bool:
 
 
 # FirmwareVersion CRUD
-def _parse_version(version: str) -> tuple:
-    """Parse version string into comparable tuple for sorting."""
-    parts = re.findall(r'\d+', version)
-    return tuple(int(p) for p in parts) if parts else (0,)
+# One rule for version ordering, shared with the scraper service -- which uses it to
+# decide is_latest -- and with the stored version_sort_key the catalogue sorts by, so
+# the three cannot drift apart. See src/devices/versions.py.
+_parse_version = parse_version
 
 
 async def get_firmware_versions(
@@ -197,7 +197,11 @@ async def create_firmware_version(
             .where(FirmwareVersion.device_model_id == data.device_model_id)
             .values(is_latest=False)
         )
-    firmware = FirmwareVersion(**data.model_dump())
+    # Every firmware row in the app is written here, so deriving the sort key at this
+    # one point is what keeps it in step with the version it describes.
+    firmware = FirmwareVersion(
+        **data.model_dump(), version_sort_key=version_sort_key(data.version)
+    )
     db.add(firmware)
     await db.commit()
     await db.refresh(firmware)

@@ -329,53 +329,32 @@
 
 .catalog-filters #catalog-count { margin-left: auto; }
 
-.vendor-picker { position: relative; }
+/* The vendor filter is a <select> now. As 91 checkboxes it needed a panel, an
+   overlay, and script to open and close it; as one control it needs none of that. */
 
-.vendor-picker > summary {
-    list-style: none;
-    text-transform: none;
-    letter-spacing: 0;
-    font-family: inherit;
-    font-size: 0.75rem;
-    padding: 0.25rem 0.6rem;
+/* Each column heading is a link. They should still read as headings. */
+.catalog-table thead th a {
+    color: inherit;
+    text-decoration: none;
 }
 
-.vendor-picker > summary::-webkit-details-marker { display: none; }
-.vendor-picker > summary::after { content: " \25BE"; }
-.vendor-picker[open] > summary { color: var(--text-primary); }
+.catalog-table thead th a:hover { color: var(--text-primary); }
 
-.vendor-panel {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + 0.4rem);
-    /* The picker sits at the end of the filter bar, so open leftwards. */
-    right: 0;
-    width: min(38rem, 90vw);
-    max-height: 22rem;
-    overflow-y: auto;
-    display: grid;
+.sort-marker { margin-left: 0.25rem; font-size: 0.625rem; }
+
+.pager-size {
+    display: flex;
+    align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-md);
-    background: var(--surface-700);
-    border: var(--border-subtle);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
+    margin: 0;
 }
-
-.vendor-panel .filter-checkboxes {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-}
-
-.vendor-panel .filter-chip { width: 100%; }
 
 @media (max-width: 768px) {
-    .vendor-panel { position: static; width: 100%; margin-top: var(--space-sm); }
     .catalog-filters #catalog-count { margin-left: 0; }
     /* The bar turns into a column here, and the search's flex-basis would become
        its height. */
     .catalog-filters .catalog-search { flex: none; width: 100%; max-width: none; box-sizing: border-box; }
-    .catalog-filters .vendor-picker { width: 100%; }
+    .catalog-filters .catalog-select { width: 100%; max-width: none; }
 }
 
 .catalog-table { font-size: 0.8125rem; }
@@ -403,9 +382,6 @@
     margin-top: var(--space-sm);
 }
 
-/* display:flex would otherwise override the hidden attribute. */
-.catalog-pager[hidden] { display: none; }
-
 .pager-controls {
     display: flex;
     align-items: center;
@@ -418,7 +394,8 @@
     font-variant-numeric: tabular-nums;
 }
 
-.catalog-page-size {
+.catalog-page-size,
+.catalog-select {
     margin-left: 0.4rem;
     padding: 0.15rem 0.3rem;
     font: inherit;
