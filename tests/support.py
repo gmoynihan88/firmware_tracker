@@ -1,5 +1,9 @@
 """Shared test harness: the in-memory database and helpers used by more than one test module."""
 
+import os
+import sys
+from pathlib import Path
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.database import enforce_foreign_keys
@@ -17,6 +21,37 @@ async def override_get_db():
             yield session
         finally:
             await session.close()
+
+
+def chromium_is_installed() -> bool:
+    """Whether Playwright's Chromium is on disk -- answered without starting anything.
+
+    Asking Playwright directly means `async_playwright().start()`, which spawns its
+    driver as an asyncio subprocess. On Python 3.12 a driver started only to discover
+    the browser is missing leaves a transport that is finalised after the test's event
+    loop has closed, and `BaseSubprocessTransport.__del__` then calls into the dead
+    loop: `RuntimeError: Event loop is closed`, surfaced by pytest's unraisable hook.
+    CI installs the Playwright package but not the browsers, so both browser tests hit
+    that on every run -- two errors an otherwise green build had to carry.
+
+    Reading the download directory answers the same question with no subprocess at all.
+
+    This is allowed to be wrong only in the optimistic direction: the callers keep
+    their launch-failure skip, so a true answer that turns out false still skips
+    cleanly. A false answer where the browser exists would silently drop real
+    coverage, which is why PLAYWRIGHT_BROWSERS_PATH=0 -- browsers stored beside the
+    package, where this cannot see them -- returns True and lets the launch decide.
+    """
+    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if root == "0":
+        return True
+    if not root:
+        home = Path.home()
+        root = {
+            "darwin": home / "Library" / "Caches" / "ms-playwright",
+            "win32": home / "AppData" / "Local" / "ms-playwright",
+        }.get(sys.platform, home / ".cache" / "ms-playwright")
+    return any(Path(root).glob("chromium-*"))
 
 
 async def _seed_notification(version: str = "2.0.0", slug: str = "notifyco"):
