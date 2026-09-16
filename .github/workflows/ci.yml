@@ -127,17 +127,11 @@ jobs:
 
       # Import every plugin and fail if the registry comes up short. The registry logs
       # a load failure and carries on, so counting is what turns a silent absence into
-      # a red build.
+      # a red build. A script rather than an inline python -c: a folded YAML scalar
+      # turned the first attempt at this into one line with a leading indent, and the
+      # job failed on IndentationError rather than on anything about plugins.
       - name: Every plugin imports without the dev dependencies
-        run: >-
-          python -c "
-          from pathlib import Path;
-          from src.scrapers.registry import ScraperRegistry;
-          files = {p.stem for p in Path('src/scrapers/plugins').glob('*.py') if p.stem != '__init__'};
-          registered = set(ScraperRegistry.list_available());
-          print(f'{len(files)} plugin files, {len(registered)} registered');
-          raise SystemExit(0 if len(registered) == len(files) else 'a plugin failed to import under the runtime lock')
-          "
+        run: python scripts/check_runtime_imports.py
 
   audit:
     # Audits the lock files, pin by pin: requirements.txt is exactly what the Docker
