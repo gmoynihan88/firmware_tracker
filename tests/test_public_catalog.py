@@ -5,9 +5,12 @@ part of this app worth showing anyone. What must never follow it out is anything
 the person running it -- which devices they own, what they have been notified about --
 or any ability to change something.
 """
-import pytest
+import contextlib
 
-from tests.support import test_session_maker
+import pytest
+from sqlalchemy import event
+
+from tests.support import test_engine, test_session_maker
 
 
 @pytest.fixture
@@ -38,6 +41,55 @@ async def _seed_tracked_device():
         ))
         await ds.create_my_device(db, MyDeviceCreate(device_model_id=model.id))
         return model.id
+
+
+@contextlib.contextmanager
+def _captured_sql():
+    """Every statement the app issues while inside the block."""
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", record)
+
+
+@pytest.mark.asyncio
+async def test_a_visitor_does_not_pay_for_the_owners_import_panel(public_catalog, client):
+    """The import panel's queries do not run for someone who cannot see it.
+
+    Three of them -- device counts per vendor, the last successful scrape per scraper,
+    and every vendor's website -- existed only to fill a panel the template renders
+    behind an authenticated check. /catalog is the public, cached, most requested page
+    here, which made them the most-run queries in the app that nobody read.
+
+    Pinned on scrape_runs because nothing else on this page touches that table, so its
+    absence means precisely one thing. The owner's request is checked in the same test:
+    "no query ran" is also what a page that stopped working looks like, and asserting
+    only the absence would pass for that reason too.
+    """
+    await _seed_tracked_device()
+
+    with _captured_sql() as anonymous:
+        visitor = await client.get("/catalog", headers={"accept": "text/html"})
+    assert visitor.status_code == 200
+
+    assert anonymous, "no SQL captured at all -- the listener never attached"
+    assert not [sql for sql in anonymous if "scrape_runs" in sql], \
+        "a visitor paid for the owner's import panel"
+
+    await client.post("/login", data={"password": "correct horse"})
+
+    with _captured_sql() as owner:
+        owned = await client.get("/catalog", headers={"accept": "text/html"})
+    assert owned.status_code == 200
+
+    assert [sql for sql in owner if "scrape_runs" in sql], \
+        "the owner's import panel stopped being built"
 
 
 @pytest.mark.asyncio
