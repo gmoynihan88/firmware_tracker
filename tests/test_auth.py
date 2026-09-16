@@ -75,6 +75,22 @@ async def test_browser_is_redirected_to_the_login_page(auth_enabled, client):
 
 
 @pytest.mark.asyncio
+async def test_the_navigation_offers_a_way_out_once_signed_in(auth_enabled, client):
+    """/logout existed as a route with nothing in the UI pointing at it.
+
+    Signing out meant knowing the URL. The nav now carries it, and only for whoever is
+    signed in -- a visitor has no session to end.
+    """
+    await client.post("/login", data={"password": "correct horse"})
+
+    page = (await client.get("/", headers={"accept": "text/html"})).text
+
+    assert 'href="/logout"' in page
+    # And the way in is gone, because it would do nothing.
+    assert 'href="/login"' not in page
+
+
+@pytest.mark.asyncio
 async def test_the_login_form_gives_password_managers_a_username(auth_enabled, client):
     """A password-only form leaves Safari's save prompt stuck asking for a username.
 
