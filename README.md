@@ -272,6 +272,14 @@ open, including `POST /api/firmware/scrape-all` and full CRUD over the device li
 With auth on, only `/health`, `/login` and `/static` stay open: a load balancer cannot
 present credentials, and requiring a session to reach the login form is a redirect loop.
 
+`PUBLIC_CATALOG=true` opens the catalogue and the read-only device APIs to anyone, so
+the app can be linked to as a demo. It covers `/catalog`, its version-history popup, and
+`GET /api/manufacturers` and `/api/device-models` — scraped facts about other people's
+products. The dashboard, notifications, tracked devices and every write stay behind the
+password, and an anonymous visitor sees no tracking markers, because which products
+someone owns is not part of the catalogue. Requests to `/` are sent to `/catalog` rather
+than a password prompt.
+
 Five failed logins from one address within five minutes make `/login` answer 429 with
 `Retry-After`; a correct password clears the count (`LOGIN_MAX_ATTEMPTS`,
 `LOGIN_WINDOW_SECONDS`). Behind a proxy that terminates TLS, set
@@ -317,6 +325,7 @@ likely to touch:
 | `NTFY_TOPIC` | | Long and random — it is the only secret |
 | `AUTH_PASSWORD_HASH` / `SECRET_KEY` | | Both required to enable auth |
 | `SESSION_COOKIE_SECURE` | `false` | `true` when served over https — see below |
+| `PUBLIC_CATALOG` | `false` | `true` to let anyone read the catalogue — see below |
 | `ANTHROPIC_API_KEY` | | Enables changelog summaries |
 | `SCRAPE_CACHE` | `false` | `true` while developing a scraper |
 | `LOG_FILE` | | Set it if nothing else rotates your logs |

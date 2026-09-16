@@ -81,6 +81,12 @@ variable "desired_count" {
   }
 }
 
+variable "public_catalog" {
+  description = "Serve the catalogue and the read-only device APIs to anonymous visitors, so the deployment can be shared as a demo. The dashboard, notifications, tracked devices and every write stay behind the password."
+  type        = bool
+  default     = true
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention."
   type        = number

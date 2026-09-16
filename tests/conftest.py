@@ -14,6 +14,19 @@ import os
 os.environ["NOTIFY_TRANSPORT"] = "none"
 os.environ.pop("NTFY_TOPIC", None)
 
+# Authentication off, catalogue private, unless a test turns them on itself.
+#
+# pydantic-settings reads .env, and a developer's .env grows real values -- generating
+# the deployment's AUTH_PASSWORD_HASH and SECRET_KEY puts them there. The suite then
+# runs against a locked app and 59 tests fail on 401s that have nothing to do with the
+# code under test. An environment variable beats the .env file, so setting these empty
+# here is what makes the suite independent of the machine it runs on. CI has no .env,
+# which is why this only ever broke locally.
+os.environ["AUTH_PASSWORD_HASH"] = ""
+os.environ["SECRET_KEY"] = ""
+os.environ["API_KEY"] = ""
+os.environ["PUBLIC_CATALOG"] = "false"
+
 import pytest  # noqa: E402
 
 from src.config import get_settings  # noqa: E402

@@ -96,6 +96,7 @@ resource "aws_ecs_task_definition" "app" {
         { name = "SCRAPE_CACHE", value = "false" },
         { name = "LOG_FILE", value = "" },
         { name = "NOTIFY_TRANSPORT", value = var.notify_transport },
+        { name = "PUBLIC_CATALOG", value = tostring(var.public_catalog) },
         { name = "SCRAPE_INTERVAL_HOURS", value = tostring(var.scrape_interval_hours) },
       ]
 

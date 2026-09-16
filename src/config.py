@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # https; left false so a plain http://localhost install still keeps its session.
     session_cookie_secure: bool = False
 
+    # Serve the catalogue to anonymous visitors: vendor data, not personal. The
+    # dashboard, notifications, tracked devices and every write stay behind the
+    # password. Off by default so a local install is private until it is deliberately
+    # shared.
+    public_catalog: bool = False
+
     # Failed logins allowed per client address within the window, after which /login
     # answers 429 with Retry-After. A correct password clears the count. See
     # src/auth/throttle.py: behind a proxy uvicorn needs --proxy-headers, or every
