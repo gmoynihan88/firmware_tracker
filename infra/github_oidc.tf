@@ -4,12 +4,15 @@
 # credentials that expire in an hour.
 
 resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = []
-  # IAM verifies GitHub's certificate against its own trust store for this provider, so
-  # the thumbprint list is vestigial -- it used to need updating whenever GitHub rotated
-  # an intermediate, which broke deploys for people who had pinned one.
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+
+  # thumbprint_list is deliberately not set. IAM verifies GitHub's certificate against
+  # its own trust store for this provider, so the list is vestigial -- it used to need
+  # updating whenever GitHub rotated an intermediate, which broke deploys for anyone who
+  # had pinned one. AWS populates a thumbprint anyway, so setting it to [] here made
+  # every plan propose deleting it, and that in turn left the role's trust policy
+  # unresolvable at plan time.
 }
 
 # **The trust is pinned to one repository and one environment.** `repo:owner/name:*`

@@ -17,6 +17,9 @@ infra/
   iam.tf          execution role -- and no task role, on purpose
   ecs.tf          cluster, capacity providers and the task definition
   service.tf      the service and its Cloud Map registration
+  edge.tf         VPC Link, HTTP API, route and stage
+  cloudfront.tf   the distribution in front of it
+  github_oidc.tf  the role GitHub Actions assumes to deploy
   outputs.tf      values the later stacks and the deploy workflow read
 ```
 
@@ -84,21 +87,35 @@ aws ssm put-parameter --overwrite --type SecureString \
 
 `terraform output secret_parameter_names` lists all four.
 
+## The edge
+
+CloudFront -> API Gateway HTTP API -> VPC Link -> Cloud Map -> the task. The API's route
+table is a single `$default`, because the app does its own routing and its own
+authentication; a per-path table here would be a second thing to keep in step. The
+default behaviour caches nothing (a dashboard behind a session cookie must not be shared)
+and `/static/*` caches hard, which is safe because every asset URL carries a hash of its
+contents.
+
+**The API Gateway URL is public and answers directly, bypassing CloudFront.** HTTP APIs
+have no resource policy, and CloudFront's origin access control does not cover API
+Gateway, so the options are to accept it, add a Lambda authorizer checking a shared
+secret header, or move to an ALB with a CloudFront VPC origin at about $16 a month. It is
+accepted here: the app authenticates every request, throttles failed logins, and the
+stage caps bursts at 50 requests. Anything added at CloudFront later -- WAF especially --
+would want this closed first.
+
 ## What is not here yet
 
 In order, each its own change:
 
-1. **Edge** — VPC Link, API Gateway HTTP API, CloudFront with the managed
-   CachingDisabled policy on the default behaviour and a long TTL on `/static/*`
-   (assets are content-hashed), and its log bucket.
-2. **Deploy** — an OIDC role trusted only by
-   `repo:gmoynihan88/firmware_tracker:environment:production`, and workflows that plan
-   on a pull request and apply on merge. The repository only allows GitHub-owned
-   actions, so `aws-actions/configure-aws-credentials`, `aws-actions/amazon-ecr-login`
-   and `hashicorp/setup-terraform` each need adding to the allowlist and pinning to a
-   commit SHA first.
-3. **Guardrails** — a budget alarm, and a rate limit on `/login` at the edge if the
+1. **CloudFront access logs.** Legacy standard logging needs S3 ACLs enabled on the
+   bucket, which new buckets disable; the newer delivery path avoids that and is worth
+   doing properly rather than quickly. API Gateway access logs are already on.
+2. **Guardrails** — a budget alarm, and a rate limit on `/login` at the edge if the
    app-level throttle proves not to be enough.
+3. **Terraform in CI** — plan on a pull request, apply on merge. That needs a second
+   role with much wider permissions than the deploy role, which is a decision worth
+   making deliberately rather than by default.
 
 A domain is deliberately absent: the first deploy answers on CloudFront's own address,
 and ACM plus Route 53 can follow without reworking anything.
