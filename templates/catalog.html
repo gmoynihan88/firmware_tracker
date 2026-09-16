@@ -6,13 +6,24 @@
 <div class="page-header">
     <div class="header-content">
         <h1>Device Catalog</h1>
-        <p class="header-subtitle">Import and browse available devices</p>
+        <p class="header-subtitle">
+            {%- if request.state.authenticated -%}
+            Import and browse available devices
+            {%- else -%}
+            Firmware versions and release dates, scraped from the manufacturers
+            {%- endif -%}
+        </p>
     </div>
 </div>
 
 <section class="catalog-section">
     {# Collapsed once there is something to browse: 46 vendor cards used to push the
        table 2,560px down the page, and importing is the rare action here. #}
+    {# An operator control: it posts to /catalog/scrape/<vendor>, which is a write and
+       stays behind the password. Shown to a visitor it would invite a click that can
+       only bounce them to a login page, and it lists the vendor set as if it were
+       something they could act on. #}
+    {% if request.state.authenticated %}
     <details class="import-panel" {% if not device_models %}open{% endif %}>
         <summary class="import-summary">
             <h2>
@@ -65,6 +76,7 @@
             {% endfor %}
         </div>
     </details>
+    {% endif %}
 </section>
 
 {% if device_models %}
@@ -237,7 +249,13 @@
         </svg>
     </div>
     <h2>No devices in catalog</h2>
-    <p>Import devices from a manufacturer above to get started.</p>
+    <p>
+        {%- if request.state.authenticated -%}
+        Import devices from a manufacturer above to get started.
+        {%- else -%}
+        Nothing here yet.
+        {%- endif -%}
+    </p>
 </div>
 {% endif %}
 

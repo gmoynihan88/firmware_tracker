@@ -134,6 +134,33 @@ async def test_the_version_history_popup_and_read_only_apis_are_public(public_ca
 
 
 @pytest.mark.asyncio
+async def test_visitors_are_not_shown_operator_controls(public_catalog, client):
+    """The import panel posts a scrape, which is a write: for a visitor it could only
+    bounce them to a login page, and it presents the vendor list as something to act on."""
+    await _seed_tracked_device()
+
+    anonymous = (await client.get("/catalog", headers={"accept": "text/html"})).text
+
+    assert "import-panel" not in anonymous
+    assert "/catalog/scrape/" not in anonymous
+    assert "Import Devices" not in anonymous
+    assert "Import and browse" not in anonymous
+    # Still the catalogue, just without the controls.
+    assert "Sharable One" in anonymous
+    assert "Device Catalog" in anonymous
+
+
+@pytest.mark.asyncio
+async def test_the_owner_still_has_the_import_panel(public_catalog, client):
+    await client.post("/login", data={"password": "correct horse"})
+
+    owner = (await client.get("/catalog", headers={"accept": "text/html"})).text
+
+    assert "import-panel" in owner
+    assert "/catalog/scrape/" in owner
+
+
+@pytest.mark.asyncio
 async def test_the_navigation_offers_a_way_in_and_nothing_else(public_catalog, client):
     anonymous = (await client.get("/catalog", headers={"accept": "text/html"})).text
 
