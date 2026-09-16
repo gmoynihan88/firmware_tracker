@@ -39,7 +39,17 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   max_ttl     = 3600
 
   parameters_in_cache_key_and_forwarded_to_origin {
-    enable_accept_encoding_brotli = true
+    # Gzip only, which is not the obvious choice. CloudFront compresses dynamic
+    # responses on the fly at a low Brotli quality, and on this page it loses to its
+    # own gzip: measured against the live distribution, the same cached catalogue is
+    # 68,685 bytes as gzip and 82,436 as Brotli. Browsers send "br" ahead of "gzip",
+    # so leaving Brotli on hands almost every real visitor the 20% larger payload.
+    #
+    # Turning it off here makes CloudFront normalise Accept-Encoding to gzip for this
+    # behaviour. It covers /catalog* only: the other two behaviours use AWS managed
+    # policies, which cannot be changed without replacing them with custom ones, and
+    # the measurement above is for this page.
+    enable_accept_encoding_brotli = false
     enable_accept_encoding_gzip   = true
 
     cookies_config {
