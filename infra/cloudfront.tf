@@ -18,6 +18,40 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+# A public catalogue is a page strangers may all request at once, and behind it is one
+# 0.5 vCPU task. Sixty seconds of caching absorbs that, and the session cookie is part of
+# the cache key so a page cached for an anonymous visitor can never be handed to the
+# logged-in owner -- who sees tracking markers an anonymous visitor must not.
+resource "aws_cloudfront_cache_policy" "catalog" {
+  name    = "${local.name}-catalog"
+  comment = "Short-lived caching for the public catalogue, keyed on the session cookie"
+
+  min_ttl     = 0
+  default_ttl = 60
+  max_ttl     = 300
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_brotli = true
+    enable_accept_encoding_gzip   = true
+
+    cookies_config {
+      cookie_behavior = "whitelist"
+
+      cookies {
+        items = ["firmware_tracker_session"]
+      }
+    }
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "main" {
   enabled         = true
   comment         = local.name
@@ -62,6 +96,19 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods           = ["GET", "HEAD"]
     compress                 = true
     cache_policy_id          = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+  }
+
+  # POST is allowed through because /catalog/scrape/<vendor> lives under this pattern
+  # and is an authenticated write; only GET and HEAD are ever cached.
+  ordered_cache_behavior {
+    path_pattern             = "/catalog*"
+    target_origin_id         = "api-gateway"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    compress                 = true
+    cache_policy_id          = aws_cloudfront_cache_policy.catalog.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 

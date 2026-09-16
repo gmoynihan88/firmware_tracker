@@ -25,9 +25,22 @@ SESSION_COOKIE = "firmware_tracker_session"
 PUBLIC_PATHS = ("/health", "/health/ready", "/login", "/logout")
 PUBLIC_PREFIXES = ("/static/",)
 
+# Readable without a password when `public_catalog` is set: scraped vendor data, which
+# is public information about other people's products. Everything that describes *this*
+# installation -- the dashboard, notifications, tracked devices -- stays closed, and so
+# does every write, because the method check below only ever allows GET and HEAD.
+PUBLIC_READ_PATHS = ("/catalog",)
+PUBLIC_READ_PREFIXES = ("/catalog/versions/", "/api/manufacturers", "/api/device-models")
+
 
 def is_public(path: str) -> bool:
     return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+
+
+def is_public_read(method: str, path: str) -> bool:
+    if method not in ("GET", "HEAD"):
+        return False
+    return path in PUBLIC_READ_PATHS or path.startswith(PUBLIC_READ_PREFIXES)
 
 
 def wants_html(request: Request) -> bool:
@@ -72,14 +85,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         settings = get_settings()
+        enabled = auth_is_enabled(settings)
 
-        if not auth_is_enabled(settings) or is_public(request.url.path):
+        # Templates read this to decide what to show: with the catalogue public, an
+        # anonymous visitor must not see tracked markers, the dashboard link or the
+        # notification badge, all of which describe the owner rather than the products.
+        authenticated = (not enabled) or is_authenticated(request, settings)
+        request.state.authenticated = authenticated
+
+        if not enabled or authenticated or is_public(request.url.path):
             return await call_next(request)
 
-        if is_authenticated(request, settings):
+        if settings.public_catalog and is_public_read(request.method, request.url.path):
             return await call_next(request)
 
         if wants_html(request):
+            # A link someone shared should land on something worth seeing rather than
+            # a password prompt, when there is something public to land on.
+            if settings.public_catalog and request.url.path == "/":
+                return RedirectResponse(url="/catalog", status_code=303)
             return RedirectResponse(url="/login", status_code=303)
 
         return JSONResponse(

@@ -94,10 +94,12 @@
                 <span class="filter-chip"><span class="chip-box"></span>Software</span>
             </label>
         </div>
+        {% if request.state.authenticated %}
         <label class="filter-checkbox">
             <input type="checkbox" id="hide-tracked" onchange="filterCatalog()">
             <span class="filter-chip"><span class="chip-box"></span>Hide tracked</span>
         </label>
+        {% endif %}
 
         {# One chip per vendor is 46 chips; as a dropdown it is one control. #}
         <details class="vendor-picker" id="vendor-picker">
@@ -131,7 +133,9 @@
                     <th class="sortable numeric" data-column="3" scope="col">Latest</th>
                     <th class="sortable numeric" data-column="4" scope="col">Other versions</th>
                     <th class="sortable" data-column="5" scope="col">Released</th>
+                    {% if request.state.authenticated %}
                     <th scope="col"><span class="visually-hidden">Track</span></th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -185,6 +189,7 @@
                         —
                         {%- endif -%}
                     </td>
+                    {% if request.state.authenticated %}
                     <td class="row-action">
                         {% if model.id in tracked_model_ids %}
                         <span class="tracked-flag">&#10003; tracked</span>
@@ -192,6 +197,7 @@
                         <a href="/devices/add?model_id={{ model.id }}" class="btn btn-secondary btn-small">Track</a>
                         {% endif %}
                     </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>

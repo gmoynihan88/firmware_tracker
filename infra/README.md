@@ -96,6 +96,13 @@ default behaviour caches nothing (a dashboard behind a session cookie must not b
 and `/static/*` caches hard, which is safe because every asset URL carries a hash of its
 contents.
 
+**The catalogue is public** (`PUBLIC_CATALOG=true`), so the deployment can be linked to
+as a demo: `/catalog`, its version-history popup and the read-only device APIs answer
+without a password, while the dashboard, notifications, tracked devices and every write
+stay behind it. `/catalog*` is cached for 60 seconds with the session cookie in the cache
+key, which absorbs a burst of strangers without ever handing an anonymous page to the
+logged-in owner.
+
 **The API Gateway URL is public and answers directly, bypassing CloudFront.** HTTP APIs
 have no resource policy, and CloudFront's origin access control does not cover API
 Gateway, so the options are to accept it, add a Lambda authorizer checking a shared

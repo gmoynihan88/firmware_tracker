@@ -245,9 +245,15 @@ async def mark_all_read(db: AsyncSession = Depends(get_db)):
 @router.get("/catalog", response_class=HTMLResponse)
 async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
     """Device catalog browsing page."""
+    # With PUBLIC_CATALOG on, this is the one page an anonymous visitor may read. The
+    # products are public facts about other people's gear; which of them someone owns,
+    # and what they have been notified about, is not -- so neither is fetched at all,
+    # rather than fetched and hidden in the template.
+    authenticated = getattr(request.state, "authenticated", True)
+
     manufacturers = await device_service.get_manufacturers(db)
     device_models = await device_service.get_device_models(db)
-    unread_count = await device_service.get_unread_count(db)
+    unread_count = await device_service.get_unread_count(db) if authenticated else 0
 
     # The registry lists slugs, and the template used to title-case them, which
     # rendered "Ikmultimedia", "Izotope", "Line6" and "Nativeinstruments". Each
@@ -303,9 +309,11 @@ async def catalog_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Which models the user already tracks, so the table can say so instead of
     # offering to add a second copy of something they have.
-    tracked_model_ids = {
-        row[0] for row in (await db.execute(select(MyDevice.device_model_id))).all()
-    }
+    tracked_model_ids = (
+        {row[0] for row in (await db.execute(select(MyDevice.device_model_id))).all()}
+        if authenticated
+        else set()
+    )
 
     # Latest known version per model, in one query rather than one per row. The
     # release date rides along: 201 of the 303 current versions carry one, and the
