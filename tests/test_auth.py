@@ -75,6 +75,49 @@ async def test_browser_is_redirected_to_the_login_page(auth_enabled, client):
 
 
 @pytest.mark.asyncio
+async def test_the_login_form_gives_password_managers_a_username(auth_enabled, client):
+    """A password-only form leaves Safari's save prompt stuck asking for a username.
+
+    Managers want a pair. Given one field they cannot finish a save, so the prompt hangs
+    on a username the form has nowhere to put. A fixed hidden one supplies the pair.
+
+    How it is hidden is the load-bearing part: managers skip display:none and
+    type=hidden outright, so either would look like a fix and do nothing at all. It has
+    to be present and clipped, and it has to precede the password field, which is the
+    order managers look for.
+    """
+    import re
+
+    page = (await client.get("/login", headers={"accept": "text/html"})).text
+
+    field = re.search(r'<input[^>]*name="username"[^>]*>', page, re.S)
+    assert field, "no username field for the password manager to pair with"
+    assert 'autocomplete="username"' in field.group(0)
+    assert "visually-hidden" in field.group(0)
+    assert 'type="hidden"' not in field.group(0)
+    assert "display:none" not in field.group(0).replace(" ", "")
+
+    assert page.index('name="username"') < page.index('name="password"')
+
+
+@pytest.mark.asyncio
+async def test_signing_in_works_with_the_username_field_posted(auth_enabled, client):
+    """The route declares only the password, so the extra field must be harmless.
+
+    Worth asserting rather than assuming: the form now posts a field the handler never
+    asks for, and "FastAPI ignores undeclared form fields" is exactly the kind of belief
+    that should be checked once rather than trusted forever.
+    """
+    response = await client.post(
+        "/login", data={"username": "owner", "password": "correct horse"}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert (await client.get("/api/manufacturers")).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_login_sets_a_session_that_grants_access(auth_enabled, client):
     bad = await client.post("/login", data={"password": "wrong"})
     assert bad.status_code == 401
