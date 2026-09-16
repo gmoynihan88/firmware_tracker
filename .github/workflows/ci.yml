@@ -98,6 +98,41 @@ jobs:
         if: ${{ matrix.coverage }}
         run: coverage report --fail-under=65
 
+  runtime-imports:
+    # Every other job installs requirements-dev.txt, so none of them can see a plugin
+    # that imports something only the dev lock provides. That gap is not theoretical:
+    # ikmultimedia imported packaging -- dev lock only -- and the registry quietly
+    # carried 90 scrapers in production against 91 in development, logging one line per
+    # task start that nobody read.
+    #
+    # This job installs exactly what the Docker image installs, then imports every
+    # plugin. It is the only place the runtime dependency set is actually exercised.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # The runtime lock alone -- deliberately not requirements-dev.txt, which would
+      # defeat the whole point of this job.
+      - name: Install runtime dependencies only
+        run: pip install --require-hashes -r requirements.txt
+
+      # Import every plugin and fail if the registry comes up short. The registry logs
+      # a load failure and carries on, so counting is what turns a silent absence into
+      # a red build. A script rather than an inline python -c: a folded YAML scalar
+      # turned the first attempt at this into one line with a leading indent, and the
+      # job failed on IndentationError rather than on anything about plugins.
+      - name: Every plugin imports without the dev dependencies
+        run: python scripts/check_runtime_imports.py
+
   audit:
     # Audits the lock files, pin by pin: requirements.txt is exactly what the Docker
     # image installs and requirements-dev.txt is what CI runs. The scrapers parse

@@ -36,6 +36,36 @@ async def test_api_manufacturers(client):
     assert isinstance(response.json(), list)
 
 
+def test_every_plugin_file_actually_registers():
+    """A plugin that fails to import is simply absent, and nothing notices.
+
+    ScraperRegistry discovers plugins with pkgutil and logs a failure to load, then
+    carries on. So a plugin whose import raises does not break anything -- it vanishes,
+    the registry agrees with itself, and every slug assertion below still passes.
+
+    That is not hypothetical. ikmultimedia imported packaging, which is in the dev lock
+    but not the runtime one, so 91 scrapers ran in development and 90 in production for
+    weeks, logging one line per task start that nobody read. Counting files against the
+    registry is what turns that silence into a failure.
+    """
+    from pathlib import Path
+
+    from src.scrapers.registry import ScraperRegistry
+
+    files = {
+        path.stem
+        for path in Path("src/scrapers/plugins").glob("*.py")
+        if path.stem != "__init__"
+    }
+    registered = set(ScraperRegistry.list_available())
+
+    # Slugs need not match filenames, so compare counts and name the shortfall.
+    assert len(registered) == len(files), (
+        f"{len(files)} plugin files but {len(registered)} registered -- "
+        f"one failed to import. Run with -o log_cli=true to see which."
+    )
+
+
 @pytest.mark.asyncio
 async def test_api_scrapers(client):
     """Test scrapers list endpoint."""
