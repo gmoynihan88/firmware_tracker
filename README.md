@@ -82,7 +82,7 @@ be the public IPv4 address, not the compute. [Infrastructure →](infra/README.m
 hourly, conditional requests, and the three vendors with no bulk listing check a slice of
 their catalogue per run. [Scraping load →](docs/scraping-load.md)
 
-**858 tests, 91% coverage**, two thresholds because scrapers are verified against live
+**872 tests, 91% coverage**, two thresholds because scrapers are verified against live
 vendor sites rather than by coverage. [Development →](docs/development.md)
 
 ## Usage

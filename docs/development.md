@@ -1,7 +1,7 @@
 # Development
 
 ```bash
-pytest                                   # 858 tests
+pytest                                   # 872 tests
 pytest -n auto                           # the same in parallel, one worker per CPU, as CI runs
 pytest --cov=src                         # 91% overall, 90% outside the scrapers
 pytest tests/test_basic.py::test_dashboard

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Scrape Status - Firmware Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <h1>Scrape Status</h1>
+        <p class="header-subtitle">
+            {{ total }} vendor{% if total != 1 %}s{% endif %} &middot;
+            {% if attention %}{{ attention }} needing attention{% else %}all healthy{% endif %}
+        </p>
+    </div>
+</div>
+
+{# The quiet alarm, given a loud place to appear. identical_page_groups is recorded on
+   every run and read by nobody: a scraper whose URL shape stopped selecting a product
+   returns the same page for every device, reports success, and looks exactly like a
+   vendor that publishes nothing. It is the failure this project keeps rediscovering,
+   and it has never had a display until now. #}
+{% if identical %}
+<div class="status-alarm" role="alert">
+    <strong>{{ identical }} vendor{% if identical != 1 %}s{% endif %} returned identical pages for different devices.</strong>
+    Different URLs giving byte-identical content usually means the URL shape stopped
+    selecting a product — the scraper reports success and every device reads as having
+    no firmware. Worth checking before trusting those rows.
+</div>
+{% endif %}
+
+<div class="device-table-wrap">
+    <table class="device-table status-table">
+        <thead>
+            <tr>
+                <th>Vendor</th>
+                <th>Last success</th>
+                <th>Last run</th>
+                <th class="num">Devices</th>
+                <th class="num">Failed</th>
+                <th class="num">No firmware</th>
+                <th class="num">Not checked</th>
+                <th class="num">Identical</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in vendors %}
+            <tr class="status-row{% if v.needs_attention %} needs-attention{% endif %}">
+                <td class="cell-product">
+                    {{ v.name }}
+                    <span class="cell-sub">{{ v.slug }}</span>
+                </td>
+
+                <td class="cell-date">
+                    {% if v.last_success %}
+                        <span{% if v.stale %} class="status-stale" title="No successful run in over {{ stale_after_hours }} hours."{% endif %}>
+                            {{ v.last_success.strftime('%Y-%m-%d') }}
+                        </span>
+                        {% if v.success_is_legacy %}
+                        <span class="cell-sub" title="From manufacturers.last_scraped_at, which predates the scrape_runs table. The vendor was scraped; we have no run record for it.">inferred</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="status-never">never</span>
+                    {% endif %}
+                </td>
+
+                <td class="cell-date">
+                    {% if v.run %}
+                        {{ v.run.started_at.strftime('%Y-%m-%d') }}
+                        {% if v.run.success %}
+                        <span class="status-badge status-ok">ok</span>
+                        {% else %}
+                        <span class="status-badge status-fail"
+                              {% if v.run.error %}title="{{ v.run.error }}"{% endif %}>failed</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="status-never">never</span>
+                    {% endif %}
+                </td>
+
+                <td class="num">{{ v.run.devices_total if v.run else '—' }}</td>
+
+                {# Three columns, never a sum. A failure is a broken scraper; "no
+                   firmware" is the vendor publishing none, which is correct and often
+                   permanent; "not checked" is the budget running out mid-run. Added
+                   together they would produce a number that moves for three unrelated
+                   reasons and diagnoses none of them. #}
+                <td class="num">
+                    {% if v.run and v.run.devices_failed %}
+                    <span class="count-bad">{{ v.run.devices_failed }}</span>
+                    {% else %}<span class="count-zero">{{ 0 if v.run else '—' }}</span>{% endif %}
+                </td>
+                <td class="num">
+                    {% if v.run and v.run.devices_without_firmware %}
+                    <span class="count-neutral">{{ v.run.devices_without_firmware }}</span>
+                    {% else %}<span class="count-zero">{{ 0 if v.run else '—' }}</span>{% endif %}
+                </td>
+                <td class="num">
+                    {% if v.run and v.run.devices_not_checked %}
+                    <span class="count-warn" title="The per-manufacturer budget ran out before these were reached. The counts beside this describe a subset of the catalogue.">{{ v.run.devices_not_checked }}</span>
+                    {% else %}<span class="count-zero">{{ 0 if v.run else '—' }}</span>{% endif %}
+                </td>
+                <td class="num">
+                    {% if v.identical_page_groups %}
+                    <span class="count-bad">{{ v.identical_page_groups }}</span>
+                    {% else %}<span class="count-zero">{{ 0 if v.run else '—' }}</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
