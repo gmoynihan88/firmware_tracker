@@ -15,3 +15,11 @@ alert_email         = "you@example.com"
 # environment = "production"
 # region      = "us-west-2"
 # vpc_cidr    = "10.20.0.0/16"
+
+# A custom domain, if there is one. Both empty -- the default -- means no certificate and
+# no DNS records, and CloudFront keeps serving its own *.cloudfront.net name, which is
+# what a fork of this repository wants. The hosted zone is looked up rather than created:
+# registering a domain through Route 53 already made one and pointed the nameservers at
+# it, so declaring a second here would serve records nobody resolves.
+# domain_name  = "example.dev"
+# app_hostname = "firmware.example.dev"

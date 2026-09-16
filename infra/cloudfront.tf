@@ -88,6 +88,10 @@ resource "aws_cloudfront_distribution" "main" {
   http_version    = "http2and3"
   is_ipv6_enabled = true
 
+  # CloudFront refuses an alias it has no certificate covering, so this and the
+  # viewer_certificate below are the same switch: both empty, or both set.
+  aliases = var.app_hostname == "" ? [] : [var.app_hostname]
+
   # North America and Europe. The edges elsewhere cost more and this has one user.
   price_class = "PriceClass_100"
 
@@ -149,8 +153,15 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   viewer_certificate {
-    # *.cloudfront.net until a domain and an ACM certificate in us-east-1 arrive; the
-    # provider alias for that region is already declared in providers.tf.
-    cloudfront_default_certificate = true
+    # *.cloudfront.net until a hostname is configured, and the ACM certificate once one
+    # is. The ARN comes from the validation rather than from the certificate, so this
+    # cannot attach one ACM has not finished issuing.
+    #
+    # sni-only because the alternative, a dedicated IP, is $600 a month for the benefit
+    # of clients that predate SNI. TLSv1.2_2021 drops TLS 1.0 and 1.1 outright.
+    cloudfront_default_certificate = var.app_hostname == "" ? true : null
+    acm_certificate_arn            = var.app_hostname == "" ? null : aws_acm_certificate_validation.app[0].certificate_arn
+    ssl_support_method             = var.app_hostname == "" ? null : "sni-only"
+    minimum_protocol_version       = var.app_hostname == "" ? null : "TLSv1.2_2021"
   }
 }
