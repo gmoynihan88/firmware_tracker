@@ -39,5 +39,22 @@ def asset_version(relative_path: str) -> str:
     return _digest(str(path), (stat.st_mtime_ns, stat.st_size))
 
 
+# `| title` on "vst plugin" gives "Vst Plugin", beside filter chips that say "VST Plugin".
+CATEGORY_LABELS = {
+    "audio_interface": "Audio Interface",
+    "guitar_pedal": "Guitar Pedal",
+    "midi_controller": "MIDI Controller",
+    "other": "Other",
+    "synthesizer": "Synthesizer",
+    "vst_plugin": "VST Plugin",
+}
+
+
+def category_label(value: str) -> str:
+    """A device category's display name, acronyms intact."""
+    return CATEGORY_LABELS.get(value, value.replace("_", " ").title())
+
+
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 templates.env.globals["asset_version"] = asset_version
+templates.env.filters["category_label"] = category_label

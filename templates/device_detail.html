@@ -53,7 +53,7 @@
                 </div>
                 <div class="detail-row">
                     <dt>Category</dt>
-                    <dd><span class="category-tag">{{ device.device_model.category.value | replace('_', ' ') | title }}</span></dd>
+                    <dd><span class="category-tag">{{ device.device_model.category.value | category_label }}</span></dd>
                 </div>
                 {% if device.nickname %}
                 <div class="detail-row">

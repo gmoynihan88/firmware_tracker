@@ -133,7 +133,7 @@
                     <a href="/devices/{{ item.device.id }}">{{ item.device.nickname or item.device.device_model.name }}</a>
                     {% if item.device.nickname %}<span class="cell-sub">{{ item.device.device_model.name }}</span>{% endif %}
                 </td>
-                <td class="cell-category">{{ item.device.device_model.category.value | replace('_', ' ') | title }}</td>
+                <td class="cell-category">{{ item.device.device_model.category.value | category_label }}</td>
                 <td class="cell-version">{{ item.device.current_firmware_version or '—' }}</td>
                 {# Same rule as the catalogue: a version wins, and the flag only
                    explains its absence. "—" is left meaning "nobody has checked". #}
