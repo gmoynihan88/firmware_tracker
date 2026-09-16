@@ -44,6 +44,28 @@ async def test_api_requires_authentication_when_enabled(auth_enabled, client):
 
 
 @pytest.mark.asyncio
+async def test_the_login_page_says_whose_installation_this_is(auth_enabled, client):
+    """Anyone who lands here and is not the owner has found someone else's install.
+
+    A bare password prompt tells them nothing and offers them nothing. The page names
+    what this is and points at the repository, so "what is this and how do I get one"
+    is answered on the page rather than left to whoever shared the link.
+    """
+    import re
+
+    page = (await client.get("/login", headers={"accept": "text/html"})).text
+    card = re.search(r'<form class="login-card".*?</form>', page, re.S)
+    assert card, "no login card rendered"
+
+    assert "self-hosted" in card.group(0)
+    assert "https://github.com/gmoynihan88/firmware_tracker" in card.group(0)
+    # Scoped to the card deliberately. base.html's nav links /catalog on every page, so
+    # asserting against the whole document would pass whatever the card contained -- and
+    # the first version of this test did exactly that, and failed for that reason.
+    assert 'href="/catalog"' not in card.group(0)
+
+
+@pytest.mark.asyncio
 async def test_browser_is_redirected_to_the_login_page(auth_enabled, client):
     """A browser should land on the form; curl should get a status code."""
     response = await client.get("/", headers={"accept": "text/html"})

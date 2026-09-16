@@ -41,6 +41,26 @@ async def _seed_tracked_device():
 
 
 @pytest.mark.asyncio
+async def test_the_login_page_offers_the_catalogue_when_there_is_one(public_catalog, client):
+    """Somewhere to go other than a password prompt, when there is somewhere to go.
+
+    The other half of this is in test_auth: with the catalogue private, the same page
+    must not offer it. Together they pin the condition rather than one state of it.
+    """
+    import re
+
+    page = (await client.get("/login", headers={"accept": "text/html"})).text
+    card = re.search(r'<form class="login-card".*?</form>', page, re.S)
+    assert card, "no login card rendered"
+
+    # Scoped to the card, for the same reason as its counterpart in test_auth: the nav
+    # links /catalog on every page, so checking the whole document would pass even with
+    # the conditional block deleted. This one has to fail if the offer disappears.
+    assert 'href="/catalog"' in card.group(0)
+    assert "https://github.com/gmoynihan88/firmware_tracker" in card.group(0)
+
+
+@pytest.mark.asyncio
 async def test_catalogue_is_readable_without_a_password(public_catalog, client):
     response = await client.get("/catalog", headers={"accept": "text/html"})
 

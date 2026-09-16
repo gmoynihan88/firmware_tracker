@@ -15,6 +15,22 @@
                autocomplete="current-password" autofocus required>
 
         <button class="login-button" type="submit">Sign in</button>
+
+        {# Whoever reaches this page and is not the owner has found someone else's
+           installation. Say so, and point them at their own copy rather than leaving
+           them at a password prompt with no explanation. #}
+        <p class="login-hint login-note">
+            This is one person's install, for tracking their own gear. It is meant to be
+            self-hosted &mdash;
+            <a href="https://github.com/gmoynihan88/firmware_tracker" rel="noopener">take a
+            copy from GitHub</a> and run your own. Thanks!
+        </p>
+
+        {% if public_catalog %}
+        <p class="login-hint login-note">
+            Or <a href="/catalog">browse the catalogue</a> &mdash; no sign-in needed.
+        </p>
+        {% endif %}
     </form>
 </div>
 {% endblock %}

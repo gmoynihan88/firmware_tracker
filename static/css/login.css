@@ -66,3 +66,21 @@
     font-size: 0.9375rem;
     cursor: pointer;
 }
+
+/* The disclaimer, separated from the password hint above it: someone who is not the
+   owner needs it to read as a note about the installation rather than as instructions
+   for signing in. */
+.login-note {
+    margin: 1.25rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+/* A second note follows the first without repeating the rule above it. */
+.login-note + .login-note {
+    margin-top: 0.5rem;
+    padding-top: 0;
+    border-top: none;
+}
