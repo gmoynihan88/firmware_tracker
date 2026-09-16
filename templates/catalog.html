@@ -158,8 +158,13 @@
                        else, which is the only split the category enum supports. A DAW
                        lives under VST_PLUGIN too -- see the note in the filter bar. #}
                     data-kind="{{ 'software' if model.category.value == 'vst_plugin' else 'hardware' }}"
+                    {# No data-search: it duplicated the vendor and product names already
+                       in the two cells below, 70KB across the catalogue. filterCatalog()
+                       reads the cells instead. Tracking is the owner's business, so an
+                       anonymous page carries no flag rather than 2,045 copies of "no". #}
+                    {%- if request.state.authenticated %}
                     data-tracked="{{ 'yes' if model.id in tracked_model_ids else 'no' }}"
-                    data-search="{{ (model.name ~ ' ' ~ model.manufacturer.name) | lower }}">
+                    {%- endif %}>
                     <td>{{ model.manufacturer.name }}</td>
                     <td class="device-name">{{ model.name }}</td>
                     <td class="muted">{{ model.category.value | category_label }}</td>
@@ -266,6 +271,21 @@ function toggleAllCatalog(containerId, checked) {
 }
 
 // --- filtering ---------------------------------------------------------------
+// A row's search text is its vendor and product cells, read on first use and kept
+// against the element itself -- so sorting, which reorders rows, does not lose it.
+// The alternative was shipping both names a second time in a data- attribute.
+const CATALOG_SEARCH = new WeakMap();
+
+function catalogSearchText(row) {
+    let text = CATALOG_SEARCH.get(row);
+    if (text === undefined) {
+        text = (row.cells[0].textContent + ' ' + row.cells[1].textContent)
+            .trim().toLowerCase();
+        CATALOG_SEARCH.set(row, text);
+    }
+    return text;
+}
+
 // Filtering marks each row as matching or not; paging then decides which of the
 // matching rows are on screen. Keeping the two apart is what lets a search reach
 // every device rather than only the ones on the current page.
@@ -294,7 +314,7 @@ function filterCatalog() {
         const matches =
             vendorMatches(row.dataset.brand) &&
             kindMatches(row.dataset.kind) &&
-            (!term || row.dataset.search.includes(term)) &&
+            (!term || catalogSearchText(row).includes(term)) &&
             !(hideTracked && row.dataset.tracked === 'yes');
         row.dataset.match = matches ? 'yes' : 'no';
     });

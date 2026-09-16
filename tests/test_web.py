@@ -734,6 +734,28 @@ async def test_catalog_marks_every_row_hardware_or_software(client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_rows_carry_their_search_text_in_the_cells(client):
+    """filterCatalog() derives the search string from the row, not from an attribute.
+
+    data-search repeated the vendor and product names that the first two cells already
+    hold -- 70KB across the real catalogue. Dropping it is only safe for as long as both
+    names are genuinely in those cells, in that order, which is what this pins.
+    """
+    import re
+
+    await _seed_one_of_each()
+
+    html = (await client.get("/catalog")).text
+
+    assert "data-search" not in html
+    row = re.search(r'<tr class="catalog-row".*?</tr>', html, re.S)
+    assert row, "no catalogue row rendered"
+    cells = re.findall(r"<td[^>]*>(.*?)</td>", row.group(0), re.S)
+    assert "Kindco" in cells[0], cells[0]
+    assert "Kind " in cells[1], cells[1]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_marks_every_row_hardware_or_software(client):
     """The same split on the page showing only what you own."""
     await _seed_one_of_each()
