@@ -166,6 +166,39 @@ through unchanged, which restores into the live volume rather than beside it.
 **~11MB is the baseline.** A recovery point far below it is a signal, not a saving. And
 a backup nobody has restored is a hypothesis: drill it, or it is not a backup.
 
+### The drill, 2026-09-17 — passed
+
+An on-demand backup into this vault was restored to a throwaway file system, mounted
+read-only by a one-off Fargate task, and the database opened:
+
+```
+integrity_check: ok        manufacturers: 91      device_models: 2045
+firmware_versions: 11207   my_devices: 82         scrape_runs: 774
+dated_versions: 8646       alembic_version: f2c8d1a94b70
+```
+
+91 and 2,045 match what production's public API served at the same moment, so the
+counts are a comparison rather than a number that merely looks plausible.
+
+**The restore lands in a recovery directory, even on a brand-new file system**:
+`/aws-backup-restore_<timestamp>/firmware-tracker/firmware_tracker.db`. The access point
+roots at `/firmware-tracker`, one level below that, so a real recovery cannot just point
+the service at the restored volume — move the contents up, or create an access point
+matching the restored path. Worth knowing before doing it under pressure.
+
+Three things that cost a cycle each, recorded so the next drill does not repeat them:
+
+- **`"entryPoint": []` does not override an image entrypoint.** ECS reads the empty array
+  as "unset" and runs the image's own, which here is `alembic upgrade head` — a migration
+  against the evidence. Use a non-empty entrypoint (`["python"]`).
+- **`Encrypted: "true"` requires an explicit `KmsKeyId`** in the restore metadata, or the
+  job fails after several minutes with `Required key(s) [kmskeyid (String)] missing`.
+- **EFS `SizeInBytes` is metered hourly.** The restored file system read 6,144 bytes while
+  actually holding 11,153,408. Mount it and look; do not judge a restore by that field.
+
+The mount was `readOnly: true` throughout and the database was copied to `/tmp` before
+opening, so the drill could not alter what it was inspecting.
+
 ## What is not here yet
 
 In order, each its own change:
