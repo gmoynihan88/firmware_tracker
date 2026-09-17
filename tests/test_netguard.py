@@ -374,6 +374,132 @@ async def test_fetch_page_js_installs_the_guard_before_navigating(monkeypatch):
     assert calls[1] == ("goto",)
 
 
+class _FakeRequest:
+    """One hop of a navigation, shaped like Playwright's Request."""
+
+    def __init__(self, url, redirected_from=None):
+        self.url = url
+        self.redirected_from = redirected_from
+
+
+class _FakeResponse:
+    def __init__(self, chain):
+        """`chain` runs oldest first, the way a redirect actually happens."""
+        request = None
+        for url in chain:
+            request = _FakeRequest(url, request)
+        self.request = request
+
+
+def _redirecting_browser(monkeypatch, scraper, chain):
+    """A page whose navigation followed `chain` and rendered the last URL in it."""
+
+    class FakePage:
+        async def route(self, pattern, handler):
+            pass
+
+        async def goto(self, *args, **kwargs):
+            return _FakeResponse(chain)
+
+        async def wait_for_timeout(self, *args):
+            pass
+
+        async def content(self):
+            return "<p>SECRET_BODY</p>"
+
+        async def close(self):
+            pass
+
+    class FakeBrowser:
+        async def new_page(self):
+            return FakePage()
+
+    async def fake_browser():
+        return FakeBrowser()
+
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser)
+
+
+def _resolving(monkeypatch, answers):
+    from src.scrapers import netguard
+
+    async def fake_resolve(host):
+        if host not in answers:
+            raise OSError("no such host")
+        return answers[host]
+
+    monkeypatch.setattr(netguard, "_resolve", fake_resolve)
+
+
+@pytest.mark.asyncio
+async def test_a_rendered_redirect_into_the_network_never_reaches_the_caller(
+    monkeypatch, caplog
+):
+    """The hole this check exists for.
+
+    Chromium does not re-invoke a `page.route` handler for the target of a redirect it
+    follows -- verified against the project's own Chromium, where the handler recorded
+    only the first URL while the redirect target was fetched, served and returned by
+    `page.content()`. So a vendor answering 302 to the task's credential endpoint had
+    that response parsed like any other page, and scraped text is rendered on a public
+    catalogue.
+
+    The request itself cannot be recalled by the time anything here can look. What is
+    refused is the body: the caller is told nothing loaded.
+    """
+    scraper = _guard_stub()
+    _resolving(monkeypatch, {"vendor.example": ["93.184.216.34"]})
+    _redirecting_browser(
+        monkeypatch,
+        scraper,
+        [
+            "https://vendor.example/downloads",
+            "http://169.254.170.2/v2/credentials",
+        ],
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await scraper.fetch_page_js("https://vendor.example/downloads")
+
+    assert result is None, "a redirect into the network returned its body to the caller"
+    assert "SECRET_BODY" not in (result or "")
+    assert "169.254.170.2" in caplog.text
+    # Recorded rather than silent: a scraper that skips a product must say why.
+    assert any("BlockedRedirect" in failure for failure in scraper.fetch_failures())
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_redirect_still_returns_the_page(monkeypatch):
+    """The other half. A guard that refuses http -> https would block most vendors."""
+    scraper = _guard_stub()
+    _resolving(
+        monkeypatch,
+        {"vendor.example": ["93.184.216.34"], "www.vendor.example": ["93.184.216.34"]},
+    )
+    _redirecting_browser(
+        monkeypatch,
+        scraper,
+        [
+            "http://vendor.example/downloads",
+            "https://www.vendor.example/en/downloads",
+        ],
+    )
+
+    assert await scraper.fetch_page_js("http://vendor.example/downloads") == (
+        "<p>SECRET_BODY</p>"
+    )
+    assert scraper.fetch_failures() == []
+
+
+@pytest.mark.asyncio
+async def test_a_navigation_with_no_response_is_not_treated_as_a_redirect(monkeypatch):
+    """`page.goto` returns None for a same-document navigation, which is not a refusal."""
+    scraper = _guard_stub()
+    _redirecting_browser(monkeypatch, scraper, [])
+
+    assert await scraper.fetch_page_js("https://vendor.example/p") == "<p>SECRET_BODY</p>"
+
+
 @pytest.mark.asyncio
 async def test_real_chromium_blocks_private_pages_and_subrequests(monkeypatch, caplog):
     """End to end in a real browser. Skipped where Chromium is not installed, as in CI."""
