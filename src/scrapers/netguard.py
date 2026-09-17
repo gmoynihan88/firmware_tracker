@@ -21,10 +21,21 @@ they do:
   loop, so it sees the URL a scraper asked for and never the `Location` it was sent
   to.
 
-Rendered pages are checked per request by `url_allowed`, because a page's own scripts
-decide what Chromium loads and Playwright offers no resolver hook. That path keeps a
-small rebinding window between this lookup and Chromium's own. Egress rules on the
-network close it; this module is the application's part.
+Rendered pages are checked per *intercepted* request by `url_allowed`, because a page's
+own scripts decide what Chromium loads and Playwright offers no resolver hook. Two
+things that wording used to gloss over, both of which matter:
+
+- **A redirect Chromium follows is not an intercepted request.** The route handler
+  fires for the URL a navigation starts at and never for the `Location` it is sent to,
+  so a vendor answering 302 into the network had the target fetched and rendered with
+  nothing consulted. `BaseScraper._navigation_chain_allowed` walks the navigation's own
+  redirect chain afterwards and throws the body away if any hop was non-public -- the
+  request is already gone by then, so what is protected is the data, not the fetch.
+- **The rebinding window is per host, for the life of the scraper.** `url_allowed`
+  caches a verdict per host in `verdicts`, so a name that answers public once is not
+  looked at again for the rest of the run.
+
+Egress rules on the network are what close both; this module is the application's part.
 
 The size cap lives here because it is the same concern from the other side: a
 response body is also input the vendor controls.

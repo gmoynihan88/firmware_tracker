@@ -370,14 +370,23 @@ class BaseScraper(ABC):
                 # A navigation timeout is tried once more: TAL's pages were slow for a
                 # few minutes and fine after, and failed a whole sweep over it. Only a
                 # timeout -- a refused or blocked navigation will not change on retry.
+                response = None
                 for attempt in (1, 2):
                     try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=wait_for_timeout)
+                        response = await page.goto(
+                            url, wait_until="domcontentloaded", timeout=wait_for_timeout
+                        )
                         break
                     except Exception as exc:
                         if attempt == 2 or type(exc).__name__ != "TimeoutError":
                             raise
                         logger.info("Rendered fetch of %s timed out, trying once more", url)
+
+                # The route guard above never sees where a redirect went, so the
+                # navigation's own chain is checked before anything is read off the
+                # page. See _navigation_chain_allowed.
+                if not await self._navigation_chain_allowed(response):
+                    return None
 
                 # Click element if specified (e.g., to expand a tab or section)
                 if click_selector:
@@ -417,6 +426,51 @@ class BaseScraper(ABC):
         else:
             logger.warning("Blocked rendered request to a non-public address: %s", url)
             await route.abort("blockedbyclient")
+
+    async def _navigation_chain_allowed(self, response) -> bool:
+        """Check every hop of a navigation, not only the URL that was asked for.
+
+        `page.route` is not consulted for the target of a redirect Chromium follows.
+        The handler fires once, for the URL the navigation started at, and the
+        `Location` it is sent to is fetched and rendered without ever reaching
+        `netguard.url_allowed`. Measured against this project's own Chromium: a page
+        answering 302 had the target requested, served, and returned by
+        `page.content()`, while the route handler recorded only the first URL.
+
+        That is the whole difference between this path and the aiohttp one. There a
+        client middleware runs per hop, so a redirect into the network is refused
+        before the connection is made. Here the request has already happened by the
+        time anything can look, so what this refuses is the *content*: the body is
+        discarded and the caller told nothing loaded, which keeps a credential
+        response out of the database and off the public catalogue. The request itself
+        still went out; egress rules are the layer that covers that.
+
+        Prevention was tried and rejected on measurement. Following the chain inside
+        the route handler with `route.fetch(max_redirects=0)` and fulfilling the final
+        response does validate every hop -- but Chromium then never learns the final
+        URL, and relative sub-resources resolve against the original one: a page
+        redirected to `/sub/b` requested `/img.png` rather than `/sub/img.png`. Keeping
+        the base URL right as well would mean fetching every rendered page twice, and
+        doubling the load on vendors is not a trade this project makes for a risk that
+        discarding the body already covers.
+        """
+        if response is None:
+            return True
+
+        request = getattr(response, "request", None)
+        hops = []
+        while request is not None:
+            hops.append(request.url)
+            request = getattr(request, "redirected_from", None)
+
+        for hop in hops:
+            if not await netguard.url_allowed(hop, self._host_verdicts):
+                logger.warning(
+                    "Blocked a rendered redirect into a non-public address: %s", hop
+                )
+                self._record_fetch_failure(hop, "BlockedRedirect")
+                return False
+        return True
 
     def parse_html(self, html: str) -> BeautifulSoup:
         """Parse HTML content."""
