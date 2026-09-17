@@ -7,6 +7,23 @@ class Settings(BaseSettings):
     app_name: str = "Firmware Tracker"
     debug: bool = False
 
+    # Declared only so the documented setup starts. The app never binds this: uvicorn's
+    # port comes from its command line, and docker-compose publishes with
+    # `"${PORT:-8000}:8000"` -- compose interpolates PORT from the same .env file the
+    # app reads, which is the arrangement .env.example's own header describes.
+    #
+    # One file, two consumers, opposite rules. pydantic-settings defaults BaseSettings
+    # to extra="forbid" -- it is not written anywhere in this file, which is why
+    # grepping for "forbid" finds nothing -- so a key compose needs and the app has not
+    # declared is a ValidationError at import, before any of it runs. `cp .env.example
+    # .env` therefore could not start, and only a developer .env that predated the PORT
+    # line hid it.
+    #
+    # Declaring the field is the narrow fix. extra="ignore" would also stop the crash
+    # and would stop catching typos in every other setting here, turning a misspelled
+    # SCRAPE_INTERVAL_HOURS into a silent default.
+    port: int = 8000
+
     # INFO shows scrape results and the scheduler's interval; DEBUG adds every fetch.
     # Without a configured handler Python's lastResort emits only WARNING and above,
     # so INFO vanishes silently -- see src/logging_config.py.
