@@ -22,8 +22,18 @@ they do:
   to.
 
 Rendered pages are checked per *intercepted* request by `url_allowed`, because a page's
-own scripts decide what Chromium loads and Playwright offers no resolver hook. Two
-things that wording used to gloss over, both of which matter:
+own scripts decide what Chromium loads and Playwright offers no resolver hook. Three
+things that wording used to gloss over, all of which matter:
+
+- **Interception has to be installed on the context, not the page.** A page-level
+  handler never sees what a window the page opens goes on to request, and nothing
+  routes a service worker's fetches at all. Measured here: a vendor page opened a
+  window on load -- no click required -- and both that window's navigation and a fetch
+  made from inside it reached a local target the guard never saw, as did a fetch from
+  a service worker's install handler. `fetch_page_js` now routes the context and
+  creates it with `service_workers="block"`. Popups are left open until the context
+  is closed: closing each one on sight races Playwright's route attachment, and
+  intermittently let the popup's own fetches out unintercepted.
 
 - **A redirect Chromium follows is not an intercepted request.** The route handler
   fires for the URL a navigation starts at and never for the `Location` it is sent to,

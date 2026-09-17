@@ -104,6 +104,45 @@ async def _seed_unversioned(name, slug, availability=None):
         ))
 
 
+def fake_browser(page, calls=None):
+    """A Playwright browser whose context hands back `page`.
+
+    Rendered fetches run in a context rather than a bare page -- routing has to reach
+    the requests a popup makes, and service workers can only be blocked where the
+    context is created -- so a stub faking only `new_page` no longer resembles what
+    `fetch_page_js` does.
+
+    `calls` records ("context", kwargs), ("route", pattern, handler), ("new_page",),
+    ("on", event, handler) and ("close",) in the order they happen, for tests that
+    care that the guard went on before anything was fetched.
+    """
+    recorded = calls if calls is not None else []
+
+    class FakeContext:
+        async def route(self, pattern, handler):
+            recorded.append(("route", pattern, handler))
+
+        def on(self, event, handler):
+            recorded.append(("on", event, handler))
+
+        async def new_page(self):
+            recorded.append(("new_page",))
+            return page
+
+        async def close(self):
+            recorded.append(("close",))
+
+    class FakeBrowser:
+        async def new_context(self, **kwargs):
+            recorded.append(("context", kwargs))
+            return FakeContext()
+
+    async def _get_browser():
+        return FakeBrowser()
+
+    return _get_browser
+
+
 def _stub_fetch(scraper, pages, attr="fetch_page"):
     """Serve canned pages and record what was asked for."""
     asked = []
