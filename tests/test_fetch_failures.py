@@ -101,10 +101,9 @@ class TimeoutError(Exception):
 
 
 def _browser_with(outcomes, calls):
-    class FakePage:
-        async def route(self, pattern, handler):
-            pass
+    from tests.support import fake_browser
 
+    class FakePage:
         async def goto(self, *args, **kwargs):
             calls.append("goto")
             outcome = outcomes.pop(0)
@@ -120,14 +119,7 @@ def _browser_with(outcomes, calls):
         async def close(self):
             pass
 
-    class FakeBrowser:
-        async def new_page(self):
-            return FakePage()
-
-    async def fake_browser():
-        return FakeBrowser()
-
-    return fake_browser
+    return fake_browser(FakePage())
 
 
 @pytest.mark.asyncio

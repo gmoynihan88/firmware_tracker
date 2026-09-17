@@ -341,13 +341,12 @@ async def test_rendered_requests_are_checked_one_by_one(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_page_js_installs_the_guard_before_navigating(monkeypatch):
     """The guard only protects a page if it is in place before the first request."""
+    from tests.support import fake_browser
+
     scraper = _guard_stub()
     calls = []
 
     class FakePage:
-        async def route(self, pattern, handler):
-            calls.append(("route", pattern, handler))
-
         async def goto(self, *args, **kwargs):
             calls.append(("goto",))
 
@@ -360,18 +359,77 @@ async def test_fetch_page_js_installs_the_guard_before_navigating(monkeypatch):
         async def close(self):
             pass
 
-    class FakeBrowser:
-        async def new_page(self):
-            return FakePage()
-
-    async def fake_browser():
-        return FakeBrowser()
-
-    monkeypatch.setattr(scraper, "_get_browser", fake_browser)
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser(FakePage(), calls))
 
     assert await scraper.fetch_page_js("https://vendor.example/p") == "<p>ok</p>"
-    assert calls[0] == ("route", "**/*", scraper._guard_browser_request)
-    assert calls[1] == ("goto",)
+    steps = [c[0] for c in calls]
+    assert steps.index("route") < steps.index("new_page") < steps.index("goto")
+    assert ("route", "**/*", scraper._guard_browser_request) in calls
+
+
+@pytest.mark.asyncio
+async def test_a_rendered_fetch_blocks_service_workers(monkeypatch):
+    """A worker's own fetches are not routed, so the only defence is not having one.
+
+    Measured: a service worker fetched from inside its install handler and the guard
+    never saw the request.
+    """
+    from tests.support import fake_browser
+
+    scraper = _guard_stub()
+    calls = []
+
+    class FakePage:
+        async def goto(self, *args, **kwargs):
+            return None
+
+        async def wait_for_timeout(self, *args):
+            pass
+
+        async def content(self):
+            return "<p>ok</p>"
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser(FakePage(), calls))
+    await scraper.fetch_page_js("https://vendor.example/p")
+
+    context = next(c for c in calls if c[0] == "context")
+    assert context[1].get("service_workers") == "block"
+
+
+@pytest.mark.asyncio
+async def test_a_rendered_fetch_closes_the_whole_context(monkeypatch):
+    """Closing the page alone would leave every window it opened running.
+
+    Popups are deliberately not closed as they appear -- racing Playwright's
+    asynchronous route attachment let their own fetches escape the guard. What keeps
+    them from outliving the fetch is the context being closed here, so a change back
+    to closing only the page would leak them.
+    """
+    from tests.support import fake_browser
+
+    scraper = _guard_stub()
+    calls = []
+
+    class FakePage:
+        async def goto(self, *args, **kwargs):
+            return None
+
+        async def wait_for_timeout(self, *args):
+            pass
+
+        async def content(self):
+            return "<p>opener</p>"
+
+        async def close(self):
+            calls.append(("page_close",))
+
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser(FakePage(), calls))
+    assert await scraper.fetch_page_js("https://vendor.example/p") == "<p>opener</p>"
+
+    assert ("close",) in calls, "the context was never closed, so popups would survive"
 
 
 class _FakeRequest:
@@ -393,11 +451,9 @@ class _FakeResponse:
 
 def _redirecting_browser(monkeypatch, scraper, chain):
     """A page whose navigation followed `chain` and rendered the last URL in it."""
+    from tests.support import fake_browser
 
     class FakePage:
-        async def route(self, pattern, handler):
-            pass
-
         async def goto(self, *args, **kwargs):
             return _FakeResponse(chain)
 
@@ -410,14 +466,7 @@ def _redirecting_browser(monkeypatch, scraper, chain):
         async def close(self):
             pass
 
-    class FakeBrowser:
-        async def new_page(self):
-            return FakePage()
-
-    async def fake_browser():
-        return FakeBrowser()
-
-    monkeypatch.setattr(scraper, "_get_browser", fake_browser)
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser(FakePage()))
 
 
 def _resolving(monkeypatch, answers):
@@ -573,9 +622,6 @@ class _SizedPage:
         self.evaluates = evaluates
         self.content_calls = 0
 
-    async def route(self, pattern, handler):
-        pass
-
     async def goto(self, *args, **kwargs):
         return None
 
@@ -596,14 +642,9 @@ class _SizedPage:
 
 
 def _sized_browser(monkeypatch, scraper, page):
-    class FakeBrowser:
-        async def new_page(self):
-            return page
+    from tests.support import fake_browser
 
-    async def fake_browser():
-        return FakeBrowser()
-
-    monkeypatch.setattr(scraper, "_get_browser", fake_browser)
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser(page))
     return page
 
 

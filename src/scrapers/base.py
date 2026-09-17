@@ -360,11 +360,30 @@ class BaseScraper(ABC):
         await self._rate_limit()
         try:
             browser = await self._get_browser()
-            page = await browser.new_page()
+            # A context rather than a bare page. Routing installed on a page never sees
+            # what a popup requests, and service workers can only be turned off where
+            # the context is made. Both were measured against this project's Chromium:
+            # a page opened an unguarded window on load -- no click needed -- and a
+            # service worker fetched from inside its own install handler. Four requests
+            # reached a local target that the page-level guard never saw.
+            context = await browser.new_context(service_workers="block")
             try:
                 # Before navigating, so the page itself is checked as well as
-                # everything its scripts go on to request.
-                await page.route("**/*", self._guard_browser_request)
+                # everything its scripts go on to request -- and on the context, so it
+                # covers every page opened in it rather than only the first.
+                await context.route("**/*", self._guard_browser_request)
+                page = await context.new_page()
+
+                # A window the page opens is left open until the context closes below.
+                # Closing each one as it appeared was tried first and is worse:
+                # Playwright attaches a context's routes to a new page asynchronously,
+                # so racing that with close() intermittently let the popup's own
+                # fetches out unintercepted -- the exact hole this is here to shut.
+                # Measured both ways against this project's Chromium: left alone, the
+                # popup's navigation *and* every request its scripts make go through
+                # the guard; closed eagerly, a second popup got far enough to fetch
+                # before it died. context.close() in the finally disposes of them all,
+                # so nothing outlives the fetch either way.
                 # Use domcontentloaded instead of networkidle to avoid
                 # hanging on pages with long-polling or streaming connections.
                 # A navigation timeout is tried once more: TAL's pages were slow for a
@@ -408,7 +427,7 @@ class BaseScraper(ABC):
                     self._cache.set("GET-JS", url, html, variant)
                 return html
             finally:
-                await page.close()
+                await context.close()
         except Exception as e:
             logger.warning("Rendered fetch failed for %s: %s", url, e)
             self._record_fetch_failure(url, type(e).__name__)

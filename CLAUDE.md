@@ -74,7 +74,7 @@ Scrapers live in `src/scrapers/plugins/` and are auto-discovered by `ScraperRegi
 
 `BaseScraper` provides: `fetch_page()` (aiohttp), `fetch_page_js()` (Playwright for JS-rendered pages), `parse_html()` (BeautifulSoup/lxml), rate limiting, session management.
 
-Every fetch passes through `src/scrapers/netguard.py`: requests to non-public addresses (loopback, private ranges, cloud metadata endpoints), redirects into them, rendered-page subrequests to them, and bodies over `max_response_bytes` are all refused. A plugin must not open its own `aiohttp` session or browser context, which would skip those checks.
+Every fetch passes through `src/scrapers/netguard.py`: requests to non-public addresses (loopback, private ranges, cloud metadata endpoints), redirects into them, rendered-page subrequests to them, and bodies over `max_response_bytes` are all refused. Rendered pages are routed at the *context*, which is what reaches a popup's requests; service workers are blocked outright, because nothing routes theirs. A plugin must not open its own `aiohttp` session, browser or context, which would skip those checks.
 
 **Skills:** `.claude/skills/` carries six. Four cover the scrapers and the UI —
 `add-scraper` for writing a new plugin, `debug-scraper` for diagnosing one that returns
