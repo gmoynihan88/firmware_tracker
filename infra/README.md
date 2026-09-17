@@ -128,6 +128,44 @@ for 0.5 vCPU and 1GB is about $0.10 a day.
 
 `alert_email` and `anomaly_monitor_arn` live in `terraform.tfvars`, gitignored.
 
+## Backups, and why there are two kinds
+
+`aws_efs_backup_policy` (efs.tf) turns on EFS **automatic** backups. Those go to the
+AWS-managed vault `aws/efs/automatic-backup-vault`, and a restore drill on 2026-09-17
+established that **nothing in this account can restore from it**:
+
+```
+Effect: Deny   Principal: *
+Action: DeleteBackupVault, DeleteBackupVaultAccessPolicy, DeleteRecoveryPoint,
+        StartCopyJob, StartRestoreJob, UpdateRecoveryPointLifecycle
+```
+
+An explicit Deny to `Principal: *` beats administrator. The recovery point cannot be
+restored, cannot be copied somewhere restorable, and the deny cannot be lifted, because
+deleting the policy is itself denied. It was found by trying: `start-restore-job`
+returned `AccessDeniedException` naming the resource-based policy.
+
+So backup.tf adds the restorable path — our own vault, a daily plan at 05:00 UTC keeping
+35 days, and one role holding **both** the backup and the restore managed policies. A
+role that can only take backups produces a vault full of data and no way to use it,
+which is the same failure wearing a different hat.
+
+To restore, with the names from `terraform output`:
+
+```bash
+VAULT=$(terraform -chdir=infra output -raw backup_vault_name)
+ROLE=$(terraform -chdir=infra output -raw backup_role_arn)
+aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT" \
+  --query 'RecoveryPoints[].{arn:RecoveryPointArn,created:CreationDate,bytes:BackupSizeInBytes}'
+```
+
+Then `aws backup start-restore-job` with `--iam-role-arn "$ROLE"` and metadata setting
+`newFileSystem: "true"` — **never** pass the recovery point's own `file-system-id`
+through unchanged, which restores into the live volume rather than beside it.
+
+**~11MB is the baseline.** A recovery point far below it is a signal, not a saving. And
+a backup nobody has restored is a hypothesis: drill it, or it is not a backup.
+
 ## What is not here yet
 
 In order, each its own change:

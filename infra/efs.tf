@@ -54,6 +54,20 @@ resource "aws_efs_file_system" "data" {
 #
 # AWS Backup's default plan keeps 35 daily recovery points. At this size that is cents a
 # month, against a database that is otherwise unrecoverable.
+#
+# **These recovery points cannot be restored.** Automatic EFS backups go to the
+# AWS-managed vault `aws/efs/automatic-backup-vault`, whose resource policy denies
+# StartRestoreJob and StartCopyJob to `Principal: *` -- an explicit Deny that beats
+# administrator, and that cannot be removed because deleting the policy is denied too. A
+# restore drill on 2026-09-17 established this from the API rather than from the docs;
+# the reasoning above was right that the database needed backups and wrong about what
+# this resource delivers. backup.tf is the restorable path, and the comment there
+# carries the measured policy.
+#
+# Left ENABLED deliberately, for now. It costs cents, it is a second copy of the bytes
+# even if reaching them means an AWS support case, and the conservative order is to
+# prove the new vault restores before switching anything off. Once backup.tf has a
+# recovery point that has actually been restored, this should go to DISABLED.
 resource "aws_efs_backup_policy" "data" {
   file_system_id = aws_efs_file_system.data.id
 

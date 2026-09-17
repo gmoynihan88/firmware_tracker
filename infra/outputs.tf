@@ -43,6 +43,16 @@ output "efs_file_system_id" {
   value       = aws_efs_file_system.data.id
 }
 
+output "backup_vault_name" {
+  description = "Vault holding the restorable recovery points. Restore from THIS, not from aws/efs/automatic-backup-vault, whose policy denies StartRestoreJob to everyone."
+  value       = aws_backup_vault.data.name
+}
+
+output "backup_role_arn" {
+  description = "Pass as --iam-role-arn to `aws backup start-restore-job`. A restore fails without a role AWS Backup can assume, and inventing one mid-incident is the wrong time to discover that."
+  value       = aws_iam_role.backup.arn
+}
+
 output "log_group" {
   description = "CloudWatch log group carrying the task's output."
   value       = aws_cloudwatch_log_group.app.name
