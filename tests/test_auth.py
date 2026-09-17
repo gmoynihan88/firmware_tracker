@@ -160,6 +160,74 @@ async def test_api_key_works_for_programmatic_callers(auth_enabled, client):
 
 
 @pytest.mark.asyncio
+async def test_an_authenticated_response_is_never_cacheable(auth_enabled, client):
+    """Both ways in, because only one of them is covered at the edge.
+
+    The CloudFront policy in front of /catalog keys on the session cookie, so a cookie
+    session already gets its own cache entry. An API key travels in a header the policy
+    does not key on (`header_behavior = "none"`), and such a request carries no cookie
+    at all -- so its cache key matches an anonymous visitor's, and the owner's
+    rendering would be served to strangers for the policy's 300s TTL. Marking the
+    response here covers every cached path and does not depend on the edge being
+    configured correctly.
+    """
+    by_key = await client.get("/", headers={"x-api-key": "test-api-key"})
+    assert by_key.status_code == 200
+    assert by_key.headers["cache-control"] == "private, no-store"
+
+    await client.post("/login", data={"password": "correct horse"})
+    by_cookie = await client.get("/")
+    assert by_cookie.status_code == 200
+    assert by_cookie.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.asyncio
+async def test_an_anonymous_catalogue_response_stays_cacheable(auth_enabled, client):
+    """The public catalogue is what the edge cache exists for.
+
+    One 0.5 vCPU task sits behind a page strangers may all request at once. Marking
+    every response private would defeat that, so the header has to follow whether the
+    request was authenticated rather than whether the path can be.
+    """
+    before = auth_enabled.public_catalog
+    try:
+        auth_enabled.public_catalog = True
+        anonymous = await client.get("/catalog", headers={"accept": "text/html"})
+        assert anonymous.status_code == 200
+        assert "no-store" not in anonymous.headers.get("cache-control", "")
+    finally:
+        auth_enabled.public_catalog = before
+
+
+@pytest.mark.asyncio
+async def test_static_assets_keep_their_long_cache_when_signed_in(auth_enabled, client):
+    """Fingerprinted URLs are safe to cache for a year, signed in or not.
+
+    Overwriting that header for whoever is logged in would make every asset revalidate
+    on every page, which is why the rule skips the public paths rather than applying
+    everywhere an authenticated request lands.
+    """
+    await client.post("/login", data={"password": "correct horse"})
+
+    asset = await client.get("/static/css/dashboard.css")
+    assert asset.status_code == 200
+    assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+@pytest.mark.asyncio
+async def test_cache_headers_are_untouched_when_auth_is_off(client):
+    """With auth disabled every visitor counts as authenticated.
+
+    A rule that read that flag alone would stop a local install caching anything at
+    all, which is the default way this project runs.
+    """
+    response = await client.get("/")
+
+    assert response.status_code == 200
+    assert "no-store" not in response.headers.get("cache-control", "")
+
+
+@pytest.mark.asyncio
 async def test_api_key_is_ignored_when_none_is_configured(auth_enabled, client):
     """An unset API key must not mean "any key works", or "no key works either"."""
     auth_enabled.api_key = ""
