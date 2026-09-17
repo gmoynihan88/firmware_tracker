@@ -372,7 +372,14 @@ async def record_scrape_run(db: AsyncSession, scraper_type: str, started_at,
                 duration_seconds=round(duration, 2),
                 success=bool(summary.get("success")),
                 error=summary.get("error"),
-                devices_total=(summary.get("devices_synced") or {}).get("total", 0),
+                # The population the three absence counts are drawn from. Falls back to
+                # the scraped list only for callers that record a run without having
+                # walked a catalogue -- a dead device list, or a direct call in a test.
+                devices_total=summary.get(
+                    "devices_checked", (summary.get("devices_synced") or {}).get("total", 0)
+                ),
+                # Absent unless the scraper made a claim about its index being complete.
+                devices_discovered=summary.get("devices_discovered"),
                 devices_failed=len(failed),
                 devices_without_firmware=len(summary.get("devices_without_firmware") or []),
                 devices_not_checked=len(summary.get("devices_not_checked") or []),
@@ -570,6 +577,18 @@ async def scrape_manufacturer(
             "success": True,
             "manufacturer": scraper.manufacturer_name,
             "devices_synced": device_sync,
+            # What the firmware loop above actually iterated, which is the catalogue
+            # stored for this vendor rather than the list the index offered. The three
+            # absence lists are built inside that loop, so this is the only number they
+            # can honestly be read against.
+            "devices_checked": len(device_models),
+            # What the index offered, recorded only when the scraper did not say it was
+            # sampling. A batching scraper's list is a fifth or a sixth of its catalogue
+            # by design, and storing that number invites exactly the comparison it would
+            # fail; None says "no claim" rather than asserting a shrunken catalogue.
+            "devices_discovered": (
+                None if device_result.partial else len(device_result.devices)
+            ),
             "new_firmware_versions": total_new_firmware,
             "notifications_created": notifications_created,
             "devices_without_firmware": devices_without_firmware,

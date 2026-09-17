@@ -236,6 +236,10 @@ class SystemProgramMixin:
             )
         return ScraperResult(
             success=True,
+            # Today's batch, not the catalogue: a sixth of Roland and a half of Boss.
+            # Declared so the run records no claim about the index's completeness --
+            # see ScraperResult.partial and the devices_discovered column.
+            partial=not self._full_sweep,
             devices=[
                 ScrapedDevice(
                     name=name,
