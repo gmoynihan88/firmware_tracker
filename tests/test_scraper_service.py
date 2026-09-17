@@ -108,6 +108,94 @@ def test_scrape_budget_scales_with_device_count():
     assert scrape_budget_for(-5) > 0
 
 
+def test_the_budget_leaves_the_backstop_room_to_be_a_backstop():
+    """The loop's own deadline must always fire before the outer cancellation.
+
+    That is the stated design -- "stop the loop on a deadline rather than letting an
+    outer timeout cancel the whole scrape" -- and it was not holding. 30 + 15n passed
+    900 at n >= 59, and seven live vendors were over it: roland 219 devices (3315s),
+    arturia 183, line6 132, korg 87, boss 84, eventide 83, rolandproav 59. For those the
+    deadline was unreachable, so the backstop cancelled the run instead -- and a
+    cancellation wrote no row at all, which /scrape-status reads as the vendor still
+    being fine.
+
+    PER_DEVICE_TIMEOUT is added because the deadline is only tested *between* devices: a
+    device starting just under it can still spend that long inside wait_for, so the loop
+    can overrun its own deadline by exactly that much. pioneerdj at 58 devices landed on
+    exactly 900 before the cap, so this margin is not decoration.
+    """
+    from src.scrapers.service import (
+        PER_DEVICE_TIMEOUT,
+        SCRAPER_HARD_TIMEOUT,
+        scrape_budget_for,
+    )
+
+    for count in (0, 1, 16, 58, 59, 84, 87, 132, 183, 219, 500, 5000):
+        worst_case = scrape_budget_for(count) + PER_DEVICE_TIMEOUT
+        assert worst_case < SCRAPER_HARD_TIMEOUT, f"{count} devices -> {worst_case}s"
+
+
+@pytest.mark.asyncio
+async def test_a_run_cancelled_by_the_backstop_is_still_recorded(monkeypatch):
+    """A cancelled run used to leave no trace, which reads as reassurance.
+
+    wait_for cancels the coroutine, and CancelledError is a BaseException, so the
+    `except Exception` that records a run never sees it. Each device's data was already
+    committed while the run itself wrote nothing -- and /scrape-status reads the newest
+    run per vendor, so the vendor kept displaying its last success indefinitely. A real
+    1945.1s run in the live database proves this path fires rather than merely could.
+
+    The sweep records it instead, from a frame that is not being torn down. Doing it
+    inside the cancelled coroutine would mean database work during teardown, and
+    catching CancelledError to get there would break shutdown.
+    """
+    from sqlalchemy import select
+
+    from src.devices.models import ScrapeRun
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+
+    class _HangsScraper(BaseScraper):
+        manufacturer_name = "Hangs Audio"
+        manufacturer_slug = "hangsaudio"
+        manufacturer_website = "https://hang.example.com"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(
+                success=True,
+                devices=[
+                    ScrapedDevice("Stuck", "guitar_pedal", "https://hang.example.com/a")
+                ],
+            )
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            # Never yields inside the backstop, which is what "genuinely stuck" means.
+            await asyncio.sleep(30)
+            return ScraperResult(success=True, firmware_versions=[])
+
+    monkeypatch.setattr(scraper_service, "SCRAPER_HARD_TIMEOUT", 0.2)
+    # Only this scraper: the sweep otherwise runs all 91.
+    monkeypatch.setattr(
+        ScraperRegistry, "list_available", staticmethod(lambda: ["hangsaudio"])
+    )
+
+    ScraperRegistry.register(_HangsScraper)
+    try:
+        async with test_session_maker() as db:
+            results = await scraper_service.scrape_all_manufacturers(db)
+            run = (await db.execute(select(ScrapeRun))).scalars().one()
+    finally:
+        ScraperRegistry._scrapers.pop("hangsaudio", None)
+
+    assert results[0]["success"] is False
+    assert "backstop" in results[0]["error"]
+    # The row is the whole point: without it the vendor reads as its last success.
+    assert run.scraper_type == "hangsaudio"
+    assert run.success is False
+    assert "backstop" in run.error
+
+
 @pytest.mark.asyncio
 async def test_scrape_reports_partial_results_when_budget_runs_out(monkeypatch):
     """Running out of budget must return what was done, not discard the whole run.
