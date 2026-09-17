@@ -14,6 +14,16 @@ locals {
   parameter_prefix = "/${var.project}/${var.environment}"
 
   # name -> the environment variable the container reads it as.
+  #
+  # **Adding API_KEY here is not the free configuration change it looks like.**
+  # `is_authenticated` accepts an `x-api-key` header as an alternative to the session
+  # cookie, while the CloudFront policy in front of /catalog keys on that cookie and
+  # sets `header_behavior = "none"`. A request authenticated by the header carries no
+  # cookie, so its cache key matches an anonymous visitor's, and the owner's rendering
+  # -- tracked markers and all -- would be served to strangers for the policy's 300s
+  # TTL. `src/auth/middleware.py` marks every authenticated response
+  # `private, no-store`, which is what closes it; check that is still true before
+  # wiring an API key into the task.
   secrets = {
     secret_key         = "SECRET_KEY"
     auth_password_hash = "AUTH_PASSWORD_HASH"

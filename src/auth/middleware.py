@@ -93,8 +93,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
         authenticated = (not enabled) or is_authenticated(request, settings)
         request.state.authenticated = authenticated
 
-        if not enabled or authenticated or is_public(request.url.path):
-            return await call_next(request)
+        public = is_public(request.url.path)
+        if not enabled or authenticated or public:
+            response = await call_next(request)
+            # An authenticated response describes the owner -- tracked markers, the
+            # dashboard link, the notification badge -- and must never be handed to the
+            # next visitor. The CloudFront policy in front of /catalog keys on the
+            # session cookie and sets header_behavior = "none", so it covers a cookie
+            # session and nothing else: a request authenticated by the x-api-key header
+            # carries no cookie, which makes its cache key identical to an anonymous
+            # visitor's. Saying it here covers every cached path rather than one, and
+            # does not depend on the edge being configured correctly.
+            #
+            # Scoped on purpose. Not when auth is off, where everyone counts as
+            # authenticated and a local install would lose all caching. Not on the
+            # public paths either, because /static/ carries the immutable year-long
+            # header main.py sets on fingerprinted URLs, and overwriting it would make
+            # every asset revalidate for whoever is logged in.
+            if enabled and authenticated and not public:
+                response.headers["Cache-Control"] = "private, no-store"
+            return response
 
         if settings.public_catalog and is_public_read(request.method, request.url.path):
             return await call_next(request)
