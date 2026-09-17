@@ -309,13 +309,47 @@ SCRAPE_BUDGET_PER_DEVICE = 15  # seconds per device in the firmware loop
 # inside the loop is what normally stops work; this only fires if that fails to.
 SCRAPER_HARD_TIMEOUT = 900
 
+# Ceiling on one firmware fetch. Named because the budget cap below is derived from it
+# rather than guessed: the loop tests its deadline only *between* devices, so a device
+# that starts just under the deadline can still spend this long inside wait_for.
+PER_DEVICE_TIMEOUT = 30
+
+# The budget must stay far enough under the backstop that the loop's own deadline always
+# fires first. That is the whole design -- "stop the loop on a deadline rather than
+# letting an outer timeout cancel the whole scrape" -- and it was not holding.
+#
+# scrape_budget_for was uncapped, so 30 + 15n passed 900 at n >= 59 and seven live
+# vendors were over it: roland 219 devices (3315s), arturia 183, line6 132, korg 87,
+# boss 84, eventide 83, rolandproav 59. For those the internal deadline could never be
+# reached, so the outer backstop cancelled the run -- and a cancellation raises
+# CancelledError, which is a BaseException, so the `except Exception` that records the
+# run never saw it. The per-device commits were already durable while the run itself
+# left no row at all, which is the shape /scrape-status reads as "still fine". A real
+# 1945.1s run in the database proves this fired rather than merely could.
+#
+# Two subtractions, both load-bearing. PER_DEVICE_TIMEOUT covers the overrun described
+# above. SCRAPE_BUDGET_BASE covers the device-list fetch, which happens *before* the
+# deadline is set and has no timeout of its own -- the backstop is the only thing
+# bounding it. pioneerdj at 58 devices landed on exactly 900 before this, so the
+# headroom is not theoretical tidiness.
+SCRAPE_BUDGET_CAP = SCRAPER_HARD_TIMEOUT - PER_DEVICE_TIMEOUT - SCRAPE_BUDGET_BASE
+
 # Kept for callers that still reference it.
 SCRAPER_TIMEOUT = 120  # seconds per manufacturer (legacy fixed budget)
 
 
 def scrape_budget_for(device_count: int) -> float:
-    """Seconds allowed for one manufacturer, given how many devices it has."""
-    return SCRAPE_BUDGET_BASE + SCRAPE_BUDGET_PER_DEVICE * max(device_count, 0)
+    """Seconds allowed for one manufacturer, given how many devices it has.
+
+    Capped so the backstop stays a backstop. A vendor past the cap does not fail: it
+    stops cleanly at the deadline and the devices it did not reach land in
+    devices_not_checked, which is recorded and shown. That is a worse scrape than an
+    uncapped one and a far better record than a cancelled run that reported nothing.
+    """
+    return min(
+        SCRAPE_BUDGET_BASE + SCRAPE_BUDGET_PER_DEVICE * max(device_count, 0),
+        SCRAPE_BUDGET_CAP,
+    )
 
 
 async def record_scrape_run(db: AsyncSession, scraper_type: str, started_at,
@@ -446,7 +480,7 @@ async def scrape_manufacturer(
                         scraper.fetch_firmware_versions(
                             model.name, model.firmware_page_url
                         ),
-                        timeout=30,
+                        timeout=PER_DEVICE_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
                     logger.warning("Timeout fetching firmware for %s, skipping", model.name)
@@ -569,6 +603,8 @@ async def scrape_all_manufacturers(db: AsyncSession) -> List[dict]:
     """Run scrape for all registered manufacturers."""
     results = []
     for scraper_type in ScraperRegistry.list_available():
+        started_at = datetime.utcnow()
+        started = time.monotonic()
         try:
             # scrape_manufacturer stops itself on its own budget and returns partial
             # results; this only catches a scraper stuck somewhere that never yields.
@@ -582,5 +618,24 @@ async def scrape_all_manufacturers(db: AsyncSession) -> List[dict]:
                 "error": f"Hung past the {SCRAPER_HARD_TIMEOUT}s backstop",
                 "manufacturer": scraper_type,
             }
+            # Recorded here rather than inside scrape_manufacturer, because there is
+            # nowhere inside it that can. wait_for cancels the coroutine, and the
+            # resulting CancelledError is a BaseException that the `except Exception`
+            # around record_scrape_run does not catch -- deliberately, since swallowing
+            # a cancellation breaks shutdown. Catching it there to write a row would
+            # mean doing database work inside a task that is being torn down.
+            #
+            # From out here the session is clean: measured after a real cancellation,
+            # a plain record_scrape_run on this session committed with no rollback
+            # needed, so none is done. The row carries no manufacturer_id, which is the
+            # honest limit of what this frame knows; /scrape-status keys on
+            # scraper_type, so the vendor still turns up flagged.
+            #
+            # With the budget now capped under the backstop this should be unreachable
+            # for a merely slow vendor. It stays because "should be unreachable" is
+            # exactly what was believed about it before.
+            await record_scrape_run(
+                db, scraper_type, started_at, time.monotonic() - started, result
+            )
         results.append(result)
     return results
