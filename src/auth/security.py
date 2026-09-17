@@ -79,8 +79,24 @@ def read_token(token: str, secret: str) -> Optional[dict]:
     except Exception:
         return None
 
-    # Compare in constant time, and verify before parsing anything from the payload.
-    if not hmac.compare_digest(_sign(payload, secret), signature):
+    # Compare in constant time, as bytes, and verify before parsing anything from the
+    # payload.
+    #
+    # Bytes rather than str because compare_digest refuses str values containing
+    # non-ASCII -- it raises TypeError rather than returning False. `signature` is a
+    # slice of whatever arrived in the cookie header; a browser puts raw bytes on the
+    # wire and Starlette decodes them to a str that can hold non-ASCII, so a corrupted
+    # cookie reached this line and raised. is_authenticated runs for every request,
+    # before AuthMiddleware's public-path check, so that one cookie answered 500 on
+    # every route -- /login and /logout included, leaving the browser holding it no way
+    # back in short of clearing the cookie by hand.
+    #
+    # Encoding both sides fixes the cause rather than catching the symptom: the
+    # comparison is on bytes for every input, which is what verify_password has always
+    # done -- scrypt hands it bytes -- and why the same rule never bit that one.
+    if not hmac.compare_digest(
+        _sign(payload, secret).encode("utf-8"), signature.encode("utf-8")
+    ):
         return None
 
     try:
