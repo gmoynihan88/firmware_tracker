@@ -182,7 +182,23 @@ class ScrapeRun(Base):
     success = Column(Boolean, nullable=False, default=False)
     error = Column(Text)
 
+    # The devices this run actually worked through -- the stored catalogue for the
+    # vendor, which is the population the three counts below are drawn from. It used
+    # to be the length of the scraped device list instead, which is a different set:
+    # roland recorded total=35 beside not_checked=184 on 2026-09-15, because 35 was
+    # that day's batch and 184 was counted over the 219 models in the database. One
+    # row, two denominators, and the absences could exceed the total they sat beside.
     devices_total = Column(Integer, default=0)
+
+    # How many devices the scraper's index offered this run. NULL means no claim was
+    # made -- either the run predates this column, or the scraper declared its list
+    # partial (see ScraperResult.partial) because it samples its catalogue by design.
+    # NULL is not zero: zero is an index that returned nothing, which is a failure.
+    # Below devices_total, it means the vendor's index stopped listing products we
+    # already hold, which is invisible anywhere else: sync_devices only ever creates
+    # and updates, so a catalogue that halves leaves every stored row untouched.
+    devices_discovered = Column(Integer, nullable=True)
+
     devices_failed = Column(Integer, default=0)
     devices_without_firmware = Column(Integer, default=0)
     devices_not_checked = Column(Integer, default=0)

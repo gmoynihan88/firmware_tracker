@@ -666,3 +666,140 @@ async def test_scrape_routes_not_checked_away_from_unexplained():
     assert summary["devices_without_firmware"] == ["Checked"]
     assert summary["devices_unexplained"] == ["Checked"]
     assert "Skipped" not in summary["devices_unexplained"]
+
+
+@pytest.mark.asyncio
+async def test_a_shrinking_device_list_is_recorded_against_the_stored_catalogue():
+    """The two numbers on a run row must describe the same population.
+
+    `devices_total` used to be the length of the scraped device list while the three
+    absence counts beside it were taken over the vendor's stored models. Roland
+    recorded total=35 next to not_checked=184 on 2026-09-15 -- 35 was that day's batch,
+    184 was counted over the 219 rows in the database -- so the absences exceeded the
+    total they sat beside and neither number meant what the column said.
+
+    The second run here is the regression that was invisible: the index drops from three
+    products to one, and because sync_devices only ever creates and updates, all three
+    rows stay and the firmware loop walks all three. Before this change the run recorded
+    devices_total=1 and looked like a small vendor having a clean day.
+    """
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+
+    class _ShrinkingIndex(BaseScraper):
+        manufacturer_name = "Shrinking Audio"
+        manufacturer_slug = "shrinkaudio"
+        manufacturer_website = "https://shrink.example.com"
+
+        names = ["Alpha", "Beta", "Gamma"]
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(
+                success=True,
+                devices=[
+                    ScrapedDevice(n, "guitar_pedal", f"https://shrink.example.com/{n}")
+                    for n in type(self).names
+                ],
+            )
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[ScrapedFirmware("1.0")])
+
+    ScraperRegistry.register(_ShrinkingIndex)
+    try:
+        async with test_session_maker() as db:
+            await scraper_service.scrape_manufacturer(db, "shrinkaudio")
+
+        # The vendor's index stops listing two of the three.
+        _ShrinkingIndex.names = ["Alpha"]
+
+        async with test_session_maker() as db:
+            await scraper_service.scrape_manufacturer(db, "shrinkaudio")
+            runs = (
+                await db.execute(
+                    select(ScrapeRun)
+                    .where(ScrapeRun.scraper_type == "shrinkaudio")
+                    .order_by(ScrapeRun.id)
+                )
+            ).scalars().all()
+    finally:
+        _ShrinkingIndex.names = ["Alpha", "Beta", "Gamma"]
+        ScraperRegistry._scrapers.pop("shrinkaudio", None)
+
+    first, second = runs
+    assert (first.devices_total, first.devices_discovered) == (3, 3)
+
+    # The catalogue still holds three, and the run walked three. What changed is the
+    # index, and that is the number that has to move -- not the total.
+    assert second.devices_total == 3, "the total stopped describing the stored catalogue"
+    assert second.devices_discovered == 1, "the shrunken index was not recorded"
+
+
+@pytest.mark.asyncio
+async def test_a_scraper_that_samples_its_catalogue_records_no_index_claim():
+    """A batching scraper's short list is its normal run, not a vanished catalogue.
+
+    Korg checks a fifth of its products a day and Roland a sixth, so comparing their
+    index against the stored catalogue would flag them every day except the full sweep.
+    They declare the list partial and the run records NULL -- "no claim" rather than a
+    number that would fail a comparison it was never meant to enter.
+    """
+    from src.scrapers.base import BaseScraper, ScrapedDevice, ScrapedFirmware, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+
+    class _Batching(BaseScraper):
+        manufacturer_name = "Batching Audio"
+        manufacturer_slug = "batchaudio"
+        manufacturer_website = "https://batch.example.com"
+
+        names = ["Alpha", "Beta", "Gamma"]
+        partial = False
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(
+                success=True,
+                partial=type(self).partial,
+                devices=[
+                    ScrapedDevice(n, "guitar_pedal", f"https://batch.example.com/{n}")
+                    for n in type(self).names
+                ],
+            )
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[ScrapedFirmware("1.0")])
+
+    ScraperRegistry.register(_Batching)
+    try:
+        async with test_session_maker() as db:
+            await scraper_service.scrape_manufacturer(db, "batchaudio")
+
+        # Today's batch: one of the three, declared as a sample.
+        _Batching.names = ["Alpha"]
+        _Batching.partial = True
+
+        async with test_session_maker() as db:
+            await scraper_service.scrape_manufacturer(db, "batchaudio")
+            runs = (
+                await db.execute(
+                    select(ScrapeRun)
+                    .where(ScrapeRun.scraper_type == "batchaudio")
+                    .order_by(ScrapeRun.id)
+                )
+            ).scalars().all()
+    finally:
+        _Batching.names = ["Alpha", "Beta", "Gamma"]
+        _Batching.partial = False
+        ScraperRegistry._scrapers.pop("batchaudio", None)
+
+    second = runs[1]
+    assert second.devices_total == 3, "the stored catalogue is still what was walked"
+    assert second.devices_discovered is None, (
+        "a deliberately sampled list recorded an index size, which would read as a "
+        "shrunken catalogue on every batched run"
+    )

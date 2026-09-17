@@ -59,6 +59,15 @@ class ScraperResult:
     # where checking all 164 products in one run exceeds the hard timeout.
     not_checked: bool = False
 
+    # Device-list results only: this list is deliberately a subset of the vendor's
+    # catalogue, so its length must not be compared against what is already stored.
+    # The same batching scrapers that set `not_checked` per device set this on the
+    # list, and for the same reason -- korg returns a fifth of its products a day and
+    # roland a sixth, so "fewer devices than we hold" is their normal run rather than
+    # a regression. Everything else leaves it False, which is what lets a device list
+    # that quietly shrank be told apart from one that was sampled on purpose.
+    partial: bool = False
+
 
 logger = logging.getLogger(__name__)
 

@@ -305,6 +305,10 @@ class KorgScraper(BaseScraper):
     def _device_result(self) -> ScraperResult:
         return ScraperResult(
             success=True,
+            # A fifth of the catalogue on a normal run, everything on a full sweep.
+            # Without this the run would record "the index offered 19 of the 87 we
+            # hold" as a vanished catalogue, every day except the sweep.
+            partial=not self._full_sweep,
             devices=[
                 ScrapedDevice(
                     name=name,

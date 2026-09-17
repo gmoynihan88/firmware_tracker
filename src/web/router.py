@@ -639,6 +639,19 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
     A total over the three would move when any of them moved and mean nothing when it
     did.
 
+    **The devices column is the catalogue the run walked, and the index size sits
+    against it.** Those are two different populations and were once the same column:
+    `devices_total` held the length of the scraped device list while the three counts
+    above were taken over the vendor's stored models, so roland recorded total=35
+    beside not_checked=184 -- 35 being that day's batch, 184 counted over the 219 rows
+    in the database. The total now describes the population the absences are drawn
+    from, and `devices_discovered` carries what the vendor's index offered. Below the
+    total, that is a catalogue the vendor stopped listing, which nothing else here can
+    show: a scrape only ever creates and updates devices, so the stored rows survive a
+    vanished index and the run reports a clean pass over them. NULL means no claim was
+    made -- a run older than the column, or a scraper that samples its catalogue by
+    design -- and never flags.
+
     **Driven off `manufacturers`, not `scrape_runs`.** A vendor that stopped running
     altogether has no recent row, so iterating runs would omit it in silence -- the one
     failure mode most worth catching. Iterating vendors renders it as "never". It also
@@ -661,6 +674,7 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
             ScrapeRun.error,
             ScrapeRun.duration_seconds,
             ScrapeRun.devices_total,
+            ScrapeRun.devices_discovered,
             ScrapeRun.devices_failed,
             ScrapeRun.devices_without_firmware,
             ScrapeRun.devices_not_checked,
@@ -734,6 +748,25 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
         # three of 93 vendors carry a non-zero count on their latest run.
         failed_devices = (run.devices_failed or 0) if run else 0
 
+        # The vendor's index offering fewer products than the catalogue already holds.
+        # This is the one regression nothing else on this page can show: sync_devices
+        # creates and updates but never removes, so a vendor whose index halved leaves
+        # every stored row in place and the run reports a clean pass over them. Roland
+        # went 219 devices to 35 on 2026-09-15 with success = 1 and nothing flagged.
+        #
+        # Only when the scraper made a claim. A batching scraper declares its list
+        # partial and records NULL here, so korg's fifth and roland's sixth never reach
+        # this test, and every run predating the column is NULL too -- history cannot
+        # retroactively flag. Compared against devices_total, which is now the same
+        # population the absence counts use, so the two sides are the same kind of thing.
+        discovered = run.devices_discovered if run else None
+        shrank = (
+            run is not None
+            and bool(run.success)
+            and discovered is not None
+            and (run.devices_total or 0) > discovered
+        )
+
         vendors.append(
             {
                 "slug": slug,
@@ -748,8 +781,11 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
                 "stale": stale,
                 "identical_page_groups": identical,
                 "failed_devices": failed_devices,
+                "devices_discovered": discovered,
+                "shrank": shrank,
                 "needs_attention": (
                     failing or never or stale or identical > 0 or failed_devices > 0
+                    or shrank
                 ),
             }
         )
@@ -770,6 +806,7 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
             "never": sum(1 for v in vendors if v["never"]),
             "stale": sum(1 for v in vendors if v["stale"]),
             "identical": sum(1 for v in vendors if v["identical_page_groups"] > 0),
+            "shrank": sum(1 for v in vendors if v["shrank"]),
             "stale_after_hours": settings.scrape_interval_hours * 2,
             # base.html's nav reads this, and Jinja raises on `undefined > 0` rather
             # than treating it as falsy -- so omitting it 500s the page.

@@ -18,6 +18,18 @@
    returns the same page for every device, reports success, and looks exactly like a
    vendor that publishes nothing. It is the failure this project keeps rediscovering,
    and it has never had a display until now. #}
+{# The counterpart alarm: a vendor's index listing fewer products than we already hold.
+   A scrape never removes a device, so the catalogue keeps its rows and the run reports
+   a clean pass over them -- the shrinkage shows up nowhere else at all. #}
+{% if shrank %}
+<div class="status-alarm" role="alert">
+    <strong>{{ shrank }} vendor{% if shrank != 1 %}s' indexes{% else %}'s index{% endif %} listed fewer products than are stored.</strong>
+    A scrape only ever creates and updates devices, so products the vendor stopped
+    listing keep their rows and the run still reads as a clean pass. Worth checking
+    whether the index moved before trusting those rows.
+</div>
+{% endif %}
+
 {% if identical %}
 <div class="status-alarm" role="alert">
     <strong>{{ identical }} vendor{% if identical != 1 %}s{% endif %} returned identical pages for different devices.</strong>
@@ -76,7 +88,18 @@
                     {% endif %}
                 </td>
 
-                <td class="num">{{ v.run.devices_total if v.run else '—' }}</td>
+                {# The total is the stored catalogue this run worked through, which is
+                   the population the three counts beside it are drawn from. When the
+                   vendor's index offered fewer than that, the smaller number is shown
+                   against it rather than replacing it: the gap is the finding. #}
+                <td class="num">
+                    {% if v.run %}
+                        {{ v.run.devices_total }}
+                        {% if v.shrank %}
+                        <span class="count-bad" title="The vendor's index listed {{ v.devices_discovered }} products, fewer than the {{ v.run.devices_total }} already stored. Devices are never removed by a scrape, so the stored rows stay and the run reads clean.">{{ v.devices_discovered }} listed</span>
+                        {% endif %}
+                    {% else %}—{% endif %}
+                </td>
 
                 {# Three columns, never a sum. A failure is a broken scraper; "no
                    firmware" is the vendor publishing none, which is correct and often

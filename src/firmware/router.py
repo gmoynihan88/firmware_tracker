@@ -80,6 +80,9 @@ async def list_scrape_runs(
             "success": run.success,
             "error": run.error,
             "devices_total": run.devices_total,
+            # None where the scraper made no claim: a partial list by design, or a run
+            # older than the column. Not zero, which would mean an empty index.
+            "devices_discovered": run.devices_discovered,
             "devices_failed": run.devices_failed,
             "devices_without_firmware": run.devices_without_firmware,
             "devices_not_checked": run.devices_not_checked,

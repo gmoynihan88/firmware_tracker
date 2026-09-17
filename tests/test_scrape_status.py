@@ -398,3 +398,73 @@ async def test_the_navigation_links_it_only_for_the_owner(public_catalog, client
     await client.post("/login", data={"password": "correct horse"})
     owner = (await client.get("/catalog", headers={"accept": "text/html"})).text
     assert 'href="/scrape-status"' in owner
+
+
+@pytest.mark.asyncio
+async def test_an_index_listing_fewer_products_than_are_stored_is_flagged(client):
+    """The regression no other column on this page can show.
+
+    A scrape only ever creates and updates devices, so a vendor whose index stops
+    listing products keeps every stored row and the run reports a clean pass over them.
+    Roland went 219 devices to 35 on 2026-09-15 with success = 1 and nothing flagged.
+    """
+    await _vendor("shrinkv", "Shrinking Vendor")
+    await _run("shrinkv", success=True, devices_total=40, devices_discovered=12)
+
+    page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+    row = _row(page, "shrinkv")
+
+    assert row, "the vendor did not render"
+    assert "needs-attention" in row, "a vendor whose index halved read as healthy"
+    assert "12 listed" in row, "the index size was not shown against the total"
+    assert _nums(row)[0].startswith("40"), "the total stopped being the stored catalogue"
+    assert "status-alarm" in page
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_made_no_claim_about_its_index_is_not_flagged(client):
+    """The control, and the reason the column is nullable.
+
+    Every run recorded before this column existed has NULL here, as does every batched
+    run -- korg's fifth, roland's sixth. If NULL were read as zero, this page would
+    light up for all 774 historical rows and for three vendors on every normal day,
+    which is the crying-wolf failure that makes an alarm worth ignoring.
+    """
+    await _vendor("noclaimv", "No Claim Vendor")
+    await _run("noclaimv", success=True, devices_total=40)
+
+    page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+    row = _row(page, "noclaimv")
+
+    assert row, "the vendor did not render"
+    assert "needs-attention" not in row, "a run making no claim about its index was flagged"
+    assert "listed" not in row
+    assert "status-alarm" not in page
+
+
+@pytest.mark.asyncio
+async def test_an_index_matching_the_stored_catalogue_is_not_flagged(client):
+    """The other half of the control: a claim was made, and it was fine."""
+    await _vendor("matchv", "Matching Vendor")
+    await _run("matchv", success=True, devices_total=40, devices_discovered=40)
+
+    row = _row(
+        (await client.get("/scrape-status", headers={"accept": "text/html"})).text,
+        "matchv",
+    )
+
+    assert "needs-attention" not in row
+    assert "listed" not in row
+
+
+@pytest.mark.asyncio
+async def test_a_vendor_whose_index_shrank_sorts_above_a_clean_one(client):
+    """The flag has to reach the ordering, like every other one on this page."""
+    await _vendor("aaa-fine", "AAA Fine")
+    await _run("aaa-fine", success=True, devices_total=5, devices_discovered=5)
+    await _vendor("zzz-shrunk", "ZZZ Shrunk")
+    await _run("zzz-shrunk", success=True, devices_total=50, devices_discovered=4)
+
+    page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+
+    assert page.index("zzz-shrunk") < page.index("aaa-fine")
