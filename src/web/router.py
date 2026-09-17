@@ -717,6 +717,23 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
         stale = succeeded_at is not None and (now - succeeded_at) > stale_after
         identical = (run.identical_page_groups or 0) if run else 0
 
+        # A run can succeed while every device in it failed, and the first version of
+        # this page showed that as healthy -- which is the exact false confidence it was
+        # built to remove. `run.success` describes whether the scrape itself completed;
+        # it says nothing about what the scrape got. Six vendors in this database have a
+        # recorded run with devices_failed == devices_total and success = 1, and all six
+        # sorted in among the healthy rows. scrape_manufacturer also stamps
+        # manufacturers.last_scraped_at unconditionally after the device loop, despite
+        # its "on success" comment, so the last-success column refreshes for them too and
+        # the staleness flag never fires either.
+        #
+        # Any non-zero count, not only an all-failed run: by this project's own
+        # definition devices_failed means the fetch or parse broke, which is a scraper
+        # problem at one device or forty. The worry with "any" is crying wolf, and the
+        # data says it does not -- partial failures are 10 of 774 recorded runs, and
+        # three of 93 vendors carry a non-zero count on their latest run.
+        failed_devices = (run.devices_failed or 0) if run else 0
+
         vendors.append(
             {
                 "slug": slug,
@@ -730,7 +747,10 @@ async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
                 "never": never,
                 "stale": stale,
                 "identical_page_groups": identical,
-                "needs_attention": failing or never or stale or identical > 0,
+                "failed_devices": failed_devices,
+                "needs_attention": (
+                    failing or never or stale or identical > 0 or failed_devices > 0
+                ),
             }
         )
 

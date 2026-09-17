@@ -167,6 +167,64 @@ async def test_a_clean_run_raises_no_alarm(client):
 
 
 @pytest.mark.asyncio
+async def test_a_run_that_succeeded_while_every_device_failed_is_flagged(client):
+    """`success` describes the scrape completing, not the scrape working.
+
+    Six vendors in the live database have exactly this shape -- devices_failed equal to
+    devices_total with success = 1 -- and the first version of this page sorted all six
+    in with the healthy rows, because needs_attention only consulted run.success. A page
+    built to surface broken scrapers showing six broken scrapers as fine is worse than
+    no page: it manufactures the confidence it exists to withhold.
+
+    The staleness flag does not cover this either. scrape_manufacturer stamps
+    last_scraped_at unconditionally after the device loop, so a vendor failing this way
+    refreshes its own last-success date on every run.
+    """
+    await _vendor("allfailv", "All Failed Vendor")
+    await _run("allfailv", success=True, devices_total=12, devices_failed=12)
+
+    page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+    row = _row(page, "allfailv")
+
+    assert row, "the vendor did not render"
+    assert "needs-attention" in row, "a run where every device failed read as healthy"
+    assert _nums(row)[1] == "12"
+
+
+@pytest.mark.asyncio
+async def test_one_failed_device_is_enough_to_flag(client):
+    """Any non-zero count, not only an all-failed run.
+
+    devices_failed means the fetch or parse broke, which is a scraper problem at one
+    device or at forty. The cost of "any" would be crying wolf, and the data says it
+    does not: partial failures are 10 of 774 recorded runs.
+    """
+    await _vendor("partialv", "Partial Vendor")
+    await _run("partialv", success=True, devices_total=40, devices_failed=1)
+
+    row = _row(
+        (await client.get("/scrape-status", headers={"accept": "text/html"})).text,
+        "partialv",
+    )
+
+    assert "needs-attention" in row
+    assert _nums(row)[1] == "1"
+
+
+@pytest.mark.asyncio
+async def test_a_vendor_with_failures_sorts_above_a_clean_one(client):
+    """The flag has to reach the ordering, not just the row's styling."""
+    await _vendor("aaa-clean", "AAA Clean")
+    await _run("aaa-clean", success=True, devices_total=5, devices_failed=0)
+    await _vendor("zzz-failed", "ZZZ Failed")
+    await _run("zzz-failed", success=True, devices_total=5, devices_failed=5)
+
+    page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+
+    assert page.index("zzz-failed") < page.index("aaa-clean")
+
+
+@pytest.mark.asyncio
 async def test_a_failing_vendor_shows_its_last_success_and_its_failure(client):
     """Why there are two time columns rather than one.
 
