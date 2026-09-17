@@ -173,6 +173,53 @@ async def test_an_unknown_scraper_still_produces_a_run():
 
 
 @pytest.mark.asyncio
+async def test_a_dead_device_list_still_produces_a_run():
+    """The most total failure was the one that left no trace.
+
+    A vendor whose product index starts 500ing never reaches the firmware loop, so the
+    scrape returned early and wrote nothing. That reads as reassuring and is the
+    opposite: /scrape-status shows the newest run per vendor, and a run that was never
+    written cannot be the newest, so the vendor kept displaying its last successful run
+    indefinitely.
+
+    devices_total is 0 here rather than absent, which is the honest number -- no device
+    list means nothing was checked, as distinct from a run that checked devices and
+    found nothing.
+    """
+    from sqlalchemy import select
+    from src.devices.models import ScrapeRun
+    from src.scrapers.base import BaseScraper, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as ss
+
+    class _DeadIndex(BaseScraper):
+        manufacturer_name = "Dead Index Audio"
+        manufacturer_slug = "deadindex"
+        manufacturer_website = "https://dead.example"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(success=False, error="index page returned 500")
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[])
+
+    ScraperRegistry.register(_DeadIndex)
+    try:
+        async with test_session_maker() as db:
+            result = await ss.scrape_manufacturer(db, "deadindex")
+            run = (await db.execute(select(ScrapeRun))).scalars().one()
+    finally:
+        ScraperRegistry._scrapers.pop("deadindex", None)
+
+    assert result["success"] is False
+    assert run.success is False
+    assert "500" in run.error
+    assert run.devices_total == 0
+    # Attributed to the vendor, which ensure_manufacturer created before the failure.
+    assert run.manufacturer_id is not None
+
+
+@pytest.mark.asyncio
 async def test_recording_a_run_never_breaks_the_scrape(monkeypatch):
     """The row is diagnostic; losing it must not lose the result it describes."""
     from src.scrapers import service as ss
