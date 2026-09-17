@@ -402,7 +402,7 @@ class BaseScraper(ABC):
                     await page.wait_for_selector(wait_for_selector, timeout=wait_for_timeout)
                 else:
                     await page.wait_for_timeout(1000)
-                html = await page.content()
+                html = await self._content_within_cap(page, url)
                 self._fingerprint(url, html)
                 if self._cache and html:
                     self._cache.set("GET-JS", url, html, variant)
@@ -413,6 +413,46 @@ class BaseScraper(ABC):
             logger.warning("Rendered fetch failed for %s: %s", url, e)
             self._record_fetch_failure(url, type(e).__name__)
             return None
+
+    async def _content_within_cap(self, page, url: str) -> str:
+        """The rendered DOM, refused if it is over `max_response_bytes`.
+
+        The aiohttp paths cap a body while it streams, so an oversized page is dropped
+        before it is ever held whole -- see `netguard.read_text_capped`, and the note
+        there that a small gzip can expand to gigabytes. A rendered page has no stream
+        to watch: by the time `page.content()` returns, a string the size of the
+        document already exists in this process, which is the memory the cap is for.
+        So the length is asked for inside the browser first, and the serialisation is
+        only pulled across when it fits.
+
+        That first measurement is best-effort. `evaluate` can fail on a page whose
+        context has gone, and it is deliberately allowed to: the byte check below is
+        what actually guarantees the cap. It counts UTF-8 bytes because that is what
+        the aiohttp path counts, and because `.length` in the browser counts UTF-16
+        code units -- a page of CJK text measures about a third of its real size
+        there, and would otherwise pass a check it should fail.
+
+        Raises `netguard.ResponseTooLarge`, which `fetch_page_js` already turns into a
+        recorded fetch failure, so an oversized rendered page reports the same reason
+        as an oversized fetched one.
+        """
+        limit = self.settings.max_response_bytes
+        try:
+            measured = await page.evaluate("document.documentElement.outerHTML.length")
+        except Exception:
+            measured = None
+        if isinstance(measured, (int, float)) and measured > limit:
+            raise netguard.ResponseTooLarge(
+                f"{url} renders {int(measured)} characters, over the {limit}-byte cap"
+            )
+
+        html = await page.content()
+        size = len(html.encode("utf-8", "replace"))
+        if size > limit:
+            raise netguard.ResponseTooLarge(
+                f"{url} rendered {size} bytes, over the {limit}-byte cap"
+            )
+        return html
 
     async def _guard_browser_request(self, route) -> None:
         """Let a rendered page load only what lives on the public internet.

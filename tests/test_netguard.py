@@ -558,3 +558,113 @@ async def test_real_chromium_blocks_private_pages_and_subrequests(monkeypatch, c
             assert "Blocked rendered request to a non-public address: http://169.254.170.2/x.png" in caplog.text
     finally:
         await scraper.close()
+
+
+class _SizedPage:
+    """A rendered page of a chosen size, recording whether it was ever serialised.
+
+    `measured` is what the browser reports for the DOM length, and defaults to the
+    real length: a test sets it only when the two are meant to disagree.
+    """
+
+    def __init__(self, html, measured=None, evaluates=True):
+        self.html = html
+        self.measured = len(html) if measured is None else measured
+        self.evaluates = evaluates
+        self.content_calls = 0
+
+    async def route(self, pattern, handler):
+        pass
+
+    async def goto(self, *args, **kwargs):
+        return None
+
+    async def wait_for_timeout(self, *args):
+        pass
+
+    async def evaluate(self, expression):
+        if not self.evaluates:
+            raise RuntimeError("execution context was destroyed")
+        return self.measured
+
+    async def content(self):
+        self.content_calls += 1
+        return self.html
+
+    async def close(self):
+        pass
+
+
+def _sized_browser(monkeypatch, scraper, page):
+    class FakeBrowser:
+        async def new_page(self):
+            return page
+
+    async def fake_browser():
+        return FakeBrowser()
+
+    monkeypatch.setattr(scraper, "_get_browser", fake_browser)
+    return page
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_rendered_page_is_never_pulled_into_the_process(
+    monkeypatch, caplog
+):
+    """The cap exists for the memory, so the page must not be serialised at all.
+
+    Checking the size after `page.content()` would be checking a string that has
+    already been allocated, which is the thing being defended against.
+    """
+    scraper = _guard_stub(max_response_bytes=2000)
+    page = _sized_browser(monkeypatch, scraper, _SizedPage("<p>x</p>", measured=9999))
+
+    with caplog.at_level("WARNING"):
+        assert await scraper.fetch_page_js("https://vendor.example/huge") is None
+
+    assert page.content_calls == 0, "the oversized page was serialised anyway"
+    assert "over the 2000-byte cap" in caplog.text
+    assert any("ResponseTooLarge" in failure for failure in scraper.fetch_failures())
+
+
+@pytest.mark.asyncio
+async def test_the_rendered_cap_holds_when_the_browser_cannot_measure_the_page(
+    monkeypatch, caplog
+):
+    """The browser-side measurement is best-effort; the byte check is the guarantee."""
+    scraper = _guard_stub(max_response_bytes=2000)
+    page = _sized_browser(monkeypatch, scraper, _SizedPage("x" * 5000, evaluates=False))
+
+    with caplog.at_level("WARNING"):
+        assert await scraper.fetch_page_js("https://vendor.example/huge") is None
+
+    assert page.content_calls == 1, "the fallback check needs the content to measure it"
+    assert "rendered 5000 bytes, over the 2000-byte cap" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_rendered_cap_counts_utf8_bytes_rather_than_characters(
+    monkeypatch, caplog
+):
+    """`.length` in the browser counts UTF-16 units, and CJK is three bytes in UTF-8.
+
+    900 ideographic spaces measure 900 to the browser -- under the cap -- and 2,700
+    bytes once encoded. Counting characters would let this through.
+    """
+    scraper = _guard_stub(max_response_bytes=2000)
+    page = _sized_browser(monkeypatch, scraper, _SizedPage("　" * 900))
+
+    with caplog.at_level("WARNING"):
+        assert await scraper.fetch_page_js("https://vendor.example/cjk") is None
+
+    assert page.content_calls == 1, "the browser-side check should have passed this"
+    assert "rendered 2700 bytes, over the 2000-byte cap" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_rendered_page_under_the_cap_is_returned_unchanged(monkeypatch):
+    scraper = _guard_stub(max_response_bytes=2000)
+    page = _sized_browser(monkeypatch, scraper, _SizedPage("<p>ok</p>"))
+
+    assert await scraper.fetch_page_js("https://vendor.example/p") == "<p>ok</p>"
+    assert scraper.fetch_failures() == []
