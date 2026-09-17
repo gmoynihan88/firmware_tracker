@@ -265,6 +265,16 @@ second guard -- the product's major version -- threw the result out anyway. Make
 fixture one that only the defended line can get right, with every other guard out of
 its way.
 
+**A reproduction can take a different path than the bug.** Sabotage proves a test can
+fail; the mirror failure is a *reproduction* that never reaches the code under test.
+Reproducing #218 — a vendor whose index page dies writing no `ScrapeRun` row — used a
+hand-rolled stub that omitted `scraper_type`. It therefore raised inside
+`ensure_manufacturer` and took the **exception** path, which does record a run. The
+script printed `scrape_runs: 1` directly beneath a label asserting that 0 would confirm
+the bug, and the contradiction went unread. Reproduce with a real `BaseScraper`
+subclass rather than a stub, and read the output against the claim rather than against
+what you expected to see.
+
 Add the slug assertion in `tests/test_basic.py::test_api_scrapers` while you are here
 — it is the one wire-up step with no other symptom when forgotten.
 

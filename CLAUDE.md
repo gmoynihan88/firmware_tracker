@@ -76,13 +76,18 @@ Scrapers live in `src/scrapers/plugins/` and are auto-discovered by `ScraperRegi
 
 Every fetch passes through `src/scrapers/netguard.py`: requests to non-public addresses (loopback, private ranges, cloud metadata endpoints), redirects into them, rendered-page subrequests to them, and bodies over `max_response_bytes` are all refused. A plugin must not open its own `aiohttp` session or browser context, which would skip those checks.
 
-**Skills:** `.claude/skills/` carries three scraper skills — `add-scraper` for writing
-a new plugin, `debug-scraper` for diagnosing one that returns nothing or reports data
-that does not match the vendor, and `scraper-batch` for working through several
-vendors at once (surveying candidates, and the order the work goes in). The debugging
-ladder is worth reading before rewriting a parser: the failure is usually a dead URL
-or a moved data source. A fourth, `verify-ui-change`, proves a CSS or template
-change leaves every page looking the same (`scripts/compare_css.py`).
+**Skills:** `.claude/skills/` carries six. Four cover the scrapers and the UI —
+`add-scraper` for writing a new plugin, `debug-scraper` for diagnosing one that returns
+nothing or reports data that does not match the vendor, `scraper-batch` for working
+through several vendors at once (surveying candidates, and the order the work goes in),
+and `verify-ui-change`, which proves a CSS or template change leaves every page looking
+the same (`scripts/compare_css.py`). The debugging ladder is worth reading before
+rewriting a parser: the failure is usually a dead URL or a moved data source.
+
+Two cover the work around the code — `ship-a-change` for getting a merge to verified
+production (merging a path in `deploy.yml`'s filter *is* a deploy; `terraform apply`
+alone ships nothing), and `review-at-scale` for scoping, pricing and verifying a
+broad or multi-agent review before running one.
 
 **To add a new manufacturer scraper:** Create a new file in `src/scrapers/plugins/`, define a class inheriting `BaseScraper` with the required class attributes and abstract methods. It will be auto-registered. After adding a new scraper, add an assertion for its slug in `tests/test_basic.py::test_api_scrapers`.
 

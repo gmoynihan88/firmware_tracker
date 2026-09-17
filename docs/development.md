@@ -58,8 +58,9 @@ when the page loaded and the product genuinely has none. Add the slug to
 `python scripts/update_readme_counts.py` so the README counts stay in step.
 
 The repo carries [Claude Code skills](../.claude/skills/) for writing a scraper, debugging
-one, and working through a batch of vendors. The diagnostic ladder is drawn from the
-scrapers that actually broke here; in nearly every case the cause was a dead URL or a
+one, working through a batch of vendors, proving a UI change is a visual no-op, shipping a
+change to production, and running a review at scale. The diagnostic ladder is drawn from
+the scrapers that actually broke here; in nearly every case the cause was a dead URL or a
 relocated data source rather than a parsing error.
 
 Two scripts are worth knowing:
