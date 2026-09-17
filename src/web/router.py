@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -602,6 +604,177 @@ async def scrape_manufacturer(
         request,
         name="partials/scrape_result.html",
         context={"result": result},
+    )
+
+
+@router.get("/scrape-status", response_class=HTMLResponse)
+async def scrape_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Owner-only: what every scraper did the last time it ran.
+
+    Deliberately absent from `PUBLIC_READ_PATHS`. The catalogue is public because it
+    describes other people's products; this describes *this installation* -- which of
+    its scrapers are broken, and how long they have been broken -- so it stays behind
+    the password. Nothing here had to be added to make that true: the middleware closes
+    everything it is not told to open, which is the safer direction for the default.
+
+    **Two time columns, because they answer different questions.** `last_success` is
+    when this vendor's data was last actually refreshed. `last_run` is the most recent
+    attempt whatever its outcome, and it is the only one that can show a scraper
+    failing *now*: filtering to successful runs -- which is what the catalogue's vendor
+    cards do, correctly, for their own purpose -- hides precisely the case this page
+    exists to surface. A vendor whose last success was Tuesday and whose last run
+    failed this morning looks healthy in one column and broken in the other, and that
+    pair is the whole diagnosis.
+
+    **The three absences are kept apart and never summed**, because they have three
+    different causes and only one is a bug:
+
+    - `devices_failed` -- the fetch or parse broke. A scraper problem.
+    - `devices_without_firmware` -- the page loaded and the product genuinely ships
+      none. Correct behaviour, and permanent for some products.
+    - `devices_not_checked` -- the per-manufacturer budget ran out before reaching
+      them. Not an error, but it means the run was incomplete and the numbers beside
+      it describe a subset.
+
+    A total over the three would move when any of them moved and mean nothing when it
+    did.
+
+    **Driven off `manufacturers`, not `scrape_runs`.** A vendor that stopped running
+    altogether has no recent row, so iterating runs would omit it in silence -- the one
+    failure mode most worth catching. Iterating vendors renders it as "never". It also
+    keeps junk out: this database holds two `scraper_type` values that are not
+    scrapers, a stray `nope-not-a-scraper` and a single string of 21 slugs joined by
+    spaces, and both record a failure. A runs-driven page would headline two failing
+    vendors that do not exist.
+    """
+    settings = get_settings()
+
+    # The newest run per vendor regardless of outcome. row_number rather than a
+    # max(started_at) join: a join on the maximum returns two rows for a vendor that
+    # has two runs sharing a timestamp, which silently duplicates it. Ordering by id
+    # as well makes the winner deterministic when that happens.
+    ranked = (
+        select(
+            ScrapeRun.scraper_type,
+            ScrapeRun.started_at,
+            ScrapeRun.success,
+            ScrapeRun.error,
+            ScrapeRun.duration_seconds,
+            ScrapeRun.devices_total,
+            ScrapeRun.devices_failed,
+            ScrapeRun.devices_without_firmware,
+            ScrapeRun.devices_not_checked,
+            ScrapeRun.new_versions,
+            ScrapeRun.identical_page_groups,
+            func.row_number()
+            .over(
+                partition_by=ScrapeRun.scraper_type,
+                order_by=(ScrapeRun.started_at.desc(), ScrapeRun.id.desc()),
+            )
+            .label("rank"),
+        )
+    ).subquery()
+
+    latest_runs = {
+        row.scraper_type: row
+        for row in (await db.execute(select(ranked).where(ranked.c.rank == 1))).all()
+    }
+
+    # Same fallback the catalogue's vendor cards use: scrape_runs only goes back to the
+    # day that table was added, so manufacturers.last_scraped_at -- maintained since the
+    # beginning -- covers everything scraped before it. Without it most of this column
+    # would read "never", which describes the gap in our records rather than the vendor.
+    last_success = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(ScrapeRun.scraper_type, func.max(ScrapeRun.started_at))
+                .where(ScrapeRun.success.is_(True))
+                .group_by(ScrapeRun.scraper_type)
+            )
+        ).all()
+    }
+
+    vendor_rows = (
+        await db.execute(
+            select(Manufacturer.slug, Manufacturer.name, Manufacturer.last_scraped_at)
+        )
+    ).all()
+
+    # Twice the configured interval. One missed run is a Spot interruption or a slow
+    # vendor; two is a pattern. Derived from the setting rather than hardcoded, so
+    # changing the schedule does not quietly turn every vendor amber.
+    stale_after = timedelta(hours=settings.scrape_interval_hours * 2)
+    now = datetime.utcnow()
+
+    vendors = []
+    for slug, name, legacy_scraped in vendor_rows:
+        run = latest_runs.get(slug)
+        succeeded_at = last_success.get(slug) or legacy_scraped
+
+        failing = run is not None and not run.success
+        never = succeeded_at is None and run is None
+        stale = succeeded_at is not None and (now - succeeded_at) > stale_after
+        identical = (run.identical_page_groups or 0) if run else 0
+
+        # A run can succeed while every device in it failed, and the first version of
+        # this page showed that as healthy -- which is the exact false confidence it was
+        # built to remove. `run.success` describes whether the scrape itself completed;
+        # it says nothing about what the scrape got. Six vendors in this database have a
+        # recorded run with devices_failed == devices_total and success = 1, and all six
+        # sorted in among the healthy rows. scrape_manufacturer also stamps
+        # manufacturers.last_scraped_at unconditionally after the device loop, despite
+        # its "on success" comment, so the last-success column refreshes for them too and
+        # the staleness flag never fires either.
+        #
+        # Any non-zero count, not only an all-failed run: by this project's own
+        # definition devices_failed means the fetch or parse broke, which is a scraper
+        # problem at one device or forty. The worry with "any" is crying wolf, and the
+        # data says it does not -- partial failures are 10 of 774 recorded runs, and
+        # three of 93 vendors carry a non-zero count on their latest run.
+        failed_devices = (run.devices_failed or 0) if run else 0
+
+        vendors.append(
+            {
+                "slug": slug,
+                "name": name,
+                "last_success": succeeded_at,
+                # True when the only evidence of a success predates the scrape_runs
+                # table, so the template can mark it as inferred rather than observed.
+                "success_is_legacy": slug not in last_success and legacy_scraped is not None,
+                "run": run,
+                "failing": failing,
+                "never": never,
+                "stale": stale,
+                "identical_page_groups": identical,
+                "failed_devices": failed_devices,
+                "needs_attention": (
+                    failing or never or stale or identical > 0 or failed_devices > 0
+                ),
+            }
+        )
+
+    # Anything needing attention first, then alphabetical. Ninety-one rows is too many
+    # to scan for the two that matter, and the ordering is stable for a given state --
+    # a row only moves when its condition actually changes.
+    vendors.sort(key=lambda v: (not v["needs_attention"], v["name"].lower()))
+
+    return templates.TemplateResponse(
+        request,
+        name="scrape_status.html",
+        context={
+            "vendors": vendors,
+            "total": len(vendors),
+            "attention": sum(1 for v in vendors if v["needs_attention"]),
+            "failing": sum(1 for v in vendors if v["failing"]),
+            "never": sum(1 for v in vendors if v["never"]),
+            "stale": sum(1 for v in vendors if v["stale"]),
+            "identical": sum(1 for v in vendors if v["identical_page_groups"] > 0),
+            "stale_after_hours": settings.scrape_interval_hours * 2,
+            # base.html's nav reads this, and Jinja raises on `undefined > 0` rather
+            # than treating it as falsy -- so omitting it 500s the page.
+            "unread_count": await device_service.get_unread_count(db),
+        },
     )
 
 

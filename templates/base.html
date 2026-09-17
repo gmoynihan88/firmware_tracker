@@ -56,6 +56,14 @@
                     {% endif %}
                 </span>
             </a>
+            {# Owner-only, like the page it points at: which scrapers are broken is
+               operational detail about this installation, not catalogue data. #}
+            <a href="/scrape-status" class="nav-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                </svg>
+                Scrape Status
+            </a>
             {# The way out. /logout clears the session cookie and returns to the login
                page; without a link it existed as a route nobody could reach from the
                UI. Only shown to whoever is signed in, for the obvious reason. #}

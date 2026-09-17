@@ -340,3 +340,55 @@
     clip: rect(0 0 0 0);
     white-space: nowrap;
 }
+
+/* Scrape status ---------------------------------------------------------- */
+/* Lives here rather than in a sheet of its own because it is the same table:
+   base.html loads a fixed list of stylesheets, and one more file for six rules
+   would mean editing that list too. */
+
+.status-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Rows needing attention sort to the top already; the edge marks them once you
+   have scrolled past the fold. Same inset-shadow treatment as .has-update, for
+   the same reason -- legible without tinting a whole row. */
+.status-table tbody tr.needs-attention {
+    box-shadow: inset 3px 0 0 var(--amber-400, #fbbf24);
+}
+
+.status-badge {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+}
+
+.status-ok { color: var(--text-tertiary); }
+
+.status-fail {
+    color: #fca5a5;
+    background: rgba(248, 113, 113, 0.12);
+}
+
+.status-never,
+.status-stale { color: #fbbf24; }
+
+/* A zero and an em-dash both mean "nothing to see", and neither should draw the
+   eye away from the counts that are not zero. */
+.count-zero { color: var(--text-tertiary); opacity: 0.5; }
+.count-bad { color: #fca5a5; font-weight: 600; }
+.count-warn { color: #fbbf24; }
+.count-neutral { color: var(--text-secondary); }
+
+.status-alarm {
+    margin-bottom: var(--space-lg, 1rem);
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(248, 113, 113, 0.08);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
