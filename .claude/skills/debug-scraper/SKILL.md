@@ -131,6 +131,40 @@ without changing the flag.
 scraper succeeded and the product genuinely has none — those are different, and the
 distinction is load-bearing. Do not "fix" the second kind.
 
+## Step 0.5 — Did the run record anything at all?
+
+Everything above assumes a `ScrapeRun` row exists to read. Two failures shipped in this
+repo where none did, and both are invisible from the dashboard: the vendor keeps
+showing its *previous* run, which reads as "fine, just not recent" rather than as
+broken.
+
+- **The index page dies.** The device-list fetch failed and the service returned early,
+  before `record_scrape_run`. Fixed in #218; the failure now builds a summary and
+  records it.
+- **The backstop fires mid-run.** `SCRAPER_HARD_TIMEOUT` cancels the run, and
+  `asyncio.CancelledError` is a `BaseException` — so `except Exception` never sees it
+  and the run dies with nothing written. Fixed in #219, which also caps the per-vendor
+  budget below the backstop so it stays a backstop rather than the normal exit.
+
+The tell is a vendor whose last run is old while every other vendor ran today. Check
+the column names first, because a query written from memory against this schema will
+silently return nothing:
+
+```bash
+sqlite3 firmware_tracker.db ".schema scrape_runs"
+sqlite3 firmware_tracker.db "
+SELECT m.slug, m.last_scraped_at, MAX(sr.started_at) AS last_run
+FROM manufacturers m LEFT JOIN scrape_runs sr ON sr.manufacturer_id = m.id
+GROUP BY m.id
+HAVING last_run IS NULL OR last_run < datetime('now', '-2 days')
+ORDER BY last_run;"
+```
+
+`/scrape-status` (owner-only) shows the same thing per vendor, with the three absences
+— `devices_failed`, `devices_without_firmware`, `devices_not_checked` — kept apart
+rather than summed. A vendor with no row at all is the one to chase first: the ladder
+below cannot diagnose a scrape that never reported.
+
 ## Step 1 — Is the page a 404, or an empty JS shell?
 
 Compare *rendered text* length, not HTML length. A live page runs to thousands of
