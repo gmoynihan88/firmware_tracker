@@ -379,7 +379,31 @@ async def scrape_manufacturer(
         # Fetch and sync devices
         device_result = await scraper.fetch_device_list()
         if not device_result.success:
-            return {"success": False, "error": device_result.error}
+            # Recorded, not returned bare. This was the one exit from this function
+            # that wrote no row, and it covers the most total failure of the lot: no
+            # device list means nothing was checked at all.
+            #
+            # The consequence was the opposite of what the absence suggests. A vendor
+            # whose product index starts 500ing fails here on every run, forever, and
+            # /scrape-status kept showing it green -- because that page reads the
+            # newest run per vendor, and a run that was never written cannot be the
+            # newest. The staleness flag did not catch it either: with no row, the
+            # last-success column falls back to manufacturers.last_scraped_at, which
+            # stops moving, so the vendor only turns amber after two intervals and
+            # then says "not refreshed lately" rather than "this scraper is broken".
+            #
+            # Every other exit already records: an unknown scraper, a completed run,
+            # and the exception handler below. This one was the gap.
+            summary = {
+                "success": False,
+                "error": device_result.error,
+                "manufacturer": scraper.manufacturer_name,
+            }
+            await record_scrape_run(
+                db, scraper_type, started_at, time.monotonic() - started,
+                summary, manufacturer_id,
+            )
+            return summary
 
         device_sync = await sync_devices(db, manufacturer_id, device_result.devices)
 

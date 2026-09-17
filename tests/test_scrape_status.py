@@ -252,6 +252,57 @@ async def test_a_failing_vendor_shows_its_last_success_and_its_failure(client):
 
 
 @pytest.mark.asyncio
+async def test_a_vendor_whose_index_died_is_flagged_after_a_real_scrape(client):
+    """The two halves together, through the service rather than a seeded row.
+
+    Every other test on this page writes its own ScrapeRun. This one runs the actual
+    scrape, because the bug lived in the gap between them: scrape_manufacturer returned
+    early on a failed device list without recording anything, so the page read the
+    vendor's previous successful run and showed it green. Seeding a row could never have
+    caught that -- the row was the thing that did not exist.
+
+    The vendor succeeded yesterday and its index is dead today, which is the shape that
+    hid: with no row written, last_success still pointed at yesterday and nothing
+    marked it broken.
+    """
+    from src.scrapers.base import BaseScraper, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as ss
+
+    class _DeadIndex(BaseScraper):
+        manufacturer_name = "Deadindex"
+        manufacturer_slug = "deadindex"
+        manufacturer_website = "https://dead.example"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            return ScraperResult(success=False, error="index page returned 500")
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[])
+
+    ScraperRegistry.register(_DeadIndex)
+    try:
+        # It worked yesterday, which is what made the failure invisible.
+        await _vendor("deadindex", "Deadindex")
+        await _run("deadindex", success=True, started_at=datetime(2026, 9, 15, 3, 0),
+                   devices_total=12)
+
+        async with test_session_maker() as db:
+            await ss.scrape_manufacturer(db, "deadindex")
+
+        page = (await client.get("/scrape-status", headers={"accept": "text/html"})).text
+    finally:
+        ScraperRegistry._scrapers.pop("deadindex", None)
+
+    row = _row(page, "deadindex")
+    assert row, "the vendor did not render"
+    assert "needs-attention" in row, "a vendor whose index died still read as healthy"
+    assert "status-fail" in row
+    # Yesterday's success is still shown -- that pair is the diagnosis.
+    assert "2026-09-15" in row
+
+
+@pytest.mark.asyncio
 async def test_the_last_scraped_at_fallback_carries_a_vendor_with_no_runs(client):
     """scrape_runs only goes back to the day that table was added.
 
