@@ -358,3 +358,47 @@ async def test_session_cookie_is_marked_secure_when_configured(auth_enabled, cli
     finally:
         auth_enabled.session_cookie_secure = before
         reset_login_throttle()
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_session_cookie_denies_rather_than_crashing(auth_enabled, client):
+    """A cookie nobody can parse must deny access, not take the whole app down.
+
+    `hmac.compare_digest` refuses to compare `str` values containing non-ASCII, raising
+    TypeError rather than returning False. read_token compared the signature half as a
+    str, and is_authenticated runs for *every* request -- before the public-path check in
+    AuthMiddleware.dispatch -- so one unparseable cookie answered 500 on every route at
+    once. Measured before the fix: /health, /login, /logout, /api/manufacturers and /
+    all returned 500.
+
+    What makes that worse than an ordinary 500 is that there is no way back. /login and
+    /logout are public paths, but the crash happened before that check, so the browser
+    holding the bad cookie could reach neither the form to sign in nor the route that
+    would clear it. The only recovery was deleting the cookie by hand in devtools.
+
+    **The header has to be raw bytes.** httpx will not build a non-ASCII cookie from a
+    str -- it raises UnicodeEncodeError while encoding the header, and the request never
+    reaches the app, which makes a test written that way fail for a reason that has
+    nothing to do with this bug. A browser puts bytes on the wire and Starlette decodes
+    them to a str that can hold non-ASCII, which is the real path in.
+
+    verify_password never had this problem: it compares the bytes scrypt returns, so the
+    same rule bit only one of the two comparisons.
+    """
+    raw_cookie = "firmware_tracker_session=eyJhIjoxfQ.\u00e9".encode("utf-8")
+    headers = [(b"cookie", raw_cookie), (b"accept", b"text/html")]
+
+    for path in ("/health", "/login", "/logout", "/api/manufacturers", "/"):
+        response = await client.get(path, headers=headers)
+        assert response.status_code != 500, (
+            f"{path} returned 500 for a malformed session cookie; "
+            "an unparseable cookie must deny, not crash"
+        )
+
+    # The denial is still a denial: a cookie that cannot be verified authenticates nothing.
+    api = await client.get("/api/manufacturers", headers=[(b"cookie", raw_cookie)])
+    assert api.status_code == 401
+
+    # And the way back in is reachable, which is what makes it recoverable.
+    assert (await client.get("/login", headers=headers)).status_code == 200
+    assert (await client.get("/logout", headers=headers)).status_code == 303
