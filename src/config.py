@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from pathlib import Path
 
@@ -115,9 +115,22 @@ class Settings(BaseSettings):
     static_dir: Path = base_dir / "static"
     scrape_cache_dir: Path = base_dir / ".scrape_cache"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    # `class Config` was deprecated in Pydantic V2.0 and is removed in V3, and it warned
+    # on every run. src/devices/schemas.py already uses the replacement, so this was the
+    # last one. Behaviour is unchanged: the same two settings, expressed the current way.
+    #
+    # extra="forbid" is stated rather than inherited. It is the pydantic-settings default
+    # and was never written down, which is exactly how #226 became hard to believe: the
+    # documented `cp .env.example .env` raised ValidationError on an undeclared PORT, and
+    # anyone grepping this file for "forbid" found nothing and could reasonably conclude
+    # the report was wrong. Saying it also pins the behaviour against a future change of
+    # that default -- silently flipping to "ignore" would turn a misspelled
+    # SCRAPE_INTERVAL_HOURS into a default nobody chose. tests/test_config.py holds it.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="forbid",
+    )
 
 
 @lru_cache
