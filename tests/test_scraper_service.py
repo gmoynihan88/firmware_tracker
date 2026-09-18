@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime
 
 import pytest
@@ -803,3 +804,68 @@ async def test_a_scraper_that_samples_its_catalogue_records_no_index_claim():
         "a deliberately sampled list recorded an index size, which would read as a "
         "shrunken catalogue on every batched run"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_device_list_is_bounded_and_recorded(monkeypatch):
+    """A vendor whose index accepts the connection and then stalls.
+
+    Everything after the device list was already bounded -- each firmware fetch by
+    PER_DEVICE_TIMEOUT, the loop by its own deadline, the scheduler's pass by the 900s
+    backstop. The device list itself was fetched before that deadline is even set, and
+    `scrape_all_manufacturers` is the only caller that wraps anything: the two HTTP
+    endpoints and the sweep script call scrape_manufacturer directly. Measured before
+    the fix, a stub stalling here ran until the *caller's* own cap fired, with nothing
+    inside stopping it -- and on the HTTP paths that means the request hangs too.
+
+    The row matters as much as the bound. /scrape-status reads the newest run per
+    vendor, so a failure that writes no row leaves the vendor displaying its last
+    successful run indefinitely -- which is exactly the shape #218 was about.
+
+    The real ceiling is deliberately generous (SCRAPE_BUDGET_CAP, 840s) because korg and
+    the Roland group fetch every product page of the day's batch inside this call; it is
+    patched down here so the test is fast rather than to suggest a tight cap is safe.
+    """
+    from sqlalchemy import select
+
+    from src.devices.models import ScrapeRun
+    from src.scrapers.base import BaseScraper, ScraperResult
+    from src.scrapers.registry import ScraperRegistry
+    from src.scrapers import service as scraper_service
+
+    monkeypatch.setattr(scraper_service, "DEVICE_LIST_TIMEOUT", 0.2)
+
+    class _StalledIndex(BaseScraper):
+        manufacturer_name = "Stalled Audio"
+        manufacturer_slug = "stalledaudio"
+        manufacturer_website = "https://stalled.example"
+
+        async def fetch_device_list(self) -> ScraperResult:
+            await asyncio.sleep(30)
+            return ScraperResult(success=True, devices=[])
+
+        async def fetch_firmware_versions(self, device_name, firmware_page_url) -> ScraperResult:
+            return ScraperResult(success=True, firmware_versions=[])
+
+    ScraperRegistry.register(_StalledIndex)
+    try:
+        started = time.monotonic()
+        async with test_session_maker() as db:
+            result = await scraper_service.scrape_manufacturer(db, "stalledaudio")
+            run = (
+                await db.execute(
+                    select(ScrapeRun).where(ScrapeRun.scraper_type == "stalledaudio")
+                )
+            ).scalars().one()
+        elapsed = time.monotonic() - started
+    finally:
+        ScraperRegistry._scrapers.pop("stalledaudio", None)
+
+    # Returned on its own, rather than running to the stub's 30s sleep.
+    assert elapsed < 5, f"the device list was not bounded: took {elapsed:.1f}s"
+    assert result["success"] is False
+    assert "device list" in result["error"].lower()
+
+    # And it left a record, so the vendor cannot keep showing its last good run.
+    assert run.success is False
+    assert "device list" in (run.error or "").lower()

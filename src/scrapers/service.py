@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from urllib.parse import urlparse
 
@@ -334,6 +335,39 @@ PER_DEVICE_TIMEOUT = 30
 # headroom is not theoretical tidiness.
 SCRAPE_BUDGET_CAP = SCRAPER_HARD_TIMEOUT - PER_DEVICE_TIMEOUT - SCRAPE_BUDGET_BASE
 
+
+# Ceiling on the device-list fetch, which had none at all.
+#
+# Everything after it is bounded: each firmware fetch by PER_DEVICE_TIMEOUT, the loop by
+# its own deadline, and the scheduler's pass by SCRAPER_HARD_TIMEOUT. The device list is
+# fetched *before* that deadline is set, and `scrape_all_manufacturers` is the only
+# caller that wraps anything -- POST /api/firmware/scrape/<vendor>,
+# POST /catalog/scrape/<vendor> and scripts/sweep_scrapers.py all call
+# scrape_manufacturer directly. Measured: a stub stalling in fetch_device_list ran until
+# the *caller's* own cap fired, with nothing inside stopping it, and the two HTTP paths
+# hold the request open for the duration.
+#
+# Deliberately generous. A single stuck request is already covered by aiohttp's 30s
+# ClientTimeout; what was unbounded is the aggregate, and korg and the Roland group fetch
+# every product page of the day's batch *inside* fetch_device_list. This database has
+# korg at ~300s and boss at 406s for exactly that reason, so a tight cap here would break
+# four working scrapers -- worse than the bug it fixes.
+#
+# SCRAPE_BUDGET_CAP rather than a new number: it already means "the most one vendor may
+# spend" and already sits under the backstop. The env override exists for the documented
+# catch-up sweeps, which deliberately exceed it -- a full ROLAND_FULL_SWEEP measured
+# 1945s and already cannot run under the scheduler.
+def _device_list_timeout() -> float:
+    raw = os.getenv("DEVICE_LIST_TIMEOUT", "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return SCRAPE_BUDGET_CAP
+    return value if value > 0 else SCRAPE_BUDGET_CAP
+
+
+DEVICE_LIST_TIMEOUT = _device_list_timeout()
+
 # Kept for callers that still reference it.
 SCRAPER_TIMEOUT = 120  # seconds per manufacturer (legacy fixed budget)
 
@@ -417,8 +451,31 @@ async def scrape_manufacturer(
         # Ensure manufacturer exists
         manufacturer_id = await ensure_manufacturer(db, scraper)
 
-        # Fetch and sync devices
-        device_result = await scraper.fetch_device_list()
+        # Fetch and sync devices, bounded -- see DEVICE_LIST_TIMEOUT. Recorded the same
+        # way a dead index is, because a run that writes no row is the failure mode this
+        # page keeps being caught by: /scrape-status reads the newest run per vendor, and
+        # a row never written cannot be the newest, so a vendor stalling here would have
+        # gone on displaying its last successful run indefinitely.
+        try:
+            device_result = await asyncio.wait_for(
+                scraper.fetch_device_list(), timeout=DEVICE_LIST_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "%s: device list did not finish within %.0fs",
+                scraper.manufacturer_name, DEVICE_LIST_TIMEOUT,
+            )
+            summary = {
+                "success": False,
+                "error": f"Device list did not finish within {DEVICE_LIST_TIMEOUT:.0f}s",
+                "manufacturer": scraper.manufacturer_name,
+            }
+            await record_scrape_run(
+                db, scraper_type, started_at, time.monotonic() - started,
+                summary, manufacturer_id,
+            )
+            return summary
+
         if not device_result.success:
             # Recorded, not returned bare. This was the one exit from this function
             # that wrote no row, and it covers the most total failure of the lot: no
