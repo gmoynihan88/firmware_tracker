@@ -88,6 +88,16 @@ class Settings(BaseSettings):
     # often than the data changes. Four times a day cost the vendors four times as
     # much for nothing.
     scrape_interval_hours: int = 24
+
+    # The wall-clock hour, UTC, that the firmware check runs at -- and the anchor for
+    # sub-daily intervals, so 6 hours means 03:00/09:00/15:00/21:00 rather than "six
+    # hours after whenever this process happened to start".
+    #
+    # 03:00 avoids 05:00 on purpose: AWS Backup snapshots the EFS volume at 05:00 UTC
+    # (infra/backup.tf), and the sweep used to land in that same hour. A scrape writing
+    # SQLite while the volume is being snapshotted is how a recovery point ends up
+    # holding a half-written database, which is the one file the backup exists for.
+    scrape_hour: int = 3
     request_timeout: int = 30
     rate_limit_delay: float = 1.0  # seconds between requests per manufacturer
 

@@ -146,7 +146,9 @@ async def test_start_scheduler_registers_both_jobs_at_the_configured_interval(mo
     try:
         jobs = {job.id: job for job in fresh.get_jobs()}
         assert set(jobs) == {"firmware_check", "generate_summaries"}
-        assert jobs["firmware_check"].trigger.interval.total_seconds() == 6 * 3600
+        # Six hours, said as hours-of-the-day and anchored on scrape_hour (3), so the
+        # fire times are 03/09/15/21 rather than "six hours after this process started".
+        assert "3/6" in str(jobs["firmware_check"].trigger)
         # Summaries are hourly regardless; they only process what is already pending.
         assert jobs["generate_summaries"].trigger.interval.total_seconds() == 3600
     finally:
@@ -255,3 +257,128 @@ async def test_shutdown_scheduler_stops_it(monkeypatch, caplog):
 
     assert not fresh.running
     assert "Scheduler shutdown" in caplog.text
+
+
+def _utc(year, month, day, hour, minute=0):
+    from datetime import datetime, timezone
+    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+
+
+def test_the_scrape_clock_survives_a_restart():
+    """The bug this fixes: an interval counted from process start.
+
+    The scheduler runs in-process, so every deploy and every Spot replacement restarted
+    it -- and an IntervalTrigger begins counting at start_date. Production logged 12
+    "Scheduler started" lines across 2026-09-17/18 and exactly one firmware check in that
+    window: a day of shipping scraped nothing, and nothing reported that it had not.
+
+    A cron trigger is anchored to the clock instead. Starting at midnight or at six in
+    the morning, the next run is the same 03:00 slot -- the later start simply catches
+    tomorrow's, rather than postponing by a whole day from whenever it happened to boot.
+
+    Timezone-aware datetimes on purpose: APScheduler compares against aware times and
+    raises TypeError on naive ones, which is a way to write this test so it passes for
+    the wrong reason.
+    """
+    from src.config import Settings
+    from src.scheduler.scheduler import _firmware_trigger
+
+    trigger = _firmware_trigger(Settings(_env_file=None))
+
+    from_midnight = trigger.get_next_fire_time(None, _utc(2026, 9, 19, 0))
+    from_six = trigger.get_next_fire_time(None, _utc(2026, 9, 19, 6))
+
+    assert from_midnight.hour == 3 and from_midnight.minute == 0
+    assert from_six.hour == 3 and from_six.minute == 0
+    assert from_midnight == _utc(2026, 9, 19, 3)
+    assert from_six == _utc(2026, 9, 20, 3)
+
+
+def test_the_old_trigger_really_did_move_with_the_restart():
+    """The control, so the test above is about the change and not about cron in general."""
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from_midnight = IntervalTrigger(hours=24, start_date=_utc(2026, 9, 19, 0))
+    from_six = IntervalTrigger(hours=24, start_date=_utc(2026, 9, 19, 6))
+
+    first = from_midnight.get_next_fire_time(None, _utc(2026, 9, 19, 0))
+    second = from_six.get_next_fire_time(None, _utc(2026, 9, 19, 6))
+
+    # Six hours of restart became six hours of postponement -- and with enough restarts,
+    # the run never arrives at all.
+    assert (second - first).total_seconds() == 6 * 3600
+
+
+def test_a_sub_daily_interval_is_anchored_to_the_configured_hour():
+    """scrape_interval_hours stays the unit; it is mapped onto the clock, not replaced.
+
+    /scrape-status derives its staleness threshold from the same setting, so the interval
+    has to keep meaning what it says.
+    """
+    from datetime import timedelta
+
+    from src.config import Settings
+    from src.scheduler.scheduler import _firmware_trigger
+
+    trigger = _firmware_trigger(Settings(_env_file=None, scrape_interval_hours=6, scrape_hour=3))
+
+    hours, previous, now = [], None, _utc(2026, 9, 19, 0)
+    for _ in range(4):
+        now = trigger.get_next_fire_time(previous, now)
+        hours.append(now.hour)
+        previous, now = now, now + timedelta(seconds=1)
+
+    assert hours == [3, 9, 15, 21], "the configured hour must be one of the fire times"
+
+
+def test_an_interval_that_cannot_be_said_in_hours_falls_back_loudly(caplog):
+    """Five hours does not divide a day, so hours-of-the-day would drift.
+
+    Keeping the old trigger is the honest answer; doing it silently would leave someone
+    believing a schedule the app is not running.
+    """
+    import logging
+
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from src.config import Settings
+    from src.scheduler.scheduler import _firmware_trigger
+
+    with caplog.at_level(logging.WARNING):
+        trigger = _firmware_trigger(Settings(_env_file=None, scrape_interval_hours=5))
+
+    assert isinstance(trigger, IntervalTrigger)
+    assert "divisor of 24" in caplog.text
+
+
+def test_the_scrape_hour_stays_clear_of_the_backup_window():
+    """AWS Backup snapshots the EFS volume at 05:00 UTC (infra/backup.tf).
+
+    The sweep used to land in that same hour by accident. A scrape writing SQLite while
+    the volume is snapshotted is how a recovery point ends up holding a half-written
+    database -- the one file the backup exists for.
+    """
+    from src.config import Settings
+
+    assert Settings(_env_file=None).scrape_hour == 3
+
+
+@pytest.mark.asyncio
+async def test_the_firmware_job_will_not_run_two_sweeps_at_once(monkeypatch):
+    """A sweep can outlast its interval; two at once means two writers on one SQLite file."""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    from src.config import Settings
+    from src.scheduler import scheduler as sched
+
+    fresh = AsyncIOScheduler()
+    monkeypatch.setattr(sched, "scheduler", fresh)
+    monkeypatch.setattr(sched, "get_settings", lambda: Settings(_env_file=None))
+
+    sched.start_scheduler()
+    try:
+        job = {j.id: j for j in fresh.get_jobs()}["firmware_check"]
+        assert job.max_instances == 1
+        assert job.coalesce is True
+    finally:
+        fresh.shutdown(wait=False)

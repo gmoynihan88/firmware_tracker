@@ -1,4 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 import logging
 
@@ -83,6 +84,42 @@ async def generate_summaries():
             logger.exception("Error during summarization")
 
 
+def _firmware_trigger(settings):
+    """A wall-clock trigger for the firmware check, where the interval allows one.
+
+    `scrape_interval_hours` stays the unit everything else reasons in -- /scrape-status
+    derives its staleness threshold from it -- so this maps that interval onto the clock
+    rather than replacing it. 24 hours becomes a single daily hour; a divisor of 24
+    becomes a step anchored on `scrape_hour`, so 6 gives 03:00/09:00/15:00/21:00 and the
+    configured hour is always one of them.
+
+    An interval that is not a divisor of 24 cannot be said in hours-of-the-day without
+    drift, so it keeps the old trigger and says so. Better a loud fallback than a
+    schedule that silently means something other than what was asked for.
+
+    The timezone is pinned to UTC rather than inherited from the host. APScheduler would
+    otherwise use local time, which would make the hour mean one thing in the container
+    and another on a laptop -- and the point of choosing 03:00 is to miss a backup window
+    that is defined in UTC.
+    """
+    hours = settings.scrape_interval_hours
+    anchor = settings.scrape_hour % 24
+
+    if hours == 24:
+        hour_field = str(anchor)
+    elif 1 <= hours < 24 and 24 % hours == 0:
+        hour_field = f"{anchor % hours}/{hours}"
+    else:
+        logger.warning(
+            "scrape_interval_hours=%s is not a divisor of 24, so the check keeps an "
+            "interval trigger and its clock restarts with the process.",
+            hours,
+        )
+        return IntervalTrigger(hours=hours)
+
+    return CronTrigger(hour=hour_field, minute=0, timezone="UTC")
+
+
 def start_scheduler():
     """Start the background scheduler.
 
@@ -92,13 +129,29 @@ def start_scheduler():
     """
     settings = get_settings()
 
-    # Check for firmware updates every N hours
+    # Anchored to the clock, not to process start. An IntervalTrigger counts from when
+    # the scheduler starts, and this scheduler runs in-process, so every deploy and every
+    # Spot replacement pushed the next check a full interval into the future. Production
+    # logged 12 "Scheduler started" lines across 2026-09-17/18 and exactly one firmware
+    # check in that whole window -- a day of shipping scraped nothing, and nothing
+    # anywhere reported that it had not.
     scheduler.add_job(
         check_firmware_updates,
-        trigger=IntervalTrigger(hours=settings.scrape_interval_hours),
+        trigger=_firmware_trigger(settings),
         id="firmware_check",
         name="Check for firmware updates",
         replace_existing=True,
+        # A sweep can outlast an interval; two at once would double every vendor's load
+        # and put two writers on one SQLite file.
+        max_instances=1,
+        # If several fire times are missed, run once rather than catching up one by one.
+        coalesce=True,
+        # Covers the loop being busy at the fire time, which is the only misfire a memory
+        # jobstore can see. It does NOT cover the process being down: a restart spanning
+        # the scheduled minute still loses that occurrence. That is a ~6-minute window a
+        # day rather than the whole day, and closing it properly means deriving the next
+        # run from scrape_runs rather than from a trigger.
+        misfire_grace_time=3600,
     )
 
     # Generate summaries every hour (only processes pending ones)
